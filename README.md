@@ -140,6 +140,13 @@ Follow the [pairing and interaction checks](docs/CONTRIBUTOR_SETUP.md#pair-and-c
 to send a first prompt, create a thread, answer a structured question, and verify
 reconnection. Keep setup codes and credentials private.
 
+### 4. Learn the default bindings
+
+**Before you start, click the question mark (`?`) at the top left of the app.**
+It opens the Vim and keyboard shortcut reference. Read through the default
+bindings to understand how to navigate the workspace and edit prompts. This is
+the essential first stop for learning how to use Vimicate with your keyboard.
+
 ## Build and contribute
 
 Start with [contributor setup](docs/CONTRIBUTOR_SETUP.md), then read
