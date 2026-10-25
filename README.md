@@ -86,6 +86,60 @@ host integration, synthetic tests and required assets. It does not include model
 subscriptions, signing credentials, private conversations or the maintainer's
 original development history.
 
+## Set up Vimicate
+
+You need an OpenClaw Gateway with your own model access, plus a native Vimicate
+build. This source alpha does not include an App Store or TestFlight download.
+
+### 1. Prepare OpenClaw on your host computer
+
+Read the official [OpenClaw getting-started guide](https://docs.openclaw.ai/start/getting-started)
+for installation, provider sign-in, and Gateway onboarding. Vimicate connects
+to that Gateway rather than directly to a model provider.
+
+For this alpha, follow our [isolated host setup](docs/CONTRIBUTOR_SETUP.md#prepare-an-independent-stock-host)
+for the exact installation commands and Vimicate host integration. That recipe
+targets `openclaw@2026.10.6` with audited runtime fingerprints. A newer version
+is not automatically compatible. It prepares separate state, applies the host
+integration, and runs a local Gateway without changing an existing installation.
+
+### 2. Build the contributor app on a Mac
+
+Install Xcode, Node.js, pnpm, and CocoaPods using the tested versions in the
+[contributor guide](docs/CONTRIBUTOR_SETUP.md#toolchain). Then run
+
+```sh
+git clone https://github.com/chektien/vimicate.git
+cd vimicate/apps/mobile
+pnpm install --frozen-lockfile
+pnpm config:contributor
+pnpm prebuild:contributor
+pnpm ios:contributor --device
+```
+
+Choose an iOS simulator in the device selector for the initial setup. Expo Go
+cannot load Vimicate’s native modules. The simulator path needs no Apple signing
+account. Installing on your own iPad or iPhone requires your own development
+signing and a unique bundle identifier, as described in the contributor guide.
+
+### 3. Pair Vimicate with your Gateway
+
+With the isolated Gateway running, use the same host environment from step 1
+to generate a setup code
+
+```sh
+node "$CONTRIBUTOR_OPENCLAW_BIN" qr --url ws://127.0.0.1:19091 --no-ascii
+```
+
+Paste the setup code into Vimicate’s Gateway connection field and approve the
+device on your host when prompted. This loopback address works only for a
+simulator on the same Mac. An iPad or iPhone needs an authenticated Gateway
+endpoint reachable from that device, not `127.0.0.1`.
+
+Follow the [pairing and interaction checks](docs/CONTRIBUTOR_SETUP.md#pair-and-check-a-complete-interaction)
+to send a first prompt, create a thread, answer a structured question, and verify
+reconnection. Keep setup codes and credentials private.
+
 ## Build and contribute
 
 Start with [contributor setup](docs/CONTRIBUTOR_SETUP.md), then read
