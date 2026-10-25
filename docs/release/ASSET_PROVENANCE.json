@@ -136,6 +136,45 @@
       "verification": "Captured and visually reviewed by demo worker, then independently inspected by main agent. Three focused native capture checks passed. Model labels and conversations are synthetic, not live provider executions.",
       "preSanitizationSha256": "8c9b13e2a4fa71c150eb8a95cd17ddae4efbb2a5c15a112ab5030450050a7f4d",
       "metadataSanitization": "Removed sRGB and eXIf ancillary chunks only. PNG boundaries and CRCs validated. IHDR/IDAT bytes preserved exactly."
+    },
+    {
+      "path": "docs/public/readme/motivation-vim-v4.png",
+      "sha256": "73a23c6a4bdbb46c0a410a79e10ede73862ed2232ebf293cb267994f36c4cfa4",
+      "origin": "ImageGen transparent narrative revision created on 25 October 2026",
+      "licenseEvidence": "Generated project illustration. Official hardware images informed geometry and are not bundled as reference files.",
+      "source": "docs/public/readme/README.md",
+      "verification": "Main agent inspected the generated scene and its alpha-composited light and dark browser renders. Conceptual artwork, not product capture.",
+      "preSanitizationSha256": "9b96b4ba785bee0967b7b886bc1eb5a91e8f05649a7953bca9ae02f3fa8691f1",
+      "metadataSanitization": "Removed caBX ancillary metadata only. All chunk lengths and CRCs validated. Retained IHDR/IDAT bytes and decoded RGBA pixels match the generated original, including alpha."
+    },
+    {
+      "path": "docs/public/readme/motivation-touch-v4.png",
+      "sha256": "dad31e920a8ba59539cebba3af7376c885cf23e976104d11481bf16c67e5568f",
+      "origin": "ImageGen transparent narrative revision created on 25 October 2026",
+      "licenseEvidence": "Generated project illustration. Official hardware images informed geometry and are not bundled as reference files.",
+      "source": "docs/public/readme/README.md",
+      "verification": "Main agent inspected the generated scene and its alpha-composited light and dark browser renders. Conceptual artwork, not product capture.",
+      "preSanitizationSha256": "1b9ccc6817602e210b4aff6c0455546cfef30bce9fec69c2de4d32cae51bc243",
+      "metadataSanitization": "Removed caBX ancillary metadata only. All chunk lengths and CRCs validated. Retained IHDR/IDAT bytes and decoded RGBA pixels match the generated original, including alpha."
+    },
+    {
+      "path": "docs/public/readme/motivation-keyboard-v4.png",
+      "sha256": "9c77807b231966324058e18e3b8179af55876cdbf763ad4fdba3e943fd6c9a65",
+      "origin": "ImageGen transparent narrative revision created on 25 October 2026",
+      "licenseEvidence": "Generated project illustration. Official hardware images informed geometry and are not bundled as reference files.",
+      "source": "docs/public/readme/README.md",
+      "verification": "Main agent inspected the generated scene and its alpha-composited light and dark browser renders. Conceptual artwork, not product capture.",
+      "preSanitizationSha256": "9d9653b83a85949d9f7798d33adde603df7280d58addbbd0c2d46a95aaaa427a",
+      "metadataSanitization": "Removed caBX ancillary metadata only. All chunk lengths and CRCs validated. Retained IHDR/IDAT bytes and decoded RGBA pixels match the generated original, including alpha."
+    },
+    {
+      "path": "docs/public/readme/model-command-completion-v4.png",
+      "sha256": "6ea32ce2e0148b9367a120b8a1cf49aba75ebc98702fc8057305cc948c3a20bb",
+      "origin": "Real isolated iPad simulator capture with synthetic model catalogue and conversation",
+      "licenseEvidence": "Project application UI with original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Demo worker captured and inspected the image, then main agent independently reviewed it. Native XCTest verified colon command model input, both completion options, latest-activity sort and tenth project. No command was submitted.",
+      "metadataSanitization": "Removed eXIf only. Chunk lengths and CRCs validated, terminal IEND checked, retained image-data chunks unchanged."
     }
   ]
 }

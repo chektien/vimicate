@@ -13,22 +13,26 @@ The app communicates with the Gateway over WebSocket RPC and streamed events.
 
 **I’m using my editor less. I don’t want to use Vim less.**
 
-![A conceptual silhouette comic follows the move from Vim on a desktop, to working with agents, to using Vimicate on an iPad with an HHKB keyboard.](docs/public/readme/motivation-evolution-v2.png)
-
 I’ve been a Vim and Neovim user for years, and I’m a mechanical keyboard
 enthusiast. I enjoy figuring out how to move through documents without reaching
 for the mouse, even if I’m still not particularly good at it. It makes knowledge
 work feel a little like a game, with motions to learn, combinations to discover,
 and skills to keep honing.
 
+![Conceptual illustration of editing code in a Neovim terminal, with large syntax-highlighted text and line numbers relative to the cursor.](docs/public/readme/motivation-vim-v4.png)
+
 As more of my work shifts to agents, I open Neovim less often. Most of my
 interaction with my computer now happens through an agent connected to a remote
 desktop, usually from my iPad. I love the iPad for touch and handwriting. But
 when I’m working with an agent, I don’t want to touch the screen at all.
 
+![Conceptual illustration of touching a visualization on an iPad resting on the author's lap, connected to a Mac Studio at home.](docs/public/readme/motivation-touch-v4.png)
+
 That’s the **slightly ridiculous combination behind Vimicate**. I wanted an agent
 app that felt native to Vim motions and a hardware keyboard, on a device famous
 for its touchscreen. I couldn’t find what I wanted, so here we are.
+
+![Conceptual illustration of Vimicate at a café, with an HHKB keyboard on the author's lap and an iPad with Apple Pencil on the table.](docs/public/readme/motivation-keyboard-v4.png)
 
 The name reflects that ambition. If agents increasingly help me operate my
 digital life, Vimicate lets me bring Vim’s way of interacting along for the ride,
@@ -66,6 +70,13 @@ Keep the same workspace when a project uses a different backend. This second
 fictional session shows claude-cli with Opus 5.5 and a different conversation.
 
 ![A claude-cli Opus 5.5 session with a fictional project conversation and ten home and work projects in the sidebar.](docs/public/readme/claude-opus-workspace-v3.png)
+
+### Use colon commands
+
+Type `:model ` to see model completions without leaving the conversation.
+The menu shows matching options from the connected backend's model catalogue.
+
+![The native colon command bar with :model entered and a completion menu listing Astra and Opus model options beneath the fictional conversation.](docs/public/readme/model-command-completion-v4.png)
 
 ### Keep files beside the conversation
 

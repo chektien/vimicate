@@ -4,6 +4,50 @@ These are documentation assets, not application icons or bundled product UI.
 
 ## Narrative illustration
 
+The current README uses three separate transparent illustrations, generated
+with built-in ImageGen on 25 October 2026. The earlier composite remains below
+as provenance for their shared faceless character and print-illustration style.
+The figures are conceptual representations, not portrait likenesses.
+
+- `motivation-vim-v4.png` shows large Neovim-style terminal code. Its gutter
+  reads 3, 2, 1, 42, 1, 2, 3 around the highlighted cursor row. The former large
+  hjkl lettering is gone.
+- `motivation-touch-v4.png` shows the iPad on the author's lap, a finger touching
+  a visualization, and a dotted connection to a Mac Studio inside a home outline.
+- `motivation-keyboard-v4.png` retains the approved right-hand scene's style,
+  with the keyboard now on the author's lap at a café. The tablet sits on the
+  table. Both iPad illustrations include an Apple Pencil along the top edge.
+
+### Separate-scene prompt summary
+
+Preserve the prior narrative's charcoal silhouette, tousled hair, cream contour
+highlights, olive green and muted teal. Use transparent negative space instead
+of a room or rectangular backdrop. Keep foreground furniture and devices opaque.
+Use large, readable syntax-highlighted terminal text and hybrid relative line
+numbers for the first scene. For the second, show touch interaction on a lap-held
+iPad with a simple remote-home connection. For the third, keep the approved
+keyboard-first scene recognizable while moving the keyboard onto the lap and
+adding a café table, coffee and Pencil. Do not paint product screenshot pixels.
+
+The palette follows the product's charcoal, cream, olive and muted-blue tokens.
+Café furniture, coffee and hardware are narrative objects, not decorative UI
+containers. Official HHKB and Apple iPad references below informed scale and
+geometry. Apple's [Mac Studio reference](https://support.apple.com/en-sg/111900)
+informed the compact silver computer and its front ports. Manufacturer reference
+files are not bundled. Hands and perspective still obscure some keyboard keys.
+
+All three images are 1536 by 1024 RGBA PNGs with true alpha transparency. About
+36 to 39 percent of their pixels are fully transparent. Main-agent review checked
+browser composites against light and product-charcoal backgrounds. The retained
+RGBA pixels match the generated originals after ancillary-metadata removal.
+The terminal is a generated illustration, not evidence of executable code.
+The revised local README was rendered at 390, 1024 and 1440 pixel widths.
+All images loaded without horizontal overflow. Full iPad captures need zooming
+to read fine UI text at phone width. This was local Markdown layout review,
+not verification of GitHub's final rendering.
+
+### Earlier composite
+
 `motivation-evolution-v2.png` is a conceptual ImageGen illustration created
 and revised on 25 October 2026. The faceless figure represents the author's
 workflow, not a portrait. The tablet interface is illustrative, not an app
@@ -72,6 +116,21 @@ pixels. The main agent independently inspected them. Three focused native
 capture checks passed for model headers, question controls and layout. Choice
 submission was not exercised in this capture pass. The isolated app and fixture
 were stopped after capture. No product source or screenshot pixels were changed.
+
+### Colon command completion
+
+`model-command-completion-v4.png` is a real 2732 by 2048 capture from the same
+isolated contributor app and fictional ten-project fixture. The native colon
+command input contains `model ` after its separate colon prefix. The completion
+menu lists `openai/gpt-6-astra` and `anthropic/claude-opus-5-5` supplied by the
+synthetic model catalogue. No model command was submitted.
+
+A focused native XCTest passed in 17.8 seconds, checking both completion
+options, the input value, latest-activity sort and the tenth project. The worker
+and main agent inspected the final PNG. The transcript shows commentary and
+question options, with question submission controls below its viewport.
+Model selection, provider execution and physical keyboard acceptance were not
+tested by this capture. The isolated app and owned fixture were stopped.
 
 ## Metadata and provenance
 
