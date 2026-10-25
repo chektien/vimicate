@@ -99,3 +99,10 @@ The three current illustrations are 1536 by 1024 RGBA images. Ancillary metadata
 was removed while retaining their image data. Earlier versioned assets remain
 in this directory as source and provenance material. Exact shipped asset hashes
 and origins are recorded in the [asset manifest](../../release/ASSET_PROVENANCE.json).
+
+## App icon presentation
+
+`app-icon-rounded.svg` embeds the unchanged green-on-charcoal app icon with
+rounded corners for the README. The self-contained SVG preserves the original
+lettering and colours and needs no external image or stylesheet. The square
+native app icon remains unchanged.

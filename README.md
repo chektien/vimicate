@@ -1,6 +1,6 @@
 # Vimicate
 
-<img src="apps/mobile/assets/icon.png" width="96" height="96" alt="Vimicate hjkl icon in green on charcoal">
+<img src="docs/public/readme/app-icon-rounded.svg" width="96" height="96" alt="Vimicate hjkl icon in green on charcoal">
 
 Vimicate is a keyboard-first **agent surface** for iPad and iPhone, connected
 to your own OpenClaw Gateway. It brings prompts, transcripts, project files and interactive agent

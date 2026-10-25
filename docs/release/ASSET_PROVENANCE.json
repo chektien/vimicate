@@ -355,6 +355,15 @@
       "source": "docs/public/readme/README.md",
       "verification": "Main agent composed and visually reviewed the three-panel image.",
       "metadataSanitization": "Canvas PNG encoding with native orientation. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/app-icon-rounded.svg",
+      "sha256": "15f2c6093f75ba9657113d51a10a7118837cb06c87e8dc1e54ed305bc6e62295",
+      "origin": "Vimicate original green-on-charcoal hjkl app artwork",
+      "licenseEvidence": "Same original artwork and permission as apps/mobile/assets/icon.png",
+      "sourcePath": "apps/mobile/assets/icon.png",
+      "sourceSha256": "6b4fc7238587429823a8cb8e48a2cdfe3848576d6b85404e80cf4ebe4651c716",
+      "verification": "SVG presentation wrapper embeds the byte-identical app icon with a 224-unit corner radius on its 1024-unit canvas. Rounded clipping represents the requested app-icon shape in the README. No lettering, colours or native app assets changed."
     }
   ]
 }
