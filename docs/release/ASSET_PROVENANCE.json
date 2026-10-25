@@ -80,6 +80,62 @@
       "verification": "Current generated edit recorded. Copyright holder confirmed on 25 October 2026 that the original predecessor was created or generated for this project with no third-party artwork used as its source.",
       "preSanitizationSha256": "bacbc0e7ee167363fa88ad09816a4e9027b88e08fc35f80b1061cea7d0676e5d",
       "metadataSanitization": "Removed C2PA or EXIF ancillary chunks only. IHDR/IDAT bytes and decoded RGBA pixels verified unchanged."
+    },
+    {
+      "path": "docs/public/readme/motivation-evolution-v2.png",
+      "sha256": "0edc61385661872f8d66b1190f620e0b06cbe87a950690c241baeba9d82165f5",
+      "origin": "ImageGen narrative revision based on official HHKB hardware reference",
+      "licenseEvidence": "Generated project illustration. Manufacturer photograph used as hardware-layout reference, not distributed.",
+      "source": "docs/public/readme/README.md",
+      "verification": "Visually inspected by main agent. Conceptual screen, not a product screenshot.",
+      "metadataSanitization": "Removed ancillary metadata only. PNG boundaries and CRCs validated. IHDR/IDAT bytes preserved exactly."
+    },
+    {
+      "path": "docs/public/readme/workspace-ten-projects-v2.png",
+      "sha256": "7e9968b3568ec5992f150d278b1644bbdad159038dcd54f85082b077e16c3338",
+      "origin": "Real isolated iPad simulator capture with ten synthetic projects",
+      "licenseEvidence": "Project application UI with original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured by demo worker and independently visually inspected by main agent. No real projects or conversations.",
+      "metadataSanitization": "Removed ancillary metadata only. PNG boundaries and CRCs validated. IHDR/IDAT bytes preserved exactly."
+    },
+    {
+      "path": "docs/public/readme/project-files-ten-projects-v2.png",
+      "sha256": "7eb870e13b908b6d65771d516c127a879b570ff22eadb85b04b00bd224adbe63",
+      "origin": "Real isolated iPad simulator capture with ten synthetic projects",
+      "licenseEvidence": "Project application UI with original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured by demo worker and independently visually inspected by main agent. No real projects or conversations.",
+      "metadataSanitization": "Removed ancillary metadata only. PNG boundaries and CRCs validated. IHDR/IDAT bytes preserved exactly."
+    },
+    {
+      "path": "docs/public/readme/keyboard-shortcuts-ten-projects-v2.png",
+      "sha256": "5db53b3f6ca708a5bf296ab176a04fce0476175c86f27758b9535d4639f7b706",
+      "origin": "Real isolated iPad simulator capture with ten synthetic projects",
+      "licenseEvidence": "Project application UI with original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured by demo worker and independently visually inspected by main agent. No real projects or conversations.",
+      "metadataSanitization": "Removed ancillary metadata only. PNG boundaries and CRCs validated. IHDR/IDAT bytes preserved exactly."
+    },
+    {
+      "path": "docs/public/readme/codex-astra-question-v3.png",
+      "sha256": "6c33d4ac0866db26aff26bf018f0ced26476e9c3216550446981a45632ebf855",
+      "origin": "Real isolated iPad simulator capture with synthetic session metadata and question cards",
+      "licenseEvidence": "Project application UI with original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured and visually reviewed by demo worker, then independently inspected by main agent. Three focused native capture checks passed. Model labels and conversations are synthetic, not live provider executions.",
+      "preSanitizationSha256": "36fcd7f7f9091f47386399875c7d9e6253d07a8e455678ea5b3467c4dbeb40fc",
+      "metadataSanitization": "Removed sRGB and eXIf ancillary chunks only. PNG boundaries and CRCs validated. IHDR/IDAT bytes preserved exactly."
+    },
+    {
+      "path": "docs/public/readme/claude-opus-workspace-v3.png",
+      "sha256": "72a4b0aa7da7c62db13023257deed48a5d4d1fa3e6cf349012faf16a6552ef22",
+      "origin": "Real isolated iPad simulator capture with synthetic session metadata and question cards",
+      "licenseEvidence": "Project application UI with original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured and visually reviewed by demo worker, then independently inspected by main agent. Three focused native capture checks passed. Model labels and conversations are synthetic, not live provider executions.",
+      "preSanitizationSha256": "8c9b13e2a4fa71c150eb8a95cd17ddae4efbb2a5c15a112ab5030450050a7f4d",
+      "metadataSanitization": "Removed sRGB and eXIf ancillary chunks only. PNG boundaries and CRCs validated. IHDR/IDAT bytes preserved exactly."
     }
   ]
 }

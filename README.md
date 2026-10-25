@@ -13,6 +13,8 @@ The app communicates with the Gateway over WebSocket RPC and streamed events.
 
 **I’m using my editor less. I don’t want to use Vim less.**
 
+![A conceptual silhouette comic follows the move from Vim on a desktop, to working with agents, to using Vimicate on an iPad with an HHKB keyboard.](docs/public/readme/motivation-evolution-v2.png)
+
 I’ve been a Vim and Neovim user for years, and I’m a mechanical keyboard
 enthusiast. I enjoy figuring out how to move through documents without reaching
 for the mouse, even if I’m still not particularly good at it. It makes knowledge
@@ -24,7 +26,7 @@ interaction with my computer now happens through an agent connected to a remote
 desktop, usually from my iPad. I love the iPad for touch and handwriting. But
 when I’m working with an agent, I don’t want to touch the screen at all.
 
-That’s the slightly ridiculous combination behind Vimicate. I wanted an agent
+That’s the **slightly ridiculous combination behind Vimicate**. I wanted an agent
 app that felt native to Vim motions and a hardware keyboard, on a device famous
 for its touchscreen. I couldn’t find what I wanted, so here we are.
 
@@ -37,6 +39,47 @@ Ultimately, **Vimicate is a software expression of everything I enjoy about
 using a computer**, bringing together the feel of a mechanical keyboard, the
 playfulness of Vim, the versatility of an iPad, and the possibilities of working
 with agents.
+
+## A look inside
+
+These are real iPad simulator captures using fictional projects and
+conversations. No personal projects or live agent responses are shown.
+
+### Follow your projects
+
+Keep home and work projects together, ordered by latest activity. Project
+indicators distinguish running sessions, failures and unread updates.
+
+![Ten fictional home and work projects ordered by latest activity, beside a conversation and Vim-style prompt editor.](docs/public/readme/workspace-ten-projects-v2.png)
+
+### Make decisions in the conversation
+
+Read progress updates and answer an agent's question without leaving the
+transcript. This fictional planning session shows Codex with Astra and high
+reasoning effort in the status bar.
+
+![A Codex Astra session with high reasoning effort, progress commentary and an interactive question in the transcript.](docs/public/readme/codex-astra-question-v3.png)
+
+### Follow work across backends
+
+Keep the same workspace when a project uses a different backend. This second
+fictional session shows claude-cli with Opus 5.5 and a different conversation.
+
+![A claude-cli Opus 5.5 session with a fictional project conversation and ten home and work projects in the sidebar.](docs/public/readme/claude-opus-workspace-v3.png)
+
+### Keep files beside the conversation
+
+Browse project files and preview Markdown without leaving the workspace.
+Waiting sessions use diamond indicators in the project list.
+
+![Project files and a Markdown preview beside the conversation, with all ten projects still visible.](docs/public/readme/project-files-ten-projects-v2.png)
+
+### Learn the default bindings first
+
+**Click the question mark (`?`) at the top left before you start.** The built-in
+reference explains the default bindings for navigation, editing and each pane.
+
+![The built-in keyboard shortcut reference opened over the fictional demo workspace.](docs/public/readme/keyboard-shortcuts-ten-projects-v2.png)
 
 ## Development transparency
 
