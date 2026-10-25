@@ -20,6 +20,7 @@ export type TranscriptRenderRow = {
   lastSourceRowInMessage: number;
   inferredSkillInvocation?: TranscriptSkillEvidence;
   toolGroupDepth?: number;
+  questionCardOnly?: boolean;
   foldKey?: string;
   fold?: { expanded: boolean; hiddenLineCount: number; endSourceRow?: number };
 };

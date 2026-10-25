@@ -8,6 +8,7 @@ import type { TranscriptRenderRow } from './transcriptRenderRows';
 import { boundedExpandedTranscriptLine, MACHINE_FOLD_CHARACTER_LIMIT, MAX_EXPANDED_MESSAGE_ROWS, transcriptMessageIsFoldedByDefault, transcriptSourceLineCount } from './transcriptRowBudget';
 import { transcriptSkillInvocationFromFollowingTool, transcriptSkillInvocationFromToolRows } from './transcriptSkillInvocation';
 import { projectTranscriptDetailsDisclosure, type DisclosureLine } from './transcriptDetailsDisclosure';
+import { isAsyncQuestionFallback } from '../questions/asyncQuestionPresentation';
 
 export { MACHINE_FOLD_CHARACTER_LIMIT } from './transcriptRowBudget';
 type PreparedMessage = {
@@ -55,6 +56,17 @@ export function buildVisibleTranscriptRenderRows(messages: WorkspaceMessage[], e
     const inferredSkillInvocation = transcriptSkillInvocationFromFollowingTool(messages, messageIndex) ?? toolSkill ?? undefined;
     const shared = { messageIndex, message, presentation, groupPosition: groups[messageIndex] ?? 'standalone' as const, chronology: chronology[messageIndex] ?? {}, firstSourceRowInMessage, lastSourceRowInMessage, ...(inferredSkillInvocation ? { inferredSkillInvocation } : {}), ...(messageIndex <= groupEnd ? { toolGroupDepth: 1 } : {}) };
 
+    // Keep the original source range for yank/search/history and one navigation
+    // anchor for the card. Hidden fallback lines must not become invisible stops.
+    if (isAsyncQuestionFallback(message)) {
+      // All question states share one cell. Moving its card between source
+      // rows on collapse leaves stale recycler measurements on ordinary text.
+      visible.push({ ...shared, key: `${message.id}:question`, sourceRow, lineInMessage: 0,
+        firstInMessage: true, lastInMessage: true, questionCardOnly: true,
+        compiled: plainTranscriptMarkdownLine('Question') });
+      sourceRow += sourceLineCount;
+      return;
+    }
     if (message.toolGroup) {
       groupEnd = messageIndexByID.get(message.toolGroup.lastMessageId) ?? messageIndex;
       groupHeaderSkillMember = -1;
@@ -204,6 +216,7 @@ function sameTranscriptRenderRow(left: TranscriptRenderRow, right: TranscriptRen
     && left.chronology.focusedTimeLabel === right.chronology.focusedTimeLabel
     && left.inferredSkillInvocation?.label === right.inferredSkillInvocation?.label
     && left.toolGroupDepth === right.toolGroupDepth
+    && left.questionCardOnly === right.questionCardOnly
     && left.foldKey === right.foldKey
     && left.fold?.expanded === right.fold?.expanded
     && left.fold?.hiddenLineCount === right.fold?.hiddenLineCount
@@ -246,7 +259,7 @@ export function transcriptRenderIndexForSourceRow(rows: TranscriptRenderRow[], s
   if (!rows.length) return 0;
   const exact = rows.findIndex((row) => row.sourceRow === sourceRow);
   if (exact >= 0) return exact;
-  const containingFold = rows.findIndex((row) => row.fold && sourceRow >= row.sourceRow && sourceRow <= (row.fold.endSourceRow ?? row.lastSourceRowInMessage));
+  const containingFold = rows.findIndex((row) => (row.fold || row.questionCardOnly) && sourceRow >= row.sourceRow && sourceRow <= (row.fold?.endSourceRow ?? row.lastSourceRowInMessage));
   if (containingFold >= 0) return containingFold;
   const following = rows.findIndex((row) => row.sourceRow > sourceRow);
   return following >= 0 ? following : rows.length - 1;

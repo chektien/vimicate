@@ -1,6 +1,7 @@
 import { AsyncQuestionOwner } from './asyncQuestionOwner';
 import { AsyncQuestionProvider } from './AsyncQuestionContext';
 import { TranscriptAsyncQuestion } from './TranscriptAsyncQuestion';
+import { buildVisibleTranscriptRenderRows } from '../transcript/transcriptVisibleRows';
 // @vitest-environment jsdom
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -35,13 +36,27 @@ it('renders accessible touch options, descriptions, other input and complete res
 
 it('reuses touch question controls without focusing on arrival, and exposes honest async queue/history actions', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('React', React);
-  const message: import('../workspace/workspaceTypes').WorkspaceMessage = { id: 'origin', role: 'assistant' as const, text: 'Which?', source: 'history', sessionKey: 'session', runId: 'origin-run', asyncQuestion: { itemId: 'async', questions: [{ title: 'Which?', options: ['One', 'Two'] }] } };
+  const message: import('../workspace/workspaceTypes').WorkspaceMessage = { id: 'origin', role: 'assistant' as const, text: 'Which?\n\n- One\n- Two', source: 'history', sessionKey: 'session', runId: 'origin-run', asyncQuestion: { itemId: 'async', questions: [{ title: 'Which?', options: ['One', 'Two'] }] } };
   const owner = new AsyncQuestionOwner(); owner.observe([message]); const resolve = vi.fn((record: QuestionRecord) => { owner.admit(message, 'one-outbox-id'); }); const focus = vi.fn();
   const action = vi.fn((id: string, kind: 'reopen' | 'expand' | 'collapse' | 'skip' | 'discard' | 'retry') => { if (kind === 'retry') owner.retry(id); else owner[kind](id); });
   const ui = { drafts: {}, busy: [], errors: {}, draft: (record: QuestionRecord) => owner.draft(record), choose: (record: QuestionRecord, q: number, option: number) => owner.choose(record, q, option), activate: () => {}, other: () => {}, consumeOtherFocus: () => {}, text: (record: QuestionRecord, q: number, value: string) => owner.text(record, q, value), resolve, skip: (record: QuestionRecord) => action(record.id, 'skip'), editing: vi.fn(), textEditing: null, otherFocus: null, interaction: null, interact: vi.fn(), leave: vi.fn(), returnRevision: 0, targetRevision: 0 };
   const actions = { ui, action, view: (message: import('../workspace/workspaceTypes').WorkspaceMessage) => owner.view(message), handleKey: vi.fn(), clear: vi.fn(), loaded: true, storageError: undefined };
-  const render = () => act(async () => root.render(<AsyncQuestionProvider value={actions}><TranscriptAsyncQuestion message={message} focused fontScale={1} onFocus={focus} /></AsyncQuestionProvider>));
+  const render = () => act(async () => root.render(<AsyncQuestionProvider value={actions}>{buildVisibleTranscriptRenderRows([message], new Set()).map(row => <div key={row.key}>{row.compiled.source}{row.lastInMessage ? <TranscriptAsyncQuestion message={message} focused fontScale={1} onFocus={focus} /> : null}</div>)}</AsyncQuestionProvider>));
   await render(); expect(container.textContent).toContain('Optional · work can continue'); expect(focus).not.toHaveBeenCalled(); expect(container.textContent).not.toContain('expires');
+  expect(container.textContent?.match(/Which\?/g)).toHaveLength(1);
+  expect(container.textContent?.match(/One/g)).toHaveLength(1);
+  actions.loaded = false; await render();
+  expect(container.textContent).toContain('Loading saved answer draft');
+  expect(container.textContent?.match(/Which\?/g)).toHaveLength(1);
+  expect(container.textContent).toContain('- Two');
+  actions.loaded = true; await render();
+  const activeRecord = owner.view(message)!.record;
+  owner.update(activeRecord, { ...owner.draft(activeRecord), active: activeRecord.questions.length });
+  owner.collapse(activeRecord.id); await render();
+  expect(container.textContent?.match(/Which\?/g)).toHaveLength(1);
+  expect(container.textContent).toContain('1 unanswered question');
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Answer"]')!.click()); await render();
+  expect(container.textContent?.match(/Which\?/g)).toHaveLength(1);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="2. Two"]')!.click()); expect(resolve).not.toHaveBeenCalled();
   await render(); await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Submit question answers"]')!.click()); await render();
   expect(container.textContent).toContain('Answer queued'); owner.delivery(owner.view(message)!.record.id, 'failed'); await render();
@@ -50,6 +65,12 @@ it('reuses touch question controls without focusing on arrival, and exposes hone
   expect(container.textContent).toContain('Optional'); expect(owner.draft(owner.view(message)!.record).selected['0']).toEqual(['Two']);
   const untouched = { ...message, asyncQuestion: { ...message.asyncQuestion!, itemId: 'history' } }; owner.observe([untouched, { id: 'end', role: 'assistant' as const, text: 'Done', runId: 'origin-run', asyncQuestionRunOutcome: 'successful' as const }, { id: 'user', role: 'user' as const, text: 'Continue', runId: 'later' }, { id: 'end-later', role: 'assistant' as const, text: 'Done', runId: 'later', asyncQuestionRunOutcome: 'successful' as const }].map(row => ({ sessionKey: 'session', ...row })));
   await act(async () => root.render(<AsyncQuestionProvider value={actions}><TranscriptAsyncQuestion message={untouched} focused fontScale={1} onFocus={focus} /></AsyncQuestionProvider>)); expect(container.textContent).toContain('No longer pending'); expect(container.querySelector('[aria-label="Answer"]')).not.toBeNull();
+  expect(container.textContent?.match(/Which\?/g)).toHaveLength(1);
+  expect(container.textContent).toContain('- Two');
+  await act(async () => root.render(<TranscriptAsyncQuestion message={message} focused fontScale={1} onFocus={focus} />));
+  expect(container.textContent).toContain('controls unavailable');
+  expect(container.textContent?.match(/Which\?/g)).toHaveLength(1);
+  expect(container.textContent).toContain('- Two');
 });
 
 it('shows one cursor owner and restores text focus when question interaction ends', async () => {
