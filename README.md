@@ -9,6 +9,71 @@ Vimicate is a client, not an agent harness or hosted AI service. Your Gateway
 owns sessions, model access and tool execution. Pairing establishes device trust.
 The app communicates with the Gateway over WebSocket RPC and streamed events.
 
+## Why Vimicate exists
+
+**I’m using my editor less. I don’t want to use Vim less.**
+
+I’ve been a Vim and Neovim user for years, and I’m a mechanical keyboard
+enthusiast. I enjoy figuring out how to move through documents without reaching
+for the mouse, even if I’m still not particularly good at it. It makes knowledge
+work feel a little like a game, with motions to learn, combinations to discover,
+and skills to keep honing.
+
+As more of my work shifts to agents, I open Neovim less often. Most of my
+interaction with my computer now happens through an agent connected to a remote
+desktop, usually from my iPad. I love the iPad for touch and handwriting. But
+when I’m working with an agent, I don’t want to touch the screen at all.
+
+That’s the slightly ridiculous combination behind Vimicate. I wanted an agent
+app that felt native to Vim motions and a hardware keyboard, on a device famous
+for its touchscreen. I couldn’t find what I wanted, so here we are.
+
+The name reflects that ambition. If agents increasingly help me operate my
+digital life, Vimicate lets me bring Vim’s way of interacting along for the ride,
+beyond the editor. I chose OpenClaw for its vibrant community, openness,
+configurability, and freedom to work across labs and models.
+
+Ultimately, **Vimicate is a software expression of everything I enjoy about
+using a computer**, bringing together the feel of a mechanical keyboard, the
+playfulness of Vim, the versatility of an iPad, and the possibilities of working
+with agents.
+
+## Development transparency
+
+Vimicate is an agentically developed app. AI coding agents contribute
+substantially to implementation, tests, documentation, and review, under my
+direction. I set the product goals and remain responsible for what I release.
+
+This began as a tool for my own use and is shared in the spirit of open source.
+Automated tests and agent reviews do not guarantee correctness or security.
+It is experimental software, provided as-is. Review the code and
+[known limitations](docs/KNOWN_LIMITATIONS.md), and test it in your own
+environment before relying on it.
+
+## How it fits together
+
+```text
+      BACKEND                      ORCHESTRATION                       SURFACE
+
++------------------+  JSON-RPC over stdio
+| Codex app-server |--------------------+
++------------------+                    |
+                                        |
++------------------+              +-----+------+                    +------------+
+| Claude CLI (-p)  |--------------|  OpenClaw  |--------------------|  Vimicate  |
++------------------+ stream-JSON  |  Gateway   |  WebSocket RPC     +------------+
+                     over stdio   +-----+------+  + streamed events
+                                        |         (paired device)
++------------------+                    |
+|    Pi harness    |--------------------+
++------------------+  function calls/events
+                      (in-process library)
+```
+
+The lines represent two-way communication. Pairing establishes device trust,
+while WebSocket carries ongoing requests and events. Pi runs as a library inside
+OpenClaw’s process. Vimicate is the client, not another agent harness.
+
 ## Source alpha
 
 This is an experimental source-only alpha for contributors. It is not a signed
