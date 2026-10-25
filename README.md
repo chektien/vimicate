@@ -20,7 +20,7 @@ for the mouse, even if I’m still not particularly good at it.
 combos to discover, and generally skills to keep honing.
 
 <p align="center">
-  <img src="docs/public/readme/motivation-vim-v4.png" width="80%" alt="Conceptual illustration of editing code in a Neovim terminal, with large syntax-highlighted text and line numbers relative to the cursor.">
+  <img src="docs/public/readme/motivation-vim-v4.png" width="60%" alt="Conceptual illustration of editing code in a Neovim terminal, with large syntax-highlighted text and line numbers relative to the cursor.">
 </p>
 
 As more of my work shifts to agents, I open Neovim less often. Most of my
@@ -29,7 +29,7 @@ desktop, usually from my iPad. I love the iPad for touch and handwriting. But
 when I’m working with an agent, I don’t want to touch the screen at all.
 
 <p align="center">
-  <img src="docs/public/readme/motivation-touch-v4.png" width="80%" alt="Conceptual illustration of touching a visualization on an iPad resting on the author&#x27;s lap, connected to a Mac Studio at home.">
+  <img src="docs/public/readme/motivation-touch-v4.png" width="60%" alt="Conceptual illustration of touching a visualization on an iPad resting on the author&#x27;s lap, connected to a Mac Studio at home.">
 </p>
 
 That’s the **slightly ridiculous combination behind Vimicate**. I wanted an agent
@@ -37,7 +37,7 @@ app that felt native to Vim motions and a hardware keyboard, on a device famous
 for its touchscreen. I couldn’t find what I wanted, so here we are.
 
 <p align="center">
-  <img src="docs/public/readme/motivation-keyboard-v4.png" width="80%" alt="Conceptual illustration of Vimicate at a café, with an HHKB keyboard on the author&#x27;s lap and an iPad with Apple Pencil on the table.">
+  <img src="docs/public/readme/motivation-keyboard-v4.png" width="60%" alt="Conceptual illustration of Vimicate at a café, with an HHKB keyboard on the author&#x27;s lap and an iPad with Apple Pencil on the table.">
 </p>
 
 The name reflects that ambition. If agents increasingly help me operate my
@@ -57,18 +57,18 @@ A keyboard-first workspace on iPad, with touch-friendly layouts on iPhone.
 ### Move through the workspace with Vim
 
 Jump between projects, transcript and prompt without reaching for the screen.
-Use familiar motions to move by word or line, yank a Markdown section from
-the transcript, and paste it into your prompt. Edit its headings and checklist
-without leaving the keyboard. The keys appear above the workspace as the demo
+Search for a project by name with `/`, then use familiar motions to move by
+word or line. Yank a Markdown section from the transcript and paste it into
+your prompt. Edit its headings and checklist without leaving the keyboard. The keys appear above the workspace as the demo
 moves through each pane.
 
 <p align="center">
-  <img src="docs/public/readme/vim-navigation-v7.gif" width="80%" alt="Vim pane navigation, yanking a Markdown section into the prompt and editing it, with a translucent keystroke overlay.">
+  <img src="docs/public/readme/vim-navigation-v8.gif" width="60%" alt="Project-name search, Vim pane navigation, yanking a Markdown section into the prompt and editing it, with a translucent keystroke overlay.">
 </p>
 
 Keep home and work projects together, ordered by latest activity. Project
 indicators distinguish running sessions, failures and unread updates.
-[View the workspace still.](docs/public/readme/workspace-ten-projects-v2.png)
+[View the workspace still.](docs/public/readme/workspace-ten-projects-v8.png)
 
 ### Make decisions in the conversation
 
@@ -77,7 +77,7 @@ transcript. This planning session shows Codex with Astra and high
 reasoning effort in the status bar.
 
 <p align="center">
-  <img src="docs/public/readme/codex-astra-question-v3.png" width="80%" alt="A Codex Astra session with high reasoning effort, progress commentary and an interactive question in the transcript.">
+  <img src="docs/public/readme/codex-astra-question-v8.png" width="60%" alt="A Codex Astra session with high reasoning effort, progress commentary and an interactive question in the transcript.">
 </p>
 
 ### Follow work across backends
@@ -86,7 +86,7 @@ Keep the same workspace when a project uses a different backend. This second
 session shows claude-cli with Opus 5.5 and a different conversation.
 
 <p align="center">
-  <img src="docs/public/readme/claude-opus-workspace-v3.png" width="80%" alt="A claude-cli Opus 5.5 session with a project conversation and ten home and work projects in the sidebar.">
+  <img src="docs/public/readme/claude-opus-workspace-v8.png" width="60%" alt="A claude-cli Opus 5.5 session with a project conversation and ten home and work projects in the sidebar.">
 </p>
 
 ### Use colon commands
@@ -95,7 +95,7 @@ Type `:model ` to see model completions without leaving the conversation.
 The menu shows matching options from the connected backend's model catalogue.
 
 <p align="center">
-  <img src="docs/public/readme/model-command-completion-v4.png" width="80%" alt="The native colon command bar with :model entered and a completion menu listing Astra and Opus model options beneath the conversation.">
+  <img src="docs/public/readme/model-command-completion-v8.png" width="60%" alt="The native colon command bar with :model entered and a completion menu listing Astra and Opus model options beneath the conversation.">
 </p>
 
 ### Keep files beside the conversation
@@ -104,7 +104,7 @@ Browse project files and preview Markdown without leaving the workspace.
 Waiting sessions use diamond indicators in the project list.
 
 <p align="center">
-  <img src="docs/public/readme/project-files-ten-projects-v2.png" width="80%" alt="Project files and a Markdown preview beside the conversation, with all ten projects still visible.">
+  <img src="docs/public/readme/project-files-ten-projects-v8.png" width="60%" alt="Project files and a Markdown preview beside the conversation, with all ten projects still visible.">
 </p>
 
 ### Take the workspace to iPhone
@@ -114,9 +114,9 @@ check activity, answer a question in the conversation, or browse files and
 read a Markdown preview.
 
 <p align="center">
-  <img src="docs/public/readme/iphone-projects-v5.png" width="208" alt="iPhone project drawer with ten home and work projects and activity indicators.">
-  <img src="docs/public/readme/iphone-question-v5.png" width="208" alt="iPhone conversation with a question card, selectable answers and prompt controls.">
-  <img src="docs/public/readme/iphone-files-v5.png" width="208" alt="iPhone project files and a readable Markdown preview.">
+  <img src="docs/public/readme/iphone-projects-v8.png" width="60%" alt="iPhone project drawer with ten home and work projects and activity indicators.">
+  <img src="docs/public/readme/iphone-question-v8.png" width="60%" alt="iPhone conversation with a question card, selectable answers and prompt controls.">
+  <img src="docs/public/readme/iphone-files-v8.png" width="60%" alt="iPhone project files and a readable Markdown preview.">
 </p>
 
 ### Learn the default bindings first
@@ -125,8 +125,53 @@ read a Markdown preview.
 reference explains the default bindings for navigation, editing and each pane.
 
 <p align="center">
-  <img src="docs/public/readme/keyboard-shortcuts-ten-projects-v2.png" width="80%" alt="The built-in keyboard shortcut reference opened over the workspace.">
+  <img src="docs/public/readme/keyboard-shortcuts-ten-projects-v8.png" width="60%" alt="The built-in keyboard shortcut reference opened over the workspace.">
 </p>
+
+## Built to customize
+
+Vimicate is built primarily with **React Native and TypeScript, using Expo**.
+SQLite stores local data, SecureStore/Keychain holds credentials, and OpenClaw
+provides the agent backend. A small set of native Swift/Expo modules handles
+platform integration such as hardware-keyboard input and file previews.
+
+React Native is a good fit because most everyday changes are to the interface,
+Vim interactions and agent workflows, rather than new native capabilities.
+Those changes usually need no native code changes and can reach an existing,
+compatible installation through [Expo over-the-air updates](https://docs.expo.dev/eas-update/introduction/).
+Changes to native modules, native dependencies or permissions still require
+a new iOS build.
+
+### Developing Vimicate from Vimicate
+
+I often use a Vimicate development thread **inside Vimicate itself** to improve
+the app. I describe a change in that thread, the agent edits and tests the code
+on my connected Mac, and I review the result. It then publishes a compatible
+OTA update, which I load back into the same app. That lets me keep customizing
+my workspace while using it.
+
+<p align="center">
+  <img src="docs/public/readme/vimicate-self-development-v1.png" alt="Vimicate development thread with a draft asking for a colon command and tap button to start a Ralph loop for the current feature" width="60%" />
+</p>
+
+*A real app capture with a synthetic Vimicate development thread and an example
+feature request. The Ralph-loop controls are being requested, not shown as
+implemented.*
+
+To adopt this loop, configure your own update project and channel and install
+a compatible native build. The public contributor configuration deliberately
+[disables OTA by default](docs/CONTRIBUTOR_SETUP.md#build-the-contributor-app)
+and does not subscribe to my private releases.
+
+### Who this is for
+
+Vimicate currently works best for people comfortable developing apps and
+understanding this self-development workflow on iOS. You should be happy to
+build and sign your own app, review agent-written changes, distinguish OTA
+updates from native builds, and keep tailoring Vimicate to your own needs.
+
+**[Artifactured](https://www.artifactured.com) is considering offering Vimicate
+as a ready-to-install iOS app if there is enough demand.**
 
 ## Development transparency
 

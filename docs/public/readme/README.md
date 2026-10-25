@@ -225,3 +225,39 @@ Original capture hashes remain unchanged. Review covers every encoded state,
 the loop boundary and README layouts at 390, 1024 and 1440 pixels. The earlier
 versions remain available. Local playback review does not establish hosted or
 chat-client playback.
+
+## Larger-text refresh
+
+The nine v8 screenshots use the same contributor Release app and synthetic
+loopback content. The iPad captures use 200% project text in a wider sidebar
+and 150% transcript, prompt and file text. The iPhone captures use 150% text
+so all ten project names fit in its compact drawer. Native command and help
+chrome retain their existing sizes. Scrollable content beyond each viewport
+remains offscreen.
+
+The capture workers completed native checks for the six iPad and three iPhone
+scenes. The main agent recovered their saved captures and evidence, independently
+inspected all nine final images, and completed documentation integration.
+No provider execution, answer submission or physical-device acceptance is implied.
+
+`vim-navigation-v8.gif` uses 27 verified native capture states. It shows project
+navigation, `/` search for Field Notes, Return to highlight the match, and `l`
+to open it. The remaining sequence yanks original Markdown, pastes it into an
+empty prompt, adds a heading, edits a word and selects the headings. The native
+capture test passed with exact draft assertions. The 39.4-second GIF is an edited
+sequence with retimed holds and separate keystroke annotations, not a continuous
+real-time recording. The main agent rendered the recovered frames and inspected
+encoded playback, including its return to the first state.
+
+## Developing Vimicate from Vimicate
+
+`vimicate-self-development-v1.png` is a real iPad simulator capture with a
+synthetic Vimicate development thread. Its unsubmitted draft asks for a colon
+command and tap button to start a Ralph loop for the current feature. This is
+an example feature request, not evidence that those controls are implemented.
+The conversation and backend labels are synthetic, not a live provider result.
+The main agent captured and reviewed it. Native XCTest checked the selected
+project and exact draft text. The fixture was isolated from production.
+
+All current README images use 60% width. Readers can open the full-size files
+to inspect fine interface text, especially on narrow screens.

@@ -229,6 +229,105 @@
       "source": "docs/public/readme/README.md",
       "verification": "Same verified native captures as v6. Main agent resized the annotation and reviewed all composed states, encoded playback and responsive README layouts. No product source changes.",
       "metadataSanitization": "Browser-oriented native captures scaled to 1366 by 1024, annotated and palette-encoded as an approximately 32-second GIF. Original captures unchanged. Only the standard looping extension is retained."
+    },
+    {
+      "path": "docs/public/readme/claude-opus-workspace-v8.png",
+      "sha256": "a4fdf6820ccb69a44b63a6a9d75b6e23e8ecf29b89685a12ea0c6101a0b0dc1c",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/codex-astra-question-v8.png",
+      "sha256": "2d0016d4b1696fb2105dee3a34a2bdd593dee7434b7de54d3754e75c5904c1a4",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/iphone-files-v8.png",
+      "sha256": "2fd817ff9bd34c3ddf54c4c9577c96ab133d17b0ea3791af2758ae2223704d29",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/iphone-projects-v8.png",
+      "sha256": "d3e4ca8f4a0fe5552119a9eec65bc752af5e79340bc696424ed04c87dc84d0de",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/iphone-question-v8.png",
+      "sha256": "c806e9f6a194cd3af4aa7cba3515b7b1a4eb64651130c7cf96ad40681f59889f",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/keyboard-shortcuts-ten-projects-v8.png",
+      "sha256": "a8fd3f9710bb96783007ddcfc50f138b93e0947d8d37451c9fc2082587f16e0e",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/model-command-completion-v8.png",
+      "sha256": "473a7965e5a35f4d13e8e1c2ee11bcc01345306fed2f15a721338d12afe437c3",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/project-files-ten-projects-v8.png",
+      "sha256": "b65cc5f482c5806522c3775c7193d1ce28aca3dc1425737d935c72e28eea3c28",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/vim-navigation-v8.gif",
+      "sha256": "b9221ac54075c3a2a380cce9ce735ef39424dc0da11a246df439774f14cc7716",
+      "origin": "Edited native iPad capture sequence with project search, Markdown yank, paste and editing",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered native capture worker evidence. XCTest passed the 27-state sequence including search and exact draft assertions. Main agent rendered and reviewed the final GIF.",
+      "metadataSanitization": "Native orientation respected, scaled to 1366 by 1024, annotated and encoded as a 39.4-second loop. Only the standard looping extension is retained."
+    },
+    {
+      "path": "docs/public/readme/vimicate-self-development-v1.png",
+      "sha256": "f5f1f94886b57490a545fc765910b17de12c89c888ac85817df1e0fa25791279",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Main agent captured and reviewed the image. Native XCTest verified the selected Vimicate project and exact unsubmitted Ralph-loop draft.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/workspace-ten-projects-v8.png",
+      "sha256": "725e40aa0dc00c39e2d5ca82085865c2fb35c368c807812baf88e25dfd896e1e",
+      "origin": "Real isolated simulator capture with synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
+      "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
     }
   ]
 }
