@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import test from 'node:test';
+import { checkUpdateCompatibility } from './check-update-compatibility.mjs';
+import { buildSqlitePlugin } from './build-sqlite-plugin.mjs';
+
+const execFileAsync = promisify(execFile);
+
+test('preflight blocks unaudited runtimes and duplicate discovery before lifecycle work', async t => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'vimicate-update-check-')));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const selected = path.join(root, 'current');
+  await buildSqlitePlugin(selected);
+  const manifest = JSON.stringify({ id: 'vimicate-history-family' });
+  const config = { plugins: { entries: { 'vimicate-history-family': { enabled: true } }, load: { paths: [selected] } } };
+  await checkUpdateCompatibility(config, '2026.9.2');
+  await checkUpdateCompatibility(config, '2026.9.7');
+  await checkUpdateCompatibility(config, '2026.9.9');
+  await checkUpdateCompatibility(config, '2026.10.2');
+  await checkUpdateCompatibility(config, '2026.10.4');
+  await checkUpdateCompatibility(config, '2026.10.5');
+  await assert.rejects(checkUpdateCompatibility(config, '2026.9.3'), /no audited compatibility/);
+  await assert.rejects(checkUpdateCompatibility(config, 'latest'), /explicit audited release/);
+  const packageRoot = path.join(root, 'archive', 'package');
+  await fs.mkdir(packageRoot, { recursive: true });
+  await fs.writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'openclaw', version: '2026.9.2' }));
+  const archive = path.join(root, 'openclaw-local.tgz');
+  await execFileAsync('tar', ['-C', path.dirname(packageRoot), '-czf', archive, 'package']);
+  await checkUpdateCompatibility(config, archive);
+  const duplicate = path.join(root, 'old');
+  await fs.mkdir(duplicate);
+  await fs.writeFile(path.join(duplicate, 'openclaw.plugin.json'), manifest);
+  await assert.rejects(checkUpdateCompatibility(config, '2026.9.2'), /duplicate sibling/);
+  await fs.rm(duplicate, { recursive: true });
+  await fs.appendFile(path.join(selected, 'sqlite-history-runtime.mjs'), '\n// changed after build\n');
+  await assert.rejects(checkUpdateCompatibility(config, '2026.9.4'), /integrity mismatch/);
+  await checkUpdateCompatibility({}, undefined);
+});

@@ -1,0 +1,41 @@
+import type { WorkspaceMessage } from '../workspace/workspaceTypes';
+
+const pixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+export const richTranscriptFixture: WorkspaceMessage[] = [
+  { id: 'fixture-user', role: 'user', text: 'Show a clean native-style transcript with every supported format.\nKeep authored prompts unmistakable while reviewing older history.\nPreserve the exact prompt without adding a “User Prompt:” label.', timestamp: '2026-08-24T16:00:00+08:00' },
+  { id: 'fixture-answer', role: 'assistant', timestamp: '2026-08-24T16:00:04+08:00', text: [
+    '## Transcript structure',
+    '',
+    'Plain text with **strong**, *emphasis*, `inline code`, ~~retired text~~, and [a safe link](https://example.com).',
+    '',
+    '- first bullet',
+    '  - nested detail',
+    '- [x] completed item',
+    '- [ ] remaining item',
+    '',
+    '> A quoted note stays visually separate from the answer.',
+    '',
+    '| Surface | State |',
+    '| --- | --- |',
+    '| transcript | Ready with a deliberately long explanation that wraps inside this state cell without crossing into the surface column. |',
+    '| prompt | insert |',
+    '| history | stable |',
+    '',
+    '```swift',
+    'let navigation = "hjkl"',
+    '```',
+  ].join('\n') },
+  { id: 'fixture-skill-preamble', role: 'narration', text: "I'm using the frontend-design skill because this transcript treatment needs a precise semantic hierarchy.", state: 'streaming', runId: 'fixture-run', timestamp: '2026-08-24T16:00:04+08:00' },
+  { id: 'fixture-tool', role: 'tool', text: 'exec\n{"cmd":"pnpm test"}\n59 files and 192 tests passed', state: 'complete', runId: 'fixture-run', tool: { name: 'exec', summary: 'exec · pnpm test', durationMs: 1320 }, timestamp: '2026-08-24T16:00:05+08:00' },
+  { id: 'fixture-domain-skill-preamble', role: 'narration', text: "The repo’s privacy gateway applies because the results may contain student records. I’m loading that workflow before inspecting any result contents; I’ll analyze only a checked, pseudonymized derivative if raw student-level data is involved.", state: 'streaming', runId: 'fixture-run', timestamp: '2026-08-24T16:00:06+08:00' },
+  { id: 'fixture-domain-skill-tool', role: 'tool', text: 'show ~/.example-agent/skills/student-record-privacy/SKILL.md\n# Student record privacy', state: 'complete', runId: 'fixture-run', tool: { name: 'bash', summary: 'show ~/.example-agent/skills/student-record-privacy/SKILL.md', durationMs: 24 }, timestamp: '2026-08-24T16:00:07+08:00' },
+  { id: 'fixture-qualified-skill-preamble', role: 'narration', text: 'I’ll update the installed Computer Use plugin using the existing OpenClaw/Codex plugin workflow, then re-run the same native-pipe health check and read-only ExampleMail test if Computer Use starts successfully.\nI’m using `openai-docs` for the supported update procedure and `computer-use` for validation.', state: 'complete', runId: 'fixture-run', timestamp: '2026-08-24T16:00:08+08:00' },
+  { id: 'fixture-indirect-skill-preamble', role: 'narration', text: 'To verify “updated responses,” I need to inspect the live ExampleMail/ExampleTracker state, which your request authorizes. The project-specific rules require direct Computer Use for ExampleMail, so I’m loading that operating skill before opening either system.', state: 'complete', runId: 'fixture-run', timestamp: '2026-08-24T16:00:09+08:00' },
+  { id: 'fixture-indirect-skill-tool', role: 'tool', text: 'print lines 1–320 from /fixture/plugins/cache/openclaw-computer-use/1.0.1000919/skills/computer-use/SKILL.md', state: 'complete', runId: 'fixture-run', tool: { name: 'bash', summary: 'read /fixture/plugins/cache/openclaw-computer-use/1.0.1000919/skills/computer-use/SKILL.md', durationMs: 12 }, timestamp: '2026-08-24T16:00:10+08:00' },
+  { id: 'fixture-approval', role: 'approval', text: 'Allow a fixture command?', state: 'streaming', approval: { id: 'fixture-approval', kind: 'exec', allowedDecisions: ['allow-once', 'deny'], resolved: false }, timestamp: '2026-08-25T09:00:00+08:00' },
+  { id: 'fixture-error', role: 'error', text: 'Visible nonblank failure state', state: 'error', timestamp: '2026-08-25T09:00:01+08:00' },
+  { id: 'fixture-media', role: 'assistant', text: 'Inline image fixture', timestamp: '2026-08-25T09:00:02+08:00', attachments: [{ id: 'fixture-pixel', filename: 'fixture.png', mimeType: 'image/png', uri: pixel, pixelWidth: 1, pixelHeight: 1, byteCount: 68 }] },
+  { id: 'fixture-compaction', role: 'boundary', text: '--- compaction ---', timestamp: '2026-08-25T09:00:03+08:00' },
+  { id: 'live-run-fixture-run', role: 'run', text: '✓ done in 4s', state: 'complete', runId: 'fixture-run', source: 'live', timestamp: '2026-08-25T09:00:04+08:00' },
+];

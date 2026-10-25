@@ -1,0 +1,67 @@
+{
+  "name": "vimicate-rn-phase1",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@shopify/flash-list": "2.3.2",
+    "base64-js": "^1.5.1",
+    "expo": "~57.0.31",
+    "expo-application": "~57.0.3",
+    "expo-build-properties": "~57.0.22",
+    "expo-camera": "~57.0.6",
+    "expo-constants": "~57.0.22",
+    "expo-crypto": "~57.0.4",
+    "expo-dev-client": "~57.0.20",
+    "expo-device": "~57.0.2",
+    "expo-document-picker": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-image-picker": "~57.0.20",
+    "expo-secure-store": "~57.0.4",
+    "expo-sqlite": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "expo-symbols": "~57.0.3",
+    "expo-system-ui": "~57.0.4",
+    "expo-updates": "~57.0.26",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "tweetnacl": "^1.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "@types/react-dom": "~19.2.3",
+    "jsdom": "26.1.0",
+    "react-dom": "19.2.3",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.11"
+  },
+  "scripts": {
+    "start": "expo start",
+    "start:dev-client": "expo start --dev-client --port 8083 --host lan",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "prebuild:ios": "expo prebuild --platform ios",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "doctor": "pnpm dlx expo-doctor@latest",
+    "prune:builds": "bash scripts/prune-rn-build-artifacts.sh --apply-if-low-space",
+    "recover:history": "node scripts/recover-openclaw-history-family.mjs",
+    "verify:history-writer": "node scripts/verify-openclaw-history-family-successor-race.mjs",
+    "config:contributor": "VIMICATE_BUILD_MODE=contributor expo config --type public",
+    "prebuild:contributor": "VIMICATE_BUILD_MODE=contributor expo prebuild --platform ios",
+    "start:contributor": "VIMICATE_BUILD_MODE=contributor expo start --dev-client --port 8083 --host lan",
+    "ios:contributor": "VIMICATE_BUILD_MODE=contributor expo run:ios",
+    "test:public": "vitest run --config vitest.public.config.mjs"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "@shopify/flash-list"
+      ]
+    }
+  },
+  "private": true
+}

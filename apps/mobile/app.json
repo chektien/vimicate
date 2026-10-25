@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "Vimicate Contributor",
+    "slug": "vimicate-contributor",
+    "version": "0.1.1",
+    "orientation": "default",
+    "platforms": [
+      "ios"
+    ],
+    "scheme": "vimicate-contributor",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#1d2021",
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "NEVER"
+    },
+    "ios": {
+      "bundleIdentifier": "org.vimicate.contributor",
+      "buildNumber": "1",
+      "supportsTablet": true,
+      "requireFullScreen": false,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "UIRequiresFullScreen": false,
+        "NSLocalNetworkUsageDescription": "Vimicate connects directly to your private OpenClaw Gateway on the local network.",
+        "VimicateKeychainScope": "application"
+      }
+    },
+    "extra": {
+      "appFlavor": "vimicate-contributor",
+      "storageNamespace": "org.vimicate.contributor"
+    },
+    "plugins": [
+      [
+        "expo-dev-client",
+        {
+          "launchMode": "launcher"
+        }
+      ],
+      [
+        "expo-sqlite",
+        {
+          "enableFTS": true
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Vimicate to scan an OpenClaw setup code.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Vimicate to attach selected images to your OpenClaw prompt."
+        }
+      ],
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ]
+    ]
+  }
+}

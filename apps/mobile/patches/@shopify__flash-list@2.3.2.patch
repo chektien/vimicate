@@ -1,0 +1,1105 @@
+diff --git a/dist/recyclerview/RecyclerView.js b/dist/recyclerview/RecyclerView.js
+index 6799c8a61bff4607633196097da35c7a6975f0b6..5643ab299b8a90be9b28567b481ee1d2aed19779 100644
+--- a/dist/recyclerview/RecyclerView.js
++++ b/dist/recyclerview/RecyclerView.js
+@@ -58,7 +58,9 @@ const RecyclerViewComponent = (props, ref) => {
+     // Map to store refs for each item in the list
+     const refHolder = useMemo(() => new Map(), []);
+     // Initialize core RecyclerView manager and content offset management
+-    const { recyclerViewManager, velocityTracker } = useRecyclerViewManager(props);
++    // renderView supplies render-time reads. Effects and native handlers use
++    // the accepted recyclerViewManager.
++    const { recyclerViewManager, velocityTracker, renderView } = useRecyclerViewManager(props);
+     const { applyOffsetCorrection, computeFirstVisibleIndexForOffsetCorrection, applyInitialScrollIndex, handlerMethods, } = useRecyclerViewController(recyclerViewManager, ref, scrollViewRef, scrollAnchorRef);
+     // Initialize view holder collection ref
+     const viewHolderCollectionRef = useRef(null);
+@@ -125,8 +127,11 @@ const RecyclerViewComponent = (props, ref) => {
+         if (hasExceededMaxRendersWithoutCommit) {
+             console.warn(WarningMessages.exceededMaxRendersWithoutCommit);
+         }
+-        if (recyclerViewManager.modifyChildrenLayout(layoutInfo, (_a = data === null || data === void 0 ? void 0 : data.length) !== null && _a !== void 0 ? _a : 0) &&
+-            !hasExceededMaxRendersWithoutCommit) {
++        // A committed projection whose replay saw newer accepted state renders again.
++        const renderOutputDiverged = recyclerViewManager.consumeRenderOutputDivergence();
++        if ((recyclerViewManager.modifyChildrenLayout(layoutInfo, (_a = data === null || data === void 0 ? void 0 : data.length) !== null && _a !== void 0 ? _a : 0) &&
++            !hasExceededMaxRendersWithoutCommit) ||
++            renderOutputDiverged) {
+             // Trigger re-render if layout modifications were made
+             setRenderId((prev) => prev + 1);
+         }
+@@ -260,8 +265,8 @@ const RecyclerViewComponent = (props, ref) => {
+     }, [recyclerViewContext, recyclerViewManager]);
+     // Get secondary props and components
+     const { refreshControl, renderHeader, renderFooter, renderEmpty, CompatScrollView, renderStickyHeaderBackdrop, } = useSecondaryProps(props);
+-    if (!recyclerViewManager.getIsFirstLayoutComplete() &&
+-        recyclerViewManager.getDataLength() > 0) {
++    if (!renderView.getIsFirstLayoutComplete() &&
++        renderView.getDataLength() > 0) {
+         parentRecyclerViewContext === null || parentRecyclerViewContext === void 0 ? void 0 : parentRecyclerViewContext.markChildLayoutAsPending(recyclerViewId);
+     }
+     // Render sticky headers if configured
+@@ -306,7 +311,7 @@ const RecyclerViewComponent = (props, ref) => {
+         }
+         return onScrollHandler;
+     }, [onScrollHandler, scrollY, stickyHeaders, stickyHeaderUseNativeDriver]);
+-    const shouldMaintainVisibleContentPosition = recyclerViewManager.shouldMaintainVisibleContentPosition();
++    const shouldMaintainVisibleContentPosition = renderView.shouldMaintainVisibleContentPosition();
+     const maintainVisibleContentPositionInternal = useMemo(() => {
+         if (shouldMaintainVisibleContentPosition) {
+             return {
+@@ -316,7 +321,7 @@ const RecyclerViewComponent = (props, ref) => {
+         }
+         return undefined;
+     }, [maintainVisibleContentPosition, shouldMaintainVisibleContentPosition]);
+-    const shouldRenderFromBottom = recyclerViewManager.getDataLength() > 0 &&
++    const shouldRenderFromBottom = renderView.getDataLength() > 0 &&
+         ((_e = maintainVisibleContentPosition === null || maintainVisibleContentPosition === void 0 ? void 0 : maintainVisibleContentPosition.startRenderingFromBottom) !== null && _e !== void 0 ? _e : false);
+     // Create view for measuring bounded size
+     const viewToMeasureBoundedSize = useMemo(() => {
+@@ -359,19 +364,19 @@ const RecyclerViewComponent = (props, ref) => {
+                 isHorizontalRTL && viewToMeasureBoundedSize,
+                 renderHeader,
+                 !isHorizontalRTL && viewToMeasureBoundedSize,
+-                React.createElement(ViewHolderCollection, { viewHolderCollectionRef: viewHolderCollectionRef, data: data, horizontal: horizontal, renderStack: recyclerViewManager.getRenderStack(), getLayout: (index) => recyclerViewManager.getLayout(index), getAdjustmentMargin: () => {
+-                        if (!shouldRenderFromBottom || !recyclerViewManager.hasLayout()) {
++                React.createElement(ViewHolderCollection, { viewHolderCollectionRef: viewHolderCollectionRef, data: data, horizontal: horizontal, renderStack: renderView.getRenderStackForRender(), getLayout: (index) => renderView.getLayout(index), getAdjustmentMargin: () => {
++                        if (!shouldRenderFromBottom || !renderView.hasLayout()) {
+                             return 0;
+                         }
+                         const windowSize = horizontal
+-                            ? recyclerViewManager.getWindowSize().width
+-                            : recyclerViewManager.getWindowSize().height;
++                            ? renderView.getWindowSize().width
++                            : renderView.getWindowSize().height;
+                         const childContainerSize = horizontal
+-                            ? recyclerViewManager.getChildContainerDimensions().width
+-                            : recyclerViewManager.getChildContainerDimensions().height;
++                            ? renderView.getChildContainerDimensions().width
++                            : renderView.getChildContainerDimensions().height;
+                         return Math.max(0, windowSize -
+                             childContainerSize -
+-                            recyclerViewManager.firstItemOffset);
++                            renderView.firstItemOffset);
+                     }, refHolder: refHolder, onSizeChanged: validateItemSize, renderItem: renderItem, extraData: extraData, onCommitLayoutEffect: () => {
+                         applyInitialScrollIndex();
+                         parentRecyclerViewContext === null || parentRecyclerViewContext === void 0 ? void 0 : parentRecyclerViewContext.unmarkChildLayoutAsPending(recyclerViewId);
+@@ -383,8 +388,8 @@ const RecyclerViewComponent = (props, ref) => {
+                         checkBounds();
+                         recyclerViewManager.computeItemViewability();
+                         recyclerViewManager.animationOptimizationsEnabled = false;
+-                    }, CellRendererComponent: CellRendererComponent, ItemSeparatorComponent: ItemSeparatorComponent, isInLastRow: (index) => recyclerViewManager.isInLastRow(index), getChildContainerLayout: () => recyclerViewManager.hasLayout()
+-                        ? recyclerViewManager.getChildContainerDimensions()
++                    }, CellRendererComponent: CellRendererComponent, ItemSeparatorComponent: ItemSeparatorComponent, isInLastRow: (index) => renderView.isInLastRow(index), getChildContainerLayout: () => renderView.hasLayout()
++                        ? renderView.getChildContainerDimensions()
+                         : undefined, currentStickyIndex: currentStickyIndex, hideStickyHeaderRelatedCell: stickyHeaderHideRelatedCell, inverted: inverted }),
+                 renderEmpty,
+                 renderFooter),
+diff --git a/dist/recyclerview/RecyclerViewManager.js b/dist/recyclerview/RecyclerViewManager.js
+index 1aa651d9d985a36d3c6ef69f20407f51ca0e3e6f..0dfa4c8029c3c34059dadc8163cc82addbfa6799 100644
+--- a/dist/recyclerview/RecyclerViewManager.js
++++ b/dist/recyclerview/RecyclerViewManager.js
+@@ -6,6 +6,71 @@ import { RVLinearLayoutManagerImpl } from "./layout-managers/LinearLayoutManager
+ import { RVMasonryLayoutManagerImpl } from "./layout-managers/MasonryLayoutManager";
+ import { RVEngagedIndicesTrackerImpl, } from "./helpers/EngagedIndicesTracker";
+ import { RenderStackManager } from "./RenderStackManager";
++// State that a pending props/data revision may change. A render projection
++// owns isolated copies so an uncommitted render cannot mutate the accepted
++// state used by the committed tree, its native events and its effects.
++const PROJECTED_STATE = [
++    "propsRef",
++    "layoutManager",
++    "engagedIndicesTracker",
++    "renderStackManager",
++    "isFirstLayoutComplete",
++    "hasRenderedProgressively",
++    "progressiveRenderCount",
++    "initialDrawBatchSize",
++];
++// Copies mutable layout, tracker and render-stack graphs. Aliasing such as a
++// tracked tallest item inside the layouts array is preserved. Functions are
++// shared and rebound by the projection.
++function cloneProjectedState(value, seen) {
++    if (value === null || typeof value !== "object") {
++        return value;
++    }
++    const existing = seen.get(value);
++    if (existing !== undefined) {
++        return existing;
++    }
++    if (Array.isArray(value)) {
++        const copy = new Array(value.length);
++        seen.set(value, copy);
++        for (let index = 0; index < value.length; index++) {
++            if (index in value) {
++                copy[index] = cloneProjectedState(value[index], seen);
++            }
++        }
++        return copy;
++    }
++    if (value instanceof Map) {
++        const copy = new Map();
++        seen.set(value, copy);
++        value.forEach((entry, key) => copy.set(key, cloneProjectedState(entry, seen)));
++        return copy;
++    }
++    if (value instanceof Set) {
++        const copy = new Set();
++        seen.set(value, copy);
++        value.forEach((entry) => copy.add(cloneProjectedState(entry, seen)));
++        return copy;
++    }
++    const copy = Object.create(Object.getPrototypeOf(value));
++    seen.set(value, copy);
++    for (const key of Object.keys(value)) {
++        copy[key] = cloneProjectedState(value[key], seen);
++    }
++    return copy;
++}
++function areRenderedLayoutsEqual(first, second) {
++    return (first.x === second.x &&
++        first.y === second.y &&
++        first.width === second.width &&
++        first.height === second.height &&
++        first.enforcedWidth === second.enforcedWidth &&
++        first.enforcedHeight === second.enforcedHeight &&
++        first.minWidth === second.minWidth &&
++        first.minHeight === second.minHeight &&
++        first.maxWidth === second.maxWidth &&
++        first.maxHeight === second.maxHeight);
++}
+ // Abstracts layout manager, render stack manager and viewability manager and generates render stack (progressively on load)
+ export class RecyclerViewManager {
+     get animationOptimizationsEnabled() {
+@@ -38,6 +103,7 @@ export class RecyclerViewManager {
+         this.ignoreScrollEvents = false;
+         this.isFirstPaintOnUiComplete = false;
+         this.isInitialScrollComplete = false;
++        this.renderOutputDiverged = false;
+         // updates render stack based on the engaged indices which are sorted. Recycles unused keys.
+         this.updateRenderStack = (engagedIndices) => {
+             this.renderStackManager.sync(this.getDataKey, this.getItemType, engagedIndices, this.getDataLength());
+@@ -55,6 +121,125 @@ export class RecyclerViewManager {
+     get props() {
+         return this.propsRef;
+     }
++    /**
++     * Returns a render projection of props over the accepted state. Accepted
++     * props render the manager itself. A pending revision renders an isolated
++     * fork, so abandoned, suspended or interrupted renders leave the accepted
++     * data, layouts, engaged indices and recycler keys untouched.
++     */
++    project(props) {
++        if (props === this.propsRef) {
++            return this;
++        }
++        if (props.data === this.propsRef.data) {
++            return this.projectProps(props);
++        }
++        const projection = Object.create(this);
++        const seen = new Map();
++        for (const field of PROJECTED_STATE) {
++            projection[field] = cloneProjectedState(this[field], seen);
++        }
++        const prototype = RecyclerViewManager.prototype;
++        projection.getDataKey = prototype.getDataKey.bind(projection);
++        projection.getItemType = prototype.getItemType.bind(projection);
++        projection.overrideItemLayout = prototype.overrideItemLayout.bind(projection);
++        projection.updateRenderStack = (engagedIndices) => {
++            projection.renderStackManager.sync(projection.getDataKey, projection.getItemType, engagedIndices, projection.getDataLength());
++        };
++        if (projection.layoutManager) {
++            projection.layoutManager.getItemType = projection.getItemType;
++            projection.layoutManager.overrideItemLayout = projection.overrideItemLayout;
++        }
++        projection.isCommittedProjection = false;
++        const dataChanged = props.data !== this.propsRef.data;
++        projection.updateProps(props);
++        if (dataChanged) {
++            projection.processDataUpdate();
++        }
++        return projection;
++    }
++    /**
++     * Same-data revisions do not mutate layouts, engaged indices or keys. They
++     * share accepted geometry and render one snapshot of the accepted keys.
++     */
++    projectProps(props) {
++        const projection = Object.create(this);
++        const renderedStack = this.getRenderStackForRender();
++        projection.propsRef = props;
++        projection.getRenderStack = () => renderedStack;
++        projection.getRenderStackForRender = () => renderedStack;
++        projection.isCommittedProjection = false;
++        return projection;
++    }
++    /**
++     * Selects the state a render reads. Once a projection is committed its
++     * revision has been replayed on the accepted state, which owns it.
++     */
++    getRenderView(projection) {
++        return projection === this || projection.isCommittedProjection
++            ? this
++            : projection;
++    }
++    /**
++     * Commits a projection by replaying its revision on the current accepted
++     * state, including old-tree scroll and measurement updates admitted after
++     * the projection was rendered. Runs before layout effects measure refs.
++     */
++    acceptProjection(projection) {
++        if (projection === this || projection.isCommittedProjection) {
++            return;
++        }
++        projection.isCommittedProjection = true;
++        const dataChanged = projection.propsRef.data !== this.propsRef.data;
++        this.updateProps(projection.propsRef);
++        if (dataChanged) {
++            this.processDataUpdate();
++        }
++        this.renderOutputDiverged =
++            this.renderOutputDiverged || !this.matchesRenderedProjection(projection);
++    }
++    /**
++     * Whether the committed tree rendered from a projection whose keys or
++     * geometry differ from the replayed accepted state. The next layout pass
++     * then renders again from accepted state.
++     */
++    consumeRenderOutputDivergence() {
++        const diverged = Boolean(this.renderOutputDiverged);
++        this.renderOutputDiverged = false;
++        return diverged;
++    }
++    matchesRenderedProjection(projection) {
++        const rendered = projection.getRenderStack();
++        const accepted = this.getRenderStack();
++        if (rendered.size !== accepted.size) {
++            return false;
++        }
++        for (const [key, info] of rendered) {
++            const current = accepted.get(key);
++            if (!current ||
++                current.index !== info.index ||
++                current.stableId !== info.stableId ||
++                current.itemType !== info.itemType) {
++                return false;
++            }
++        }
++        if (!projection.hasLayout() || !this.hasLayout()) {
++            return projection.hasLayout() === this.hasLayout();
++        }
++        for (const { index } of rendered.values()) {
++            const renderedLayout = projection.tryGetLayout(index);
++            const acceptedLayout = this.tryGetLayout(index);
++            if (!renderedLayout ||
++                !acceptedLayout ||
++                !areRenderedLayoutsEqual(renderedLayout, acceptedLayout)) {
++                return false;
++            }
++        }
++        const renderedSize = projection.getChildContainerDimensions();
++        const acceptedSize = this.getChildContainerDimensions();
++        return (renderedSize.width === acceptedSize.width &&
++            renderedSize.height === acceptedSize.height);
++    }
+     setOffsetProjectionEnabled(value) {
+         this.engagedIndicesTracker.enableOffsetProjection = value;
+     }
+@@ -115,6 +300,13 @@ export class RecyclerViewManager {
+     getRenderStack() {
+         return this.renderStackManager.getRenderStack();
+     }
++    /**
++     * Render stack entries for one render. Accepted entries are mutated in
++     * place by scroll handling, so a render receives its own copy.
++     */
++    getRenderStackForRender() {
++        return new Map(Array.from(this.getRenderStack(), ([key, info]) => [key, { ...info }]));
++    }
+     getWindowSize() {
+         if (!this.layoutManager) {
+             throw new Error(ErrorMessages.layoutManagerNotInitializedWindowSize);
+diff --git a/dist/recyclerview/ViewHolder.js b/dist/recyclerview/ViewHolder.js
+index 0df287999f457001d8394689b7d47132d068013a..3412b86482044996b3879345990288d51e8b6aa7 100644
+--- a/dist/recyclerview/ViewHolder.js
++++ b/dist/recyclerview/ViewHolder.js
+@@ -14,6 +14,9 @@ const ViewHolderInternal = (props) => {
+     // create ref for View
+     const viewRef = useRef(null);
+     const { index, refHolder, layout, onSizeChanged, renderItem, extraData, item, target, CellRendererComponent, ItemSeparatorComponent, trailingItem, horizontal, hidden, inverted, } = props;
++    // Native layout events may run through props from a render that has not
++    // committed. They resolve the assignment published by the last commit.
++    const committedAssignment = useRef(undefined);
+     useLayoutEffect(() => {
+         refHolder.set(index, viewRef);
+         return () => {
+@@ -22,9 +25,18 @@ const ViewHolderInternal = (props) => {
+             }
+         };
+     }, [index, refHolder]);
++    useLayoutEffect(() => {
++        committedAssignment.current = { index, onSizeChanged };
++    });
++    useLayoutEffect(() => () => {
++        committedAssignment.current = undefined;
++    }, []);
+     const onLayout = useCallback((event) => {
+-        onSizeChanged === null || onSizeChanged === void 0 ? void 0 : onSizeChanged(index, event.nativeEvent.layout);
+-    }, [index, onSizeChanged]);
++        var _a;
++        const assignment = committedAssignment.current;
++        // Size payloads only invalidate. Layout passes measure committed refs.
++        assignment === null || assignment === void 0 ? void 0 : (_a = assignment.onSizeChanged) === null || _a === void 0 ? void 0 : _a.call(assignment, assignment.index, event.nativeEvent.layout);
++    }, []);
+     const separator = useMemo(() => {
+         return ItemSeparatorComponent && trailingItem !== undefined ? (React.createElement(ItemSeparatorComponent, { leadingItem: item, trailingItem: trailingItem })) : null;
+     }, [ItemSeparatorComponent, item, trailingItem]);
+@@ -32,10 +44,8 @@ const ViewHolderInternal = (props) => {
+     const children = useMemo(() => {
+         var _a;
+         return (_a = renderItem === null || renderItem === void 0 ? void 0 : renderItem({ item, index, extraData, target })) !== null && _a !== void 0 ? _a : null;
+-        // TODO: Test more thoroughly
+-        // We don't really  to re-render the children when the index changes
+-        // eslint-disable-next-line react-hooks/exhaustive-deps
+-    }, [item, extraData, target, renderItem]);
++        // renderItem receives the index, so a moved item renders its current one.
++    }, [item, index, extraData, target, renderItem]);
+     const invertedTransformStyle = inverted
+         ? getInvertedTransformStyle(horizontal)
+         : undefined;
+diff --git a/dist/recyclerview/hooks/useRecyclerViewController.js b/dist/recyclerview/hooks/useRecyclerViewController.js
+index 08724d1f33824ef563948cff17904d7f497739d4..09936d2a3d9614d741bdc1b668c3c50270e94683 100644
+--- a/dist/recyclerview/hooks/useRecyclerViewController.js
++++ b/dist/recyclerview/hooks/useRecyclerViewController.js
+@@ -25,7 +25,7 @@ export function useRecyclerViewController(recyclerViewManager, ref, scrollViewRe
+     const isUnmounted = useUnmountFlag();
+     const [_, setRenderId] = useState(0);
+     const pauseOffsetCorrection = useRef(false);
+-    const lastDataLengthRef = useRef(recyclerViewManager.getDataLength());
++    const lastDataSnapshot = useRef({ length: recyclerViewManager.getDataLength(), data: recyclerViewManager.props.data });
+     const { setTimeout } = useUnmountAwareTimeout();
+     // Track the first visible item for maintaining scroll position
+     const firstVisibleItemKey = useRef(undefined);
+@@ -90,7 +90,7 @@ export function useRecyclerViewController(recyclerViewManager, ref, scrollViewRe
+             recyclerViewManager.hasStableDataKeys() &&
+             currentDataLength > 0 &&
+             recyclerViewManager.shouldMaintainVisibleContentPosition()) {
+-            const hasDataChanged = currentDataLength !== lastDataLengthRef.current;
++            const hasDataChanged = currentDataLength !== lastDataSnapshot.current.length || data !== lastDataSnapshot.current.data;
+             // If we have a tracked first visible item, maintain its position
+             if (firstVisibleItemKey.current) {
+                 // Try engaged indices first (fast O(n) over rendered items), then
+@@ -141,8 +141,9 @@ export function useRecyclerViewController(recyclerViewManager, ref, scrollViewRe
+                                 };
+                             (_c = scrollViewRef.current) === null || _c === void 0 ? void 0 : _c.scrollTo(scrollToParams);
+                         }
++                        // Measurement refinements also change the native offset.
++                        updateScrollOffsetWithCallback(recyclerViewManager.getAbsoluteLastScrollOffset() + diff, () => { });
+                         if (hasDataChanged) {
+-                            updateScrollOffsetWithCallback(recyclerViewManager.getAbsoluteLastScrollOffset() + diff, () => { });
+                             recyclerViewManager.ignoreScrollEvents = true;
+                             setTimeout(() => {
+                                 recyclerViewManager.ignoreScrollEvents = false;
+@@ -153,7 +154,7 @@ export function useRecyclerViewController(recyclerViewManager, ref, scrollViewRe
+             }
+             computeFirstVisibleIndexForOffsetCorrection();
+         }
+-        lastDataLengthRef.current = recyclerViewManager.getDataLength();
++        lastDataSnapshot.current = { length: currentDataLength, data };
+     }, [
+         recyclerViewManager,
+         scrollAnchorRef,
+@@ -189,6 +190,13 @@ export function useRecyclerViewController(recyclerViewManager, ref, scrollViewRe
+                     const scrollTo = horizontal
+                         ? { x: adjustedOffset, y: 0 }
+                         : { x: 0, y: adjustedOffset };
++                    // Immediate navigation owns the new viewport before another data layout.
++                    // A correction may still suppress native scroll events at this boundary.
++                    if (!animated) {
++                      recyclerViewManager.ignoreScrollEvents = false;
++                      updateScrollOffsetWithCallback(adjustedOffset, () => {});
++                      computeFirstVisibleIndexForOffsetCorrection();
++                    }
+                     scrollViewRef.current.scrollTo({
+                         ...scrollTo,
+                         animated,
+@@ -272,7 +280,10 @@ export function useRecyclerViewController(recyclerViewManager, ref, scrollViewRe
+                                     finalOffset += viewOffset;
+                                 }
+                             }
+-                            return finalOffset + recyclerViewManager.firstItemOffset;
++                            // A vertical indexed reveal must not scroll above the header.
++                            // Rebound every corrective read, since layout can change mid-admission.
++                            const adjustedOffset = finalOffset + recyclerViewManager.firstItemOffset;
++                            return horizontal ? adjustedOffset : Math.max(0, adjustedOffset);
+                         };
+                         const lastAbsoluteScrollOffset = recyclerViewManager.getAbsoluteLastScrollOffset();
+                         const bufferForScroll = horizontal
+@@ -457,6 +468,7 @@ export function useRecyclerViewController(recyclerViewManager, ref, scrollViewRe
+         setTimeout,
+         isUnmounted,
+         updateScrollOffsetWithCallback,
++        computeFirstVisibleIndexForOffsetCorrection,
+     ]);
+     const applyInitialScrollIndex = useCallback(() => {
+         var _a, _b, _c;
+diff --git a/dist/recyclerview/hooks/useRecyclerViewManager.js b/dist/recyclerview/hooks/useRecyclerViewManager.js
+index 9c3f94f0971b3889dd1ee9695cc0869bf3236d7e..a2e96b76c4b0e8fee5c436a454a3a2419d23618b 100644
+--- a/dist/recyclerview/hooks/useRecyclerViewManager.js
++++ b/dist/recyclerview/hooks/useRecyclerViewManager.js
+@@ -1,23 +1,25 @@
+-import { useEffect, useMemo, useState } from "react";
++import { useEffect, useInsertionEffect, useMemo, useState } from "react";
+ import { RecyclerViewManager } from "../RecyclerViewManager";
+ import { VelocityTracker } from "../helpers/VelocityTracker";
+ export const useRecyclerViewManager = (props) => {
+     const [recyclerViewManager] = useState(() => new RecyclerViewManager(props));
+     const [velocityTracker] = useState(() => new VelocityTracker());
+-    const { data } = props;
+-    useMemo(() => {
+-        recyclerViewManager.updateProps(props);
+-        // used to update props so rule can be disabled
+-        // eslint-disable-next-line react-hooks/exhaustive-deps
+-    }, [props]);
+     /**
+-     * When data changes, we need to process the data update before the render happens
++     * Render reads a projection of new props or data. It never mutates the
++     * accepted manager, which the committed tree, native events and effects
++     * keep using until this render commits.
+      */
+-    useMemo(() => {
+-        recyclerViewManager.processDataUpdate();
+-        // used to process data update so rule can be disabled
+-        // eslint-disable-next-line react-hooks/exhaustive-deps
+-    }, [data]);
++    const projection = useMemo(() => recyclerViewManager.project(props),
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++    [props]);
++    /**
++     * Insertion effects run before any layout effect of this commit, so refs
++     * are measured and effects read the accepted revision that was rendered.
++     */
++    useInsertionEffect(() => {
++        recyclerViewManager.acceptProjection(projection);
++    }, [recyclerViewManager, projection]);
++    const renderView = recyclerViewManager.getRenderView(projection);
+     useEffect(() => {
+         recyclerViewManager.restoreIfNeeded();
+         return () => {
+@@ -27,6 +29,6 @@ export const useRecyclerViewManager = (props) => {
+         // Used to perform cleanup on unmount
+         // eslint-disable-next-line react-hooks/exhaustive-deps
+     }, []);
+-    return { recyclerViewManager, velocityTracker };
++    return { recyclerViewManager, velocityTracker, renderView };
+ };
+ //# sourceMappingURL=useRecyclerViewManager.js.map
+\ No newline at end of file
+diff --git a/dist/recyclerview/layout-managers/LayoutManager.js b/dist/recyclerview/layout-managers/LayoutManager.js
+index aa3722504b97642d06ba6f03b298695a4cd24266..55f555a508dbb4e573a7ff90fefb7aa06ed287ec 100644
+--- a/dist/recyclerview/layout-managers/LayoutManager.js
++++ b/dist/recyclerview/layout-managers/LayoutManager.js
+@@ -117,11 +117,11 @@ export class RVLayoutManager {
+             this.layouts.length = totalItemCount;
+             this.spanTracker.length = totalItemCount;
+             minRecomputeIndex = totalItemCount - 1; // <0 gets skipped so it's safe to set to totalItemCount - 1
+-            // layoutInfo may contain stale indices from ViewHolders that were rendered
+-            // before the data shrunk. Filter out any indices that are now out of bounds.
+-            // eslint-disable-next-line no-param-reassign
+-            layoutInfo = layoutInfo.filter((info) => info.index < totalItemCount);
+         }
++        // layoutInfo may contain stale indices from ViewHolders that were rendered
++        // before the data shrunk, including after an earlier pass truncated layouts.
++        // eslint-disable-next-line no-param-reassign
++        layoutInfo = layoutInfo.filter((info) => info.index < totalItemCount);
+         // update average windows
+         minRecomputeIndex = Math.min(minRecomputeIndex, this.computeEstimatesAndMinMaxChangedLayout(layoutInfo));
+         if (this.layouts.length < totalItemCount && totalItemCount > 0) {
+diff --git a/src/recyclerview/RecyclerView.tsx b/src/recyclerview/RecyclerView.tsx
+index 3c25e7e893004932b8a13072e01fe2a940d365d4..9c6d310538289e2e24c3f536cc2c70551663140d 100644
+--- a/src/recyclerview/RecyclerView.tsx
++++ b/src/recyclerview/RecyclerView.tsx
+@@ -134,7 +134,9 @@ const RecyclerViewComponent = <T,>(
+   );
+ 
+   // Initialize core RecyclerView manager and content offset management
+-  const { recyclerViewManager, velocityTracker } =
++  // renderView supplies render-time reads. Effects and native handlers use
++  // the accepted recyclerViewManager.
++  const { recyclerViewManager, velocityTracker, renderView } =
+     useRecyclerViewManager(props);
+   const {
+     applyOffsetCorrection,
+@@ -234,9 +236,14 @@ const RecyclerViewComponent = <T,>(
+       console.warn(WarningMessages.exceededMaxRendersWithoutCommit);
+     }
+ 
++    // A committed projection whose replay saw newer accepted state renders again.
++    const renderOutputDiverged =
++      recyclerViewManager.consumeRenderOutputDivergence();
++
+     if (
+-      recyclerViewManager.modifyChildrenLayout(layoutInfo, data?.length ?? 0) &&
+-      !hasExceededMaxRendersWithoutCommit
++      (recyclerViewManager.modifyChildrenLayout(layoutInfo, data?.length ?? 0) &&
++        !hasExceededMaxRendersWithoutCommit) ||
++      renderOutputDiverged
+     ) {
+       // Trigger re-render if layout modifications were made
+       setRenderId((prev) => prev + 1);
+@@ -413,8 +420,8 @@ const RecyclerViewComponent = <T,>(
+   } = useSecondaryProps(props);
+ 
+   if (
+-    !recyclerViewManager.getIsFirstLayoutComplete() &&
+-    recyclerViewManager.getDataLength() > 0
++    !renderView.getIsFirstLayoutComplete() &&
++    renderView.getDataLength() > 0
+   ) {
+     parentRecyclerViewContext?.markChildLayoutAsPending(recyclerViewId);
+   }
+@@ -484,7 +491,7 @@ const RecyclerViewComponent = <T,>(
+   }, [onScrollHandler, scrollY, stickyHeaders, stickyHeaderUseNativeDriver]);
+ 
+   const shouldMaintainVisibleContentPosition =
+-    recyclerViewManager.shouldMaintainVisibleContentPosition();
++    renderView.shouldMaintainVisibleContentPosition();
+ 
+   const maintainVisibleContentPositionInternal = useMemo(() => {
+     if (shouldMaintainVisibleContentPosition) {
+@@ -497,7 +504,7 @@ const RecyclerViewComponent = <T,>(
+   }, [maintainVisibleContentPosition, shouldMaintainVisibleContentPosition]);
+ 
+   const shouldRenderFromBottom =
+-    recyclerViewManager.getDataLength() > 0 &&
++    renderView.getDataLength() > 0 &&
+     (maintainVisibleContentPosition?.startRenderingFromBottom ?? false);
+ 
+   // Create view for measuring bounded size
+@@ -585,25 +592,23 @@ const RecyclerViewComponent = <T,>(
+             viewHolderCollectionRef={viewHolderCollectionRef}
+             data={data}
+             horizontal={horizontal}
+-            renderStack={recyclerViewManager.getRenderStack()}
+-            getLayout={(index) => recyclerViewManager.getLayout(index)}
++            renderStack={renderView.getRenderStackForRender()}
++            getLayout={(index) => renderView.getLayout(index)}
+             getAdjustmentMargin={() => {
+-              if (!shouldRenderFromBottom || !recyclerViewManager.hasLayout()) {
++              if (!shouldRenderFromBottom || !renderView.hasLayout()) {
+                 return 0;
+               }
+ 
+               const windowSize = horizontal
+-                ? recyclerViewManager.getWindowSize().width
+-                : recyclerViewManager.getWindowSize().height;
++                ? renderView.getWindowSize().width
++                : renderView.getWindowSize().height;
+               const childContainerSize = horizontal
+-                ? recyclerViewManager.getChildContainerDimensions().width
+-                : recyclerViewManager.getChildContainerDimensions().height;
++                ? renderView.getChildContainerDimensions().width
++                : renderView.getChildContainerDimensions().height;
+ 
+               return Math.max(
+                 0,
+-                windowSize -
+-                  childContainerSize -
+-                  recyclerViewManager.firstItemOffset
++                windowSize - childContainerSize - renderView.firstItemOffset
+               );
+             }}
+             refHolder={refHolder}
+@@ -629,10 +634,10 @@ const RecyclerViewComponent = <T,>(
+             }}
+             CellRendererComponent={CellRendererComponent}
+             ItemSeparatorComponent={ItemSeparatorComponent}
+-            isInLastRow={(index) => recyclerViewManager.isInLastRow(index)}
++            isInLastRow={(index) => renderView.isInLastRow(index)}
+             getChildContainerLayout={() =>
+-              recyclerViewManager.hasLayout()
+-                ? recyclerViewManager.getChildContainerDimensions()
++              renderView.hasLayout()
++                ? renderView.getChildContainerDimensions()
+                 : undefined
+             }
+             currentStickyIndex={currentStickyIndex}
+diff --git a/src/recyclerview/RecyclerViewManager.ts b/src/recyclerview/RecyclerViewManager.ts
+index 41704d03e807f962c17ca8d008738c7a387d9b2a..d3cf175fe93a7ad0e50779f453d55629b7b3d521 100644
+--- a/src/recyclerview/RecyclerViewManager.ts
++++ b/src/recyclerview/RecyclerViewManager.ts
+@@ -7,6 +7,7 @@ import { RVGridLayoutManagerImpl } from "./layout-managers/GridLayoutManager";
+ import {
+   LayoutParams,
+   RVDimension,
++  RVLayout,
+   RVLayoutInfo,
+   RVLayoutManager,
+   SpanSizeInfo,
+@@ -20,6 +21,78 @@ import {
+   Velocity,
+ } from "./helpers/EngagedIndicesTracker";
+ import { RenderStackManager } from "./RenderStackManager";
++
++// State that a pending props/data revision may change. A render projection
++// owns isolated copies so an uncommitted render cannot mutate the accepted
++// state used by the committed tree, its native events and its effects.
++const PROJECTED_STATE = [
++  "propsRef",
++  "layoutManager",
++  "engagedIndicesTracker",
++  "renderStackManager",
++  "isFirstLayoutComplete",
++  "hasRenderedProgressively",
++  "progressiveRenderCount",
++  "initialDrawBatchSize",
++] as const;
++
++// Copies mutable layout, tracker and render-stack graphs. Aliasing such as a
++// tracked tallest item inside the layouts array is preserved. Functions are
++// shared and rebound by the projection.
++function cloneProjectedState(value: any, seen: Map<object, any>): any {
++  if (value === null || typeof value !== "object") {
++    return value;
++  }
++  const existing = seen.get(value);
++  if (existing !== undefined) {
++    return existing;
++  }
++  if (Array.isArray(value)) {
++    const copy = new Array(value.length);
++    seen.set(value, copy);
++    for (let index = 0; index < value.length; index++) {
++      if (index in value) {
++        copy[index] = cloneProjectedState(value[index], seen);
++      }
++    }
++    return copy;
++  }
++  if (value instanceof Map) {
++    const copy = new Map();
++    seen.set(value, copy);
++    value.forEach((entry, key) =>
++      copy.set(key, cloneProjectedState(entry, seen))
++    );
++    return copy;
++  }
++  if (value instanceof Set) {
++    const copy = new Set();
++    seen.set(value, copy);
++    value.forEach((entry) => copy.add(cloneProjectedState(entry, seen)));
++    return copy;
++  }
++  const copy = Object.create(Object.getPrototypeOf(value));
++  seen.set(value, copy);
++  for (const key of Object.keys(value)) {
++    copy[key] = cloneProjectedState(value[key], seen);
++  }
++  return copy;
++}
++
++function areRenderedLayoutsEqual(first: RVLayout, second: RVLayout) {
++  return (
++    first.x === second.x &&
++    first.y === second.y &&
++    first.width === second.width &&
++    first.height === second.height &&
++    first.enforcedWidth === second.enforcedWidth &&
++    first.enforcedHeight === second.enforcedHeight &&
++    first.minWidth === second.minWidth &&
++    first.minHeight === second.minHeight &&
++    first.maxWidth === second.maxWidth &&
++    first.maxHeight === second.maxHeight
++  );
++}
+ // Abstracts layout manager, render stack manager and viewability manager and generates render stack (progressively on load)
+ export class RecyclerViewManager<T> {
+   private initialDrawBatchSize = 2;
+@@ -40,6 +113,8 @@ export class RecyclerViewManager<T> {
+   public ignoreScrollEvents = false;
+   public isFirstPaintOnUiComplete = false;
+   public isInitialScrollComplete = false;
++  private renderOutputDiverged = false;
++  private isCommittedProjection = false;
+ 
+   public get animationOptimizationsEnabled() {
+     return this._animationOptimizationsEnabled;
+@@ -90,6 +165,145 @@ export class RecyclerViewManager<T> {
+     return this.propsRef;
+   }
+ 
++  /**
++   * Returns a render projection of props over the accepted state. Accepted
++   * props render the manager itself. A pending revision renders an isolated
++   * fork, so abandoned, suspended or interrupted renders leave the accepted
++   * data, layouts, engaged indices and recycler keys untouched.
++   */
++  project(props: RecyclerViewProps<T>): RecyclerViewManager<T> {
++    if (props === this.propsRef) {
++      return this;
++    }
++    if (props.data === this.propsRef.data) {
++      return this.projectProps(props);
++    }
++    const projection = Object.create(this) as RecyclerViewManager<T>;
++    const writable = projection as any;
++    const seen = new Map<object, any>();
++    for (const field of PROJECTED_STATE) {
++      writable[field] = cloneProjectedState((this as any)[field], seen);
++    }
++    const prototype = RecyclerViewManager.prototype;
++    projection.getDataKey = prototype.getDataKey.bind(projection);
++    projection.getItemType = prototype.getItemType.bind(projection);
++    projection.overrideItemLayout =
++      prototype.overrideItemLayout.bind(projection);
++    projection.updateRenderStack = (engagedIndices) => {
++      projection.renderStackManager.sync(
++        projection.getDataKey,
++        projection.getItemType,
++        engagedIndices,
++        projection.getDataLength()
++      );
++    };
++    if (projection.layoutManager) {
++      const layoutManager = projection.layoutManager as any;
++      layoutManager.getItemType = projection.getItemType;
++      layoutManager.overrideItemLayout = projection.overrideItemLayout;
++    }
++    projection.isCommittedProjection = false;
++    const dataChanged = props.data !== this.propsRef.data;
++    projection.updateProps(props);
++    if (dataChanged) {
++      projection.processDataUpdate();
++    }
++    return projection;
++  }
++
++  /**
++   * Same-data revisions do not mutate layouts, engaged indices or keys. They
++   * share accepted geometry and render one snapshot of the accepted keys.
++   */
++  private projectProps(props: RecyclerViewProps<T>): RecyclerViewManager<T> {
++    const projection = Object.create(this) as RecyclerViewManager<T>;
++    const renderedStack = this.getRenderStackForRender();
++    projection.propsRef = props;
++    projection.getRenderStack = () => renderedStack;
++    projection.getRenderStackForRender = () => renderedStack;
++    projection.isCommittedProjection = false;
++    return projection;
++  }
++
++  /**
++   * Selects the state a render reads. Once a projection is committed its
++   * revision has been replayed on the accepted state, which owns it.
++   */
++  getRenderView(projection: RecyclerViewManager<T>): RecyclerViewManager<T> {
++    return projection === this || projection.isCommittedProjection
++      ? this
++      : projection;
++  }
++
++  /**
++   * Commits a projection by replaying its revision on the current accepted
++   * state, including old-tree scroll and measurement updates admitted after
++   * the projection was rendered. Runs before layout effects measure refs.
++   */
++  acceptProjection(projection: RecyclerViewManager<T>) {
++    if (projection === this || projection.isCommittedProjection) {
++      return;
++    }
++    projection.isCommittedProjection = true;
++    const dataChanged = projection.propsRef.data !== this.propsRef.data;
++    this.updateProps(projection.propsRef);
++    if (dataChanged) {
++      this.processDataUpdate();
++    }
++    this.renderOutputDiverged =
++      this.renderOutputDiverged || !this.matchesRenderedProjection(projection);
++  }
++
++  /**
++   * Whether the committed tree rendered from a projection whose keys or
++   * geometry differ from the replayed accepted state. The next layout pass
++   * then renders again from accepted state.
++   */
++  consumeRenderOutputDivergence() {
++    const diverged = this.renderOutputDiverged;
++    this.renderOutputDiverged = false;
++    return diverged;
++  }
++
++  private matchesRenderedProjection(projection: RecyclerViewManager<T>) {
++    const rendered = projection.getRenderStack();
++    const accepted = this.getRenderStack();
++    if (rendered.size !== accepted.size) {
++      return false;
++    }
++    for (const [key, info] of rendered) {
++      const current = accepted.get(key);
++      if (
++        !current ||
++        current.index !== info.index ||
++        current.stableId !== info.stableId ||
++        current.itemType !== info.itemType
++      ) {
++        return false;
++      }
++    }
++    if (!projection.hasLayout() || !this.hasLayout()) {
++      return projection.hasLayout() === this.hasLayout();
++    }
++    for (const { index } of rendered.values()) {
++      const renderedLayout = projection.tryGetLayout(index);
++      const acceptedLayout = this.tryGetLayout(index);
++      if (
++        !renderedLayout ||
++        !acceptedLayout ||
++        !areRenderedLayoutsEqual(renderedLayout, acceptedLayout)
++      ) {
++        return false;
++      }
++    }
++    const renderedSize = projection.getChildContainerDimensions();
++    const acceptedSize = this.getChildContainerDimensions();
++    return (
++      renderedSize.width === acceptedSize.width &&
++      renderedSize.height === acceptedSize.height
++    );
++  }
++
+   setOffsetProjectionEnabled(value: boolean) {
+     this.engagedIndicesTracker.enableOffsetProjection = value;
+   }
+@@ -169,6 +383,16 @@ export class RecyclerViewManager<T> {
+     return this.renderStackManager.getRenderStack();
+   }
+ 
++  /**
++   * Render stack entries for one render. Accepted entries are mutated in
++   * place by scroll handling, so a render receives its own copy.
++   */
++  getRenderStackForRender() {
++    return new Map(
++      Array.from(this.getRenderStack(), ([key, info]) => [key, { ...info }])
++    );
++  }
++
+   getWindowSize() {
+     if (!this.layoutManager) {
+       throw new Error(ErrorMessages.layoutManagerNotInitializedWindowSize);
+diff --git a/src/recyclerview/ViewHolder.tsx b/src/recyclerview/ViewHolder.tsx
+index 54b8403011053c71efe435e2cf174eca2ab97f27..909132dd33cd8f68805a39c96c5979b0d808e517 100644
+--- a/src/recyclerview/ViewHolder.tsx
++++ b/src/recyclerview/ViewHolder.tsx
+@@ -78,6 +78,12 @@ const ViewHolderInternal = <TItem,>(props: ViewHolderProps<TItem>) => {
+     inverted,
+   } = props;
+ 
++  // Native layout events may run through props from a render that has not
++  // committed. They resolve the assignment published by the last commit.
++  const committedAssignment = useRef<
++    { index: number; onSizeChanged: ViewHolderProps<TItem>["onSizeChanged"] } | undefined
++  >(undefined);
++
+   useLayoutEffect(() => {
+     refHolder.set(index, viewRef);
+     return () => {
+@@ -87,13 +93,23 @@ const ViewHolderInternal = <TItem,>(props: ViewHolderProps<TItem>) => {
+     };
+   }, [index, refHolder]);
+ 
+-  const onLayout = useCallback(
+-    (event: LayoutChangeEvent) => {
+-      onSizeChanged?.(index, event.nativeEvent.layout);
++  useLayoutEffect(() => {
++    committedAssignment.current = { index, onSizeChanged };
++  });
++
++  useLayoutEffect(
++    () => () => {
++      committedAssignment.current = undefined;
+     },
+-    [index, onSizeChanged]
++    []
+   );
+ 
++  const onLayout = useCallback((event: LayoutChangeEvent) => {
++    const assignment = committedAssignment.current;
++    // Size payloads only invalidate. Layout passes measure committed refs.
++    assignment?.onSizeChanged?.(assignment.index, event.nativeEvent.layout);
++  }, []);
++
+   const separator = useMemo(() => {
+     return ItemSeparatorComponent && trailingItem !== undefined ? (
+       <ItemSeparatorComponent leadingItem={item} trailingItem={trailingItem} />
+@@ -104,10 +120,8 @@ const ViewHolderInternal = <TItem,>(props: ViewHolderProps<TItem>) => {
+ 
+   const children = useMemo(() => {
+     return renderItem?.({ item, index, extraData, target }) ?? null;
+-    // TODO: Test more thoroughly
+-    // We don't really  to re-render the children when the index changes
+-    // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [item, extraData, target, renderItem]);
++    // renderItem receives the index, so a moved item renders its current one.
++  }, [item, index, extraData, target, renderItem]);
+ 
+   const invertedTransformStyle = inverted
+     ? getInvertedTransformStyle(horizontal)
+diff --git a/src/recyclerview/hooks/useRecyclerViewController.tsx b/src/recyclerview/hooks/useRecyclerViewController.tsx
+index 3689830d995ff4f11c9fba6b3f54d9962d481726..7506a5fe4a3951ec7013164c5091a0de2a999aa4 100644
+--- a/src/recyclerview/hooks/useRecyclerViewController.tsx
++++ b/src/recyclerview/hooks/useRecyclerViewController.tsx
+@@ -51,7 +51,7 @@ export function useRecyclerViewController<T>(
+   const isUnmounted = useUnmountFlag();
+   const [_, setRenderId] = useState(0);
+   const pauseOffsetCorrection = useRef(false);
+-  const lastDataLengthRef = useRef(recyclerViewManager.getDataLength());
++  const lastDataSnapshot = useRef({ length: recyclerViewManager.getDataLength(), data: recyclerViewManager.props.data });
+   const { setTimeout } = useUnmountAwareTimeout();
+ 
+   // Track the first visible item for maintaining scroll position
+@@ -133,7 +133,7 @@ export function useRecyclerViewController<T>(
+       currentDataLength > 0 &&
+       recyclerViewManager.shouldMaintainVisibleContentPosition()
+     ) {
+-      const hasDataChanged = currentDataLength !== lastDataLengthRef.current;
++      const hasDataChanged = currentDataLength !== lastDataSnapshot.current.length || data !== lastDataSnapshot.current.data;
+       // If we have a tracked first visible item, maintain its position
+       if (firstVisibleItemKey.current) {
+         // Try engaged indices first (fast O(n) over rendered items), then
+@@ -196,11 +196,13 @@ export function useRecyclerViewController<T>(
+                   };
+               scrollViewRef.current?.scrollTo(scrollToParams);
+             }
++            // Measurement refinements also change the native offset. Admit
++            // them before selecting the next anchor, even with unchanged data.
++            updateScrollOffsetWithCallback(
++              recyclerViewManager.getAbsoluteLastScrollOffset() + diff,
++              () => {}
++            );
+             if (hasDataChanged) {
+-              updateScrollOffsetWithCallback(
+-                recyclerViewManager.getAbsoluteLastScrollOffset() + diff,
+-                () => {}
+-              );
+               recyclerViewManager.ignoreScrollEvents = true;
+               setTimeout(() => {
+                 recyclerViewManager.ignoreScrollEvents = false;
+@@ -212,7 +214,7 @@ export function useRecyclerViewController<T>(
+ 
+       computeFirstVisibleIndexForOffsetCorrection();
+     }
+-    lastDataLengthRef.current = recyclerViewManager.getDataLength();
++    lastDataSnapshot.current = { length: currentDataLength, data };
+   }, [
+     recyclerViewManager,
+     scrollAnchorRef,
+@@ -259,6 +261,13 @@ export function useRecyclerViewController<T>(
+           const scrollTo = horizontal
+             ? { x: adjustedOffset, y: 0 }
+             : { x: 0, y: adjustedOffset };
++          // Immediate navigation owns the new viewport before another data layout.
++          // A correction may still suppress native scroll events at this boundary.
++          if (!animated) {
++            recyclerViewManager.ignoreScrollEvents = false;
++            updateScrollOffsetWithCallback(adjustedOffset, () => {});
++            computeFirstVisibleIndexForOffsetCorrection();
++          }
+           scrollViewRef.current.scrollTo({
+             ...scrollTo,
+             animated,
+@@ -356,7 +365,10 @@ export function useRecyclerViewController<T>(
+                   finalOffset += viewOffset;
+                 }
+               }
+-              return finalOffset + recyclerViewManager.firstItemOffset;
++              // A vertical indexed reveal must not scroll above the header.
++              // Rebound every corrective read, since layout can change mid-admission.
++              const adjustedOffset = finalOffset + recyclerViewManager.firstItemOffset;
++              return horizontal ? adjustedOffset : Math.max(0, adjustedOffset);
+             };
+             const lastAbsoluteScrollOffset =
+               recyclerViewManager.getAbsoluteLastScrollOffset();
+@@ -570,6 +582,7 @@ export function useRecyclerViewController<T>(
+     setTimeout,
+     isUnmounted,
+     updateScrollOffsetWithCallback,
++    computeFirstVisibleIndexForOffsetCorrection,
+   ]);
+ 
+   const applyInitialScrollIndex = useCallback(() => {
+diff --git a/src/recyclerview/hooks/useRecyclerViewManager.ts b/src/recyclerview/hooks/useRecyclerViewManager.ts
+index 5439a7b56f1f6e2eb96b14644849478543cb21a4..414cdf22cca5f5a3745fa9a55902221596262b6c 100644
+--- a/src/recyclerview/hooks/useRecyclerViewManager.ts
++++ b/src/recyclerview/hooks/useRecyclerViewManager.ts
+@@ -1,4 +1,4 @@
+-import { useEffect, useMemo, useState } from "react";
++import { useEffect, useInsertionEffect, useMemo, useState } from "react";
+ 
+ import { RecyclerViewProps } from "../RecyclerViewProps";
+ import { RecyclerViewManager } from "../RecyclerViewManager";
+@@ -10,22 +10,26 @@ export const useRecyclerViewManager = <T>(props: RecyclerViewProps<T>) => {
+   );
+   const [velocityTracker] = useState(() => new VelocityTracker());
+ 
+-  const { data } = props;
+-
+-  useMemo(() => {
+-    recyclerViewManager.updateProps(props);
+-    // used to update props so rule can be disabled
++  /**
++   * Render reads a projection of new props or data. It never mutates the
++   * accepted manager, which the committed tree, native events and effects
++   * keep using until this render commits.
++   */
++  const projection = useMemo(
++    () => recyclerViewManager.project(props),
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [props]);
++    [props]
++  );
+ 
+   /**
+-   * When data changes, we need to process the data update before the render happens
++   * Insertion effects run before any layout effect of this commit, so refs
++   * are measured and effects read the accepted revision that was rendered.
+    */
+-  useMemo(() => {
+-    recyclerViewManager.processDataUpdate();
+-    // used to process data update so rule can be disabled
+-    // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [data]);
++  useInsertionEffect(() => {
++    recyclerViewManager.acceptProjection(projection);
++  }, [recyclerViewManager, projection]);
++
++  const renderView = recyclerViewManager.getRenderView(projection);
+ 
+   useEffect(() => {
+     recyclerViewManager.restoreIfNeeded();
+@@ -38,5 +42,5 @@ export const useRecyclerViewManager = <T>(props: RecyclerViewProps<T>) => {
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, []);
+ 
+-  return { recyclerViewManager, velocityTracker };
++  return { recyclerViewManager, velocityTracker, renderView };
+ };
+diff --git a/src/recyclerview/layout-managers/LayoutManager.ts b/src/recyclerview/layout-managers/LayoutManager.ts
+index fc73c9148748d11be8041a7a319428a0d65cdb23..830e3a708c5b7ec5c2436221508e6fa2a83b29e7 100644
+--- a/src/recyclerview/layout-managers/LayoutManager.ts
++++ b/src/recyclerview/layout-managers/LayoutManager.ts
+@@ -182,11 +182,11 @@ export abstract class RVLayoutManager {
+       this.layouts.length = totalItemCount;
+       this.spanTracker.length = totalItemCount;
+       minRecomputeIndex = totalItemCount - 1; // <0 gets skipped so it's safe to set to totalItemCount - 1
+-      // layoutInfo may contain stale indices from ViewHolders that were rendered
+-      // before the data shrunk. Filter out any indices that are now out of bounds.
+-      // eslint-disable-next-line no-param-reassign
+-      layoutInfo = layoutInfo.filter((info) => info.index < totalItemCount);
+     }
++    // layoutInfo may contain stale indices from ViewHolders that were rendered
++    // before the data shrunk, including after an earlier pass truncated layouts.
++    // eslint-disable-next-line no-param-reassign
++    layoutInfo = layoutInfo.filter((info) => info.index < totalItemCount);
+     // update average windows
+     minRecomputeIndex = Math.min(
+       minRecomputeIndex,

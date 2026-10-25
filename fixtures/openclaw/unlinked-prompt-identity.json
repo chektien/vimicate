@@ -1,0 +1,56 @@
+{
+  "sessionKey": "agent:main:fixture:prompt-identity",
+  "sessionId": "00000000-0000-4000-8000-000000000130",
+  "cliSessionId": "00000000-0000-4000-8000-000000000114",
+  "importedEntry": {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": "Synthetic repeat"
+    },
+    "timestamp": "2026-10-21T22:00:00.000Z",
+    "uuid": "native-0"
+  },
+  "nativeWire": {
+    "role": "user",
+    "content": "Synthetic repeat",
+    "timestamp": 1792620000000,
+    "__openclaw": {
+      "id": "native-0",
+      "importedFrom": "claude-cli",
+      "cliSessionId": "00000000-0000-4000-8000-000000000114",
+      "externalId": "native-0"
+    }
+  },
+  "canonicalWire": {
+    "role": "user",
+    "content": "Synthetic repeat",
+    "timestamp": 1792620000000,
+    "idempotencyKey": "submission-0:user",
+    "__openclaw": {
+      "id": "canonical-0",
+      "seq": 1,
+      "transcriptPosition": {
+        "source": "sqlite-fixture",
+        "rawSeq": 1
+      }
+    }
+  },
+  "linkedCanonicalWire": {
+    "role": "user",
+    "content": "Synthetic repeat",
+    "timestamp": 1792620000000,
+    "idempotencyKey": "submission-0:user",
+    "__openclaw": {
+      "id": "canonical-0",
+      "seq": 1,
+      "transcriptPosition": {
+        "source": "sqlite-fixture",
+        "rawSeq": 1
+      },
+      "importedFrom": "claude-cli",
+      "cliSessionId": "00000000-0000-4000-8000-000000000114",
+      "externalId": "native-0"
+    }
+  }
+}

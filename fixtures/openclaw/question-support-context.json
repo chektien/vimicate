@@ -1,0 +1,47 @@
+{
+  "sessionKey": "synthetic-review",
+  "sessionId": "11111111-1111-4111-8111-111111111111",
+  "runId": "review-run",
+  "epoch": 1792677600000,
+  "registry": {
+    "id": "decision",
+    "sessionKey": "synthetic-review",
+    "runId": "review-run",
+    "createdAtMs": 1792677600100,
+    "expiresAtMs": 1792678500100,
+    "status": "pending",
+    "questions": [
+      {
+        "questionId": "choice",
+        "header": "Review",
+        "question": "Use the synthetic review?",
+        "options": [
+          {
+            "label": "Accept"
+          },
+          {
+            "label": "Revise"
+          }
+        ],
+        "isOther": true
+      }
+    ]
+  },
+  "async": {
+    "itemId": "decision-item",
+    "questions": [
+      {
+        "title": "Use the synthetic review?",
+        "options": [
+          "Accept",
+          "Revise"
+        ]
+      }
+    ]
+  },
+  "hypotheticalContentReference": {
+    "sessionId": "11111111-1111-4111-8111-111111111111",
+    "messageId": "review",
+    "rawSeq": 1
+  }
+}

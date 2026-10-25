@@ -1,0 +1,153 @@
+{
+  "fixtureProvenance": "Synthetic envelope reconstruction. Identifiers and timestamps are fixed test values, not an exported session.",
+  "sessionKey": "agent:main:dashboard:00000000-0000-4000-b000-000000000137",
+  "sessionId": "00000000-0000-4000-8000-000000000130",
+  "imported": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "QC_fixture_SKILL I am using the xcodebuildmcp-cli skill."
+        }
+      ],
+      "api": "anthropic-messages",
+      "provider": "claude-cli",
+      "model": "claude-fable-5-1",
+      "stopReason": "tool_use",
+      "usage": {
+        "input": 2,
+        "output": 129,
+        "cacheRead": 0,
+        "cacheWrite": 73222
+      },
+      "timestamp": 1767225606360,
+      "__openclaw": {
+        "id": "00000000-0000-4000-8000-000000000151",
+        "importedFrom": "claude-cli",
+        "cliSessionId": "00000000-0000-4000-8000-000000000114",
+        "externalId": "00000000-0000-4000-8000-000000000151"
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolcall",
+          "id": "toolu_fixture_skill_read",
+          "name": "Read",
+          "arguments": {
+            "file_path": "/skills/xcodebuildmcp-cli/SKILL.md"
+          }
+        },
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_fixture_skill_read",
+          "name": "Read",
+          "isError": false,
+          "content": "# XcodeBuildMCP CLI"
+        }
+      ],
+      "api": "anthropic-messages",
+      "provider": "claude-cli",
+      "model": "claude-fable-5-1",
+      "stopReason": "tool_use",
+      "usage": {
+        "input": 2,
+        "output": 129,
+        "cacheRead": 0,
+        "cacheWrite": 73222
+      },
+      "timestamp": 1767225607133,
+      "__openclaw": {
+        "id": "00000000-0000-4000-9000-000000000164",
+        "importedFrom": "claude-cli",
+        "cliSessionId": "00000000-0000-4000-8000-000000000114",
+        "externalId": "00000000-0000-4000-9000-000000000164"
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "QC_fixture_FINAL"
+        }
+      ],
+      "api": "anthropic-messages",
+      "provider": "claude-cli",
+      "model": "claude-fable-5-1",
+      "stopReason": "end_turn",
+      "usage": {
+        "input": 32,
+        "output": 16,
+        "cacheRead": 73222,
+        "cacheWrite": 992
+      },
+      "timestamp": 1767225608426,
+      "__openclaw": {
+        "id": "00000000-0000-4000-8000-000000000110",
+        "importedFrom": "claude-cli",
+        "cliSessionId": "00000000-0000-4000-8000-000000000114",
+        "externalId": "00000000-0000-4000-8000-000000000110"
+      }
+    }
+  ],
+  "canonical": [
+    {
+      "role": "user",
+      "content": "Isolated named-skill read fixture.",
+      "timestamp": 1767225602054,
+      "idempotencyKey": "vimicate-provider-fixture-cli-run:user",
+      "__openclaw": {
+        "id": "00000000-0000-4000-b000-000000000162",
+        "idempotencyKey": "vimicate-provider-fixture-cli-run:user",
+        "recordTimestampMs": 1767225602121,
+        "transcriptPosition": {
+          "source": "fixture-transcript-source",
+          "rawSeq": 93
+        },
+        "seq": 12
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "QC_fixture_SKILL I am using the xcodebuildmcp-cli skill.\n\nQC_fixture_FINAL"
+        }
+      ],
+      "stopReason": "stop",
+      "api": "cli",
+      "provider": "claude-cli",
+      "model": "claude-fable-5-1",
+      "usage": {
+        "input": 32,
+        "output": 16,
+        "totalTokens": 74262,
+        "cacheRead": 73222,
+        "cacheWrite": 992,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "timestamp": 1767225608698,
+      "idempotencyKey": "cli-assistant:vimicate-provider-fixture-cli-run",
+      "__openclaw": {
+        "id": "00000000-0000-4000-8000-000000000141",
+        "idempotencyKey": "cli-assistant:vimicate-provider-fixture-cli-run",
+        "recordTimestampMs": 1767225608701,
+        "transcriptPosition": {
+          "source": "fixture-transcript-source",
+          "rawSeq": 94
+        },
+        "seq": 13
+      }
+    }
+  ]
+}

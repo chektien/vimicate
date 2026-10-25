@@ -1,0 +1,77 @@
+{
+  "apps/mobile/src/app/AppShell.tsx": {
+    "lines": 446,
+    "bytes": 46980,
+    "plan": "Extract pane search, transcript key commands and prompt submission on next feature touch; keep dispatchHardwareKey in AppShell as the single routing authority."
+  },
+  "apps/mobile/src/app/uiFixtureMessages.ts": {
+    "lines": 470,
+    "bytes": 27498,
+    "plan": "Fixture data currently lives under src and remains covered; move by fixture scenario only when fixture work warrants it."
+  },
+  "apps/mobile/src/gateway/historyPagination.ts": {
+    "lines": 304,
+    "bytes": 25362,
+    "plan": "Separate pure page reconciliation from request composition when pagination next changes."
+  },
+  "apps/mobile/src/gateway/useGatewayHistory.ts": {
+    "lines": 491,
+    "bytes": 31851,
+    "plan": "Follow docs/decisions/latest-history-loading.md; retain one history cache and request authority."
+  },
+  "apps/mobile/src/gateway/useGatewayWorkspace.ts": {
+    "lines": 486,
+    "bytes": 44830,
+    "plan": "Extract cohesive workspace actions on next change without duplicating session state."
+  },
+  "apps/mobile/src/projectFiles/useProjectFilesController.ts": {
+    "lines": 382,
+    "bytes": 30942,
+    "plan": "Separate navigation actions from preview coordination on next Files change."
+  },
+  "apps/mobile/src/prompt/vimPromptCore.ts": {
+    "lines": 467,
+    "bytes": 34035,
+    "plan": "Extract cohesive pure motion/operator handlers on next Vim work, keeping one editor state."
+  },
+  "apps/mobile/src/transcript/transcriptVim.ts": {
+    "lines": 402,
+    "bytes": 27808,
+    "plan": "Extract pure command families on next transcript navigation change."
+  },
+  "apps/mobile/src/transcript/useTranscriptViewport.ts": {
+    "lines": 490,
+    "bytes": 41766,
+    "plan": "Follow docs/decisions/viewport-frame-lifetime.md; retain one measured viewport and scheduler."
+  },
+  "apps/mobile/modules/vimicate-editor/ios/VimicateEditorView.swift": {
+    "lines": 925,
+    "bytes": 46921,
+    "plan": "After physical acceptance, separate HardwareKeyboardTextView from the Expo adapter; rerun native gates. No native edits in this task."
+  },
+  "host/openclaw/install-vimicate-history-family.mjs": {
+    "lines": 1421,
+    "bytes": 62006,
+    "plan": "Separate install planning/verification from mutation on next installer change, preserving rollback ordering."
+  },
+  "host/openclaw/vimicate-history-family-contract.mjs": {
+    "lines": 529,
+    "bytes": 20660,
+    "plan": "Separate validation by contract family on next contract change; preserve wire compatibility."
+  },
+  "host/openclaw/vimicate-history-family-ledger.mjs": {
+    "lines": 764,
+    "bytes": 28237,
+    "plan": "Extract pure ledger validation on next ledger change; preserve one persistence owner."
+  },
+  "host/openclaw/vimicate-history-family-openclaw.mjs": {
+    "lines": 648,
+    "bytes": 22868,
+    "plan": "Separate OpenClaw boundary adaptation from history operations on next integration change."
+  },
+  "host/openclaw/vimicate-narration-record-contract.mjs": {
+    "lines": 378,
+    "bytes": 12482,
+    "plan": "Extract cohesive pure record validators on next narration contract change."
+  }
+}

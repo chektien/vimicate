@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "upstreamArchive": {
+    "url": "https://registry.npmjs.org/expo-template-blank/-/expo-template-blank-57.0.33.tgz",
+    "sha256": "1aad2a8727eb6f00fdc2235c2174521aa2da9aa31dc866a63d81b969616a73c3",
+    "note": "Registry metadata declares 0BSD, but the archive contains an MIT LICENSE. Preserve the complete shipped MIT notice."
+  },
+  "assets": [
+    {
+      "path": "apps/mobile/assets/android-icon-background.png",
+      "sha256": "fb139c2dee362ebf2070e23b96da6fc0d43f8492de38b8af1fd7223e19b5861d",
+      "origin": "expo-template-blank@57.0.33",
+      "licenseEvidence": "package/LICENSE (MIT)",
+      "source": "https://registry.npmjs.org/expo-template-blank/-/expo-template-blank-57.0.33.tgz",
+      "sourcePath": "package/assets/android-icon-background.png",
+      "verification": "byte-identical"
+    },
+    {
+      "path": "apps/mobile/assets/android-icon-foreground.png",
+      "sha256": "9e3d0315a33c6799de601dd34cd8bf8cc3a8d16f3bf75592baec2ceb7240b391",
+      "origin": "expo-template-blank@57.0.33",
+      "licenseEvidence": "package/LICENSE (MIT)",
+      "source": "https://registry.npmjs.org/expo-template-blank/-/expo-template-blank-57.0.33.tgz",
+      "sourcePath": "package/assets/android-icon-foreground.png",
+      "verification": "byte-identical"
+    },
+    {
+      "path": "apps/mobile/assets/android-icon-monochrome.png",
+      "sha256": "6371fc2c12e33ad2215a86c281db3d682a81bebe7c957a842c13b8bf00cceb83",
+      "origin": "expo-template-blank@57.0.33",
+      "licenseEvidence": "package/LICENSE (MIT)",
+      "source": "https://registry.npmjs.org/expo-template-blank/-/expo-template-blank-57.0.33.tgz",
+      "sourcePath": "package/assets/android-icon-monochrome.png",
+      "verification": "byte-identical"
+    },
+    {
+      "path": "apps/mobile/assets/favicon.png",
+      "sha256": "a4e030697a7571b3e95d31860e4da55d2f98e5e861e2b55e414f45a8556828ba",
+      "origin": "expo-template-blank@57.0.33",
+      "licenseEvidence": "package/LICENSE (MIT)",
+      "source": "https://registry.npmjs.org/expo-template-blank/-/expo-template-blank-57.0.33.tgz",
+      "sourcePath": "package/assets/favicon.png",
+      "verification": "byte-identical"
+    },
+    {
+      "path": "apps/mobile/assets/splash-icon.png",
+      "sha256": "5f4c0a732b6325bf4071d9124d2ae67e037cb24fcc9c482ef82bea742109a3b8",
+      "origin": "expo-template-blank@57.0.33",
+      "licenseEvidence": "package/LICENSE (MIT)",
+      "source": "https://registry.npmjs.org/expo-template-blank/-/expo-template-blank-57.0.33.tgz",
+      "sourcePath": "package/assets/splash-icon.png",
+      "verification": "byte-identical"
+    },
+    {
+      "path": "apps/mobile/assets/connection/plug-connected.png",
+      "sha256": "a96b2e7dfbdac42a784a474dc4f5cd2fc62c0088d226844ce6c2839d65e80b3c",
+      "origin": "Generated for Vimicate on 21 September 2026",
+      "licenseEvidence": "Original project asset under the root MIT license",
+      "source": "apps/mobile/assets/connection/README.md",
+      "verification": "generation record",
+      "preSanitizationSha256": "8aa1351b0457910466c7799faf5de83bb90cd86b1988512393766184d94e8906",
+      "metadataSanitization": "Removed C2PA or EXIF ancillary chunks only. IHDR/IDAT bytes and decoded RGBA pixels verified unchanged."
+    },
+    {
+      "path": "apps/mobile/assets/connection/plug-disconnected.png",
+      "sha256": "d7a8c174edf18da9ac9943411a520c35504778d04bc9d5f184d787c02af653df",
+      "origin": "Generated for Vimicate on 21 September 2026",
+      "licenseEvidence": "Original project asset under the root MIT license",
+      "source": "apps/mobile/assets/connection/README.md",
+      "verification": "generation record",
+      "preSanitizationSha256": "2db45bd9600a1c821d99f81c25a2a83309deb87560c306d1aa9ca1ecdd71b88d",
+      "metadataSanitization": "Removed C2PA or EXIF ancillary chunks only. IHDR/IDAT bytes and decoded RGBA pixels verified unchanged."
+    },
+    {
+      "path": "apps/mobile/assets/icon.png",
+      "sha256": "e0e825402c0e1213e45c9f7e5806b45ff2b05217c8ef1aec8fde40c271e3bf46",
+      "origin": "Generated edit of the original native Vimicate wordmark",
+      "licenseEvidence": "Original project artwork under the root MIT license",
+      "source": "apps/mobile/assets/ICON_NOTES.md",
+      "verification": "Current generated edit recorded. Copyright holder confirmed on 25 October 2026 that the original predecessor was created or generated for this project with no third-party artwork used as its source.",
+      "preSanitizationSha256": "bacbc0e7ee167363fa88ad09816a4e9027b88e08fc35f80b1061cea7d0676e5d",
+      "metadataSanitization": "Removed C2PA or EXIF ancillary chunks only. IHDR/IDAT bytes and decoded RGBA pixels verified unchanged."
+    }
+  ]
+}

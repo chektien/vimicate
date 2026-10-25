@@ -1,0 +1,59 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+build/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# local XcodeBuildMCP build products
+/.xcodebuildmcp-qa-device/
+/.xcodebuildmcp-derived*/
+/.xcodebuildmcp-*-derived*/
+/.xcodebuildmcp-physical-runner/SimulatorDerivedData/
+/.xcodebuildmcp-physical-runner/SimulatorIpadV2DerivedData/
+/.xcodebuildmcp-physical-runner/SimulatorPhoneDerivedData/
+/.xcodebuildmcp-physical-runner/build/
+/.xcodebuildmcp-physical-runner/VimicateAcceptanceRunnerPackage/.swiftpm/
+/.xcodebuildmcp-physical-runner/.cursor/
+/.xcodebuildmcp-physical-runner/.github/
+/.xcodebuildmcp-physical-runner/CLAUDE.md

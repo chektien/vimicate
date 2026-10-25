@@ -1,0 +1,1 @@
+export { installNativeFatalDiagnosticCapture, latestFatalDiagnostic, recentViewportDiagnostics, recordFatalDiagnostic, recordReactFatalDiagnostic, recordGatewayDiagnostic, recordViewportDiagnostic, replayLatestFatalDiagnostic } from './src/VimicateDiagnosticsModule';
