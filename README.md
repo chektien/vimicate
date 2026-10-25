@@ -112,7 +112,7 @@ check activity, answer a question in the conversation, or browse files and
 read a Markdown preview.
 
 <p align="center">
-  <img src="docs/public/readme/iphone-workspace-triptych-v9.png" width="60%" alt="Three iPhone views side by side showing the project drawer, a question in the conversation and a Markdown file preview.">
+  <img src="docs/public/readme/iphone-workspace-triptych-v9.png" width="90%" alt="Three iPhone views side by side showing the project drawer, a question in the conversation and a Markdown file preview.">
 </p>
 
 ### Learn the default bindings first

@@ -259,7 +259,7 @@ The conversation and backend labels are synthetic, not a live provider result.
 The main agent captured and reviewed it. Native XCTest checked the selected
 project and exact draft text. The fixture was isolated from production.
 
-All current README images use 60% width. Readers can open the full-size files
+README images use 60% width, except the iPhone montage at 90%. Readers can open the full-size files
 to inspect fine interface text, especially on narrow screens.
 
 ## Compact layout and linked-file refresh
@@ -274,8 +274,8 @@ file reference and matching preview. No production session or model was used.
 `iphone-workspace-triptych-v9.png` combines the three existing v8 iPhone
 captures at their original resolution in a single 3690 by 2622 image. The
 36-pixel transparent gaps separate actual screens without adding decoration.
-The three phones share the existing 60% README image width, making each phone
-about one-third of its former display size and preventing line wrapping.
+The three phones share 90% of the README width, making each phone about
+half of its former standalone display size and preventing line wrapping.
 The individual captures retain their pixels. Readers can open the full image
 for detail. This is image composition, not a newly captured interaction.
 
