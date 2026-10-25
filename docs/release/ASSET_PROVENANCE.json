@@ -73,13 +73,13 @@
     },
     {
       "path": "apps/mobile/assets/icon.png",
-      "sha256": "e0e825402c0e1213e45c9f7e5806b45ff2b05217c8ef1aec8fde40c271e3bf46",
-      "origin": "Generated edit of the original native Vimicate wordmark",
-      "licenseEvidence": "Original project artwork under the root MIT license",
+      "sha256": "6b4fc7238587429823a8cb8e48a2cdfe3848576d6b85404e80cf4ebe4651c716",
+      "origin": "ImageGen green-on-charcoal hjkl artwork based on original project artwork",
+      "licenseEvidence": "Original project artwork using the owner-provided Artifactured wordmark as a lettering reference. No font software is distributed.",
       "source": "apps/mobile/assets/ICON_NOTES.md",
-      "verification": "Current generated edit recorded. Copyright holder confirmed on 25 October 2026 that the original predecessor was created or generated for this project with no third-party artwork used as its source.",
-      "preSanitizationSha256": "bacbc0e7ee167363fa88ad09816a4e9027b88e08fc35f80b1061cea7d0676e5d",
-      "metadataSanitization": "Removed C2PA or EXIF ancillary chunks only. IHDR/IDAT bytes and decoded RGBA pixels verified unchanged."
+      "verification": "Recovered approved green-charcoal artwork. Main agent inspected the source and production icon. Expo icon pipeline generated the opaque 1024 by 1024 asset.",
+      "preSanitizationSha256": "6b4fc7238587429823a8cb8e48a2cdfe3848576d6b85404e80cf4ebe4651c716",
+      "metadataSanitization": "Removed ancillary metadata after Expo icon generation. PNG CRCs validated and generated IHDR/IDAT bytes retained unchanged."
     },
     {
       "path": "docs/public/readme/motivation-evolution-v2.png",

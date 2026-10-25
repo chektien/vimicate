@@ -1,11 +1,11 @@
 # Third-party notices
 
-This file preserves identified notices for third-party material in the source
-repository. It is not a complete dependency notice bundle for a compiled app or
-host distribution. Dependencies retain their own terms. Original Vimicate code is licensed under the root MIT license with copyright
-held by Chek Tien Tan.
-A source snapshot does not include installed dependency trees or a compiled app.
-Each compiled distribution requires its own exact-content notice review.
+This file preserves notices for third-party material shipped in this source
+repository. Original Vimicate code uses the root [MIT license](LICENSE), with
+copyright held by Chek Tien Tan.
+
+Installed dependencies retain their own licenses. If you distribute a compiled
+app or host bundle, include the notices required by its actual contents as well.
 
 ## Expo scaffolding and module template
 

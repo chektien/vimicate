@@ -1,44 +1,49 @@
-# Source-alpha limitations
+# Known limitations
 
-This describes the candidate source release, not a claim that every historical
-device report is resolved. The alpha is for technically experienced users who
-can build an iOS app and operate their own OpenClaw Gateway.
+Vimicate is an experimental agent surface for iPad and iPhone, released as a
+source alpha. It is for people comfortable building an iOS app and operating
+their own OpenClaw Gateway. It is not a ready-to-install app
+or a supported production deployment.
 
-## Supported boundary
+## Platform and setup
 
-- iPad and iPhone are the supported client targets. Android and web are not
-  accepted release targets, even where framework configuration contains defaults.
-- Native modules require a development or Release build. Expo Go is insufficient.
-- The host integration is version and content fingerprinted. An unreviewed
-  OpenClaw package fails closed rather than importing incompatible internals.
-- This source release does not distribute an Apple-signed app, an OpenClaw
-  installation, provider accounts or model subscriptions.
+- iPad and iPhone are the client targets. Android and web are not supported
+  release targets, even if framework configuration contains defaults for them.
+- Expo Go cannot load the local native modules. Use a native development or
+  Release build.
+- The [setup guide](CONTRIBUTOR_SETUP.md) targets stock OpenClaw 2026.10.6.
+  The integration checks exact package contents, so newer or modified packages
+  may be rejected even if their version looks compatible.
+- You supply your own model access and Gateway. Physical-device builds also
+  need your own Apple development signing and a reachable, authenticated host.
+- Contributor builds have OTA updates disabled. Native changes require a new
+  app build even when using your own OTA configuration.
 
-## Acceptance still in progress
+## Behavior to check on your installation
 
-The current candidate has automated source and simulator coverage plus selected
-physical iPad checks. An isolated stock-host check passed new-device pairing,
-a deterministic prompt/question/answer cycle and cold-relaunch persistence.
-Fresh-machine installation and a complete real-provider interaction remain
-separate acceptance gates. Neither is established by that deterministic fixture.
+Automated tests and simulator checks cover synthetic interactions. They do not
+establish fresh-machine installation or a complete interaction with every real
+provider. Physical iPad testing is partial, not an exhaustive device matrix.
 
-Recent local repairs address PDF preview keyboard ownership, transcript
-auto-follow, retired async answers and overlapping project-switch requests.
-The PDF correction changes native code and requires a newly built app. An OTA
-cannot add that correction to an older native binary.
+In particular, check transcript visibility after reconnecting or changing
+projects, attribution of updates to the correct session, and structured-question
+answer/resume behavior with your chosen provider. Intermittent transcript
+blanking and these live integration paths still need broader verification.
+Do not use this alpha as the only archive of irreplaceable conversations or
+rely on it for unattended work without checking those paths yourself.
 
-Broader intermittent transcript blanking, native run identity attribution and
-real provider answer/resume still require bounded live acceptance. Do not treat
-the source alpha as suitable for irreplaceable transcript archives or unattended
-workflows until those paths have been verified on your installation.
+PDF preview keyboard fixes require a newly built native app. An OTA cannot add
+them to an older binary. Keyboard, focus, paste and layout behavior should be
+checked on the physical device and keyboard you use.
 
-## Recovery and reports
+## If something goes wrong
 
-Keep the Gateway's own history and backups as the authority. Do not delete a
-conversation, reset a session or reinstall the app merely to hide a rendering
-problem. Preserve a synthetic reproduction when possible, including the exact
-app revision, host version, device model and the event sequence.
+Keep the Gateway's history and backups. A display problem is not a reason to
+delete a conversation, reset a session or reinstall the app.
 
-Do not put pairing codes, tokens, private transcripts, device databases or signed
-download URLs in public issues. Use the private reporting route in [SECURITY.md](../SECURITY.md). No response-time
-guarantee is offered.
+Use the [setup troubleshooting table](CONTRIBUTOR_SETUP.md#troubleshooting) for
+connection and build problems. For reproducible bugs, follow
+[the bug-report guide](../CONTRIBUTING.md#report-a-bug). Share a synthetic example
+and the relevant versions, not private transcripts or credentials.
+
+Send security-sensitive reports through [Security reporting](../SECURITY.md).

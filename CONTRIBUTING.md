@@ -1,87 +1,94 @@
 # Contributing to Vimicate
 
-Vimicate is a keyboard-first iPad and iPhone client for OpenClaw. This is an
-experimental source alpha. Report vulnerabilities through the private route
-described in [SECURITY.md](SECURITY.md).
-See [known limitations](docs/KNOWN_LIMITATIONS.md) for current limits and
-[contributor setup](docs/CONTRIBUTOR_SETUP.md) for the isolated build recipe.
+Vimicate is a keyboard-first agent surface for iPad and iPhone.
 
-## Development environment
+Start with [contributor setup](docs/CONTRIBUTOR_SETUP.md) to build the app and
+connect your own Gateway. Read [known limitations](docs/KNOWN_LIMITATIONS.md)
+before choosing a change. Report vulnerabilities through
+[Security reporting](SECURITY.md), not a public issue.
 
-The application lives in `apps/mobile`. Its manifests currently select Expo SDK
-57, React Native 0.86.3 and React 19.2.3. Use the committed pnpm lockfile, workspace
-configuration and patches together. Do not substitute npm or regenerate the
-lockfile merely to install dependencies.
+## Find the code
 
-The maintainer environment observed on 24 October 2026 uses Node 26.12.1, pnpm
-12.15.0 and Xcode 27.0. These are observed versions, not a tested minimum-version
-support matrix. Native iOS development needs macOS, Xcode and a development build
-containing the local Expo modules. Expo Go does not contain those modules.
+| Area | Location |
+| --- | --- |
+| App state, UI and portable tests | `apps/mobile/src` |
+| Native keyboard and file integrations | `apps/mobile/modules` |
+| OpenClaw plugin, host tools and tests | `host/openclaw` |
+| Setup and current limitations | `docs` |
 
-From the repository root, the dependency and source-check commands are
+The mobile project uses Expo SDK 57, React Native 0.86.3 and React 19.2.3.
+Use the committed pnpm lockfile, workspace configuration and patches. Do not
+regenerate the lockfile just to install dependencies. Toolchain versions and
+native build commands live in the [setup guide](docs/CONTRIBUTOR_SETUP.md#toolchain).
+
+## Run checks
+
+From `apps/mobile`, run the mobile source checks.
 
 ```sh
-cd apps/mobile
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test:public
 pnpm run doctor
 ```
 
-From the repository root, host checks are
+Report Expo Doctor findings rather than updating dependencies as an unrelated
+fix. For native changes, regenerate and rebuild the contributor app as well.
+
+From the repository root, run the host tests.
 
 ```sh
 node --test host/openclaw/*.test.mjs
 ```
 
-The public suite uses portable source and synthetic fixtures. The private
-maintainer acceptance suite is kept separately and is not part of the source
-snapshot. In the private checkout, `pnpm test` runs both suites and
-`pnpm test:private` selects the private evidence and release-identity checks.
-Separating those checks does not claim that physical acceptance has passed.
+Some host tests skip unless you supply an installed OpenClaw package. After
+[setting up the host environment](docs/CONTRIBUTOR_SETUP.md#set-the-host-environment),
+run the package-dependent checks explicitly.
 
-Some host acceptance checks require an explicit installed OpenClaw fixture.
-Report skipped checks and the selected fixture rather than interpreting an
-untargeted pass as live integration acceptance. Read the
-[host setup](docs/CONTRIBUTOR_SETUP.md) before changing that integration.
+```sh
+OPENCLAW_HISTORY_TEST_PACKAGE_ROOT="$CONTRIBUTOR_OPENCLAW_PACKAGE" \
+  node --test host/openclaw/prepare-contributor-host.test.mjs \
+  host/openclaw/sqlite-history-runtime-acceptance.test.mjs \
+  host/openclaw/sqlite-plugin-runtime-acceptance.test.mjs
+```
 
-## Local app and host setup
+Include skipped checks in your test results. Synthetic tests do not establish
+real-provider, device-networking or physical-keyboard behavior. Use the
+[interaction checklist](docs/CONTRIBUTOR_SETUP.md#pair-and-check-a-complete-interaction)
+when changing the app's Gateway integration.
 
-Use the explicit contributor configuration described in the setup guide.
-`pnpm prebuild:contributor` generates its native project and
-`pnpm ios:contributor` builds the isolated app. Contributor mode removes
-maintainer signing, shared-Keychain and remote-update settings. Use a separate
-checkout so native generation cannot overwrite a shipping build's configuration.
-Do not use the production release lanes for a fork.
-
-Vimicate connects to a separately configured OpenClaw Gateway. It is not an
-agent backend, does not include model subscriptions and does not need a
-contributor's provider credentials committed to this repository. Host compatibility
-is fingerprinted. Stock OpenClaw 2026.10.6 has an isolated preparation recipe. Runtime compatibility,
-Gateway activation, pairing and complete provider interaction are separate checks.
-
-## Architecture and changes
+## Make a focused change
 
 - Keep domain rules in the owning connection, workspace, run, transcript,
   viewport, editor, media or persistence module.
 - Components render state and dispatch typed intents. Native modules are narrow
-  platform bridges, not a second application state owner.
-- For a behavioral change, describe the failing event sequence and add the
-  smallest regression at the owning boundary.
-- Run focused tests, adjacent tests, TypeScript and the full suite as appropriate.
-  Report Expo Doctor findings rather than silently upgrading dependencies.
-- Physical keyboard, focus, paste, geometry and networking outcomes need device
-  evidence. Unit tests alone do not establish them.
+  platform bridges, not a second application-state implementation.
+- For a behavior change, describe the failing event sequence and add a focused
+  regression test at the owner of that behavior.
+- Run relevant tests and TypeScript. Include a native build when changing native
+  modules, dependencies or configuration.
+- Check keyboard, focus, paste, layout and networking changes on the relevant
+  device. Say which device you used and what you did not test.
 
-Keep commits focused and describe validation and remaining limits in your change.
+Use synthetic conversations and credentials in fixtures. Keep commits focused.
+Preserve upstream notices and include provenance for new code or artwork that
+requires attribution. Original project code uses the root [MIT license](LICENSE).
 
-## Safe reproduction and contributions
+## Report a bug
 
-Use synthetic conversations and credentials in test fixtures. Do not attach
-private chats, device databases, pairing codes, provider tokens, signed download
-URLs or personal project registries. Inspect screenshots and logs before sharing.
-Do not run live maintenance or migration scripts merely to reproduce a unit test.
+Open a [GitHub issue](https://github.com/chektien/vimicate/issues) with the app
+commit, OpenClaw version, device and OS, steps to reproduce, expected behavior
+and actual behavior. A short synthetic conversation or redacted screenshot is
+more useful than a full private transcript.
 
-Original project code is covered by the root MIT license. Preserve existing
-upstream notices. Do not add code or assets without redistribution rights and
-provenance. Keep contributions synthetic and independently reproducible.
+Do not attach pairing codes, provider tokens, device databases, signed download
+URLs or personal project registries. Do not reset sessions, run maintenance
+scripts or reinstall the app just to hide a rendering problem. Keep the Gateway's
+history and backups intact.
+
+## Submit a pull request
+
+Describe the problem, the change and how you checked it. For UI changes, include
+a screenshot or short recording using synthetic content. Mention any checks you
+could not run and any remaining limitations. Avoid combining a feature with
+unrelated dependency upgrades or formatting changes.

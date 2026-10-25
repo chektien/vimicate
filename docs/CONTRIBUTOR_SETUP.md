@@ -1,40 +1,234 @@
-# Independent contributor setup
+# Contributor setup
 
-Vimicate requires a native iOS development build. Expo Go does not include its
-local modules. Use a separate source checkout for contributor builds. Do not reuse
-generated `ios/` files from a maintainer or release checkout.
+Build Vimicate in the iOS simulator, run a separate OpenClaw Gateway on the same
+Mac, and pair the two. This path needs your own model access but no Apple signing
+account or Expo account. It leaves an existing Gateway installation alone.
+
+- [Toolchain](#toolchain)
+- [Build the contributor app](#build-the-contributor-app)
+- [Prepare an independent stock host](#prepare-an-independent-stock-host)
+- [Pair and check a complete interaction](#pair-and-check-a-complete-interaction)
+- [Run it again](#run-it-again)
+- [Use a physical iPad or iPhone](#use-a-physical-ipad-or-iphone)
+- [Update OpenClaw](#update-openclaw)
+- [Troubleshooting](#troubleshooting)
+- [Optional Release simulator build](#optional-release-simulator-build)
 
 ## Toolchain
 
-The isolated setup check on 24 October 2026 used macOS, Node 26.12.1, pnpm
-12.15.0, CocoaPods 1.17.0, Xcode 27.0 and XcodeBuildMCP 2.7.0. These are tested
-versions, not minimum supported versions. The app uses Expo SDK 57, React Native
-0.86.3 and React 19.2.3. Keep the lockfile, workspace configuration and dependency
-patches together. No Apple signing identity or Expo account is needed for the
-simulator path.
+Use a Mac with Xcode and an installed iOS simulator. These versions have been
+used for this setup. They are not minimum-version requirements.
+
+| Tool | Tested version |
+| --- | --- |
+| Node.js | 26.12.1 |
+| pnpm | 12.15.0 |
+| CocoaPods | 1.17.0 |
+| Xcode | 27.0 |
+| OpenClaw | **2026.10.6**, installed separately below |
+
+The app uses Expo SDK 57, React Native 0.86.3 and React 19.2.3. Install mobile
+dependencies with pnpm and keep the committed lockfile, workspace configuration
+and patches. Expo Go cannot load Vimicate's local native modules.
+
+The host integration checks exact OpenClaw package contents. Use the pinned
+version below, not `latest`. Read [known limitations](KNOWN_LIMITATIONS.md)
+before relying on this source alpha.
 
 ## Build the contributor app
 
-From the source root, run
+Clone a new checkout, then install and build the app.
 
 ```sh
-cd apps/mobile
+git clone https://github.com/chektien/vimicate.git
+cd vimicate/apps/mobile
 pnpm install --frozen-lockfile
 pnpm config:contributor
-pnpm typecheck
-pnpm test
 pnpm prebuild:contributor
 pnpm ios:contributor --device
 ```
 
-In the device selector choose an iOS simulator, not a connected physical device.
-For subsequent Metro sessions run `pnpm start:contributor` in the same checkout.
-The app's local Expo modules require the native build step. A JavaScript bundle
-or `expo start` alone does not install them.
+Choose an **iOS simulator** in the device selector. The app should open as
+**Vimicate Contributor** and show its connection screen. Leave Metro running
+in this terminal. Use a second terminal for the host setup below.
 
-For an ad-hoc signed, embedded Release simulator build, choose a simulator identifier
-from `xcodebuildmcp simulator list --enabled` and run the following from
-`apps/mobile`, replacing `SIMULATOR_UUID` with that identifier.
+Contributor commands select `VIMICATE_BUILD_MODE=contributor`. The app uses the
+bundle identifier `org.vimicate.contributor`, its own container and private
+Keychain access. It has no shared signing identity or remote update subscription.
+OTA updates are disabled. Use these commands consistently and do not run a
+production prebuild over the generated contributor project.
+
+## Prepare an independent stock host
+
+### Set the host environment
+
+Open a terminal at the **repository root**, not `apps/mobile`. Run this block
+in each terminal you use for host commands. It keeps host tools, configuration
+and credentials in a sibling directory outside the source checkout.
+
+```sh
+export CONTRIBUTOR_SOURCE_ROOT="$(pwd -P)"
+export CONTRIBUTOR_HOST_ROOT="$(cd .. && pwd -P)/vimicate-contributor-host"
+export CONTRIBUTOR_OPENCLAW_PACKAGE="$CONTRIBUTOR_HOST_ROOT/tools/node_modules/openclaw"
+export CONTRIBUTOR_OPENCLAW_BIN="$CONTRIBUTOR_OPENCLAW_PACKAGE/openclaw.mjs"
+export OPENCLAW_STATE_DIR="$CONTRIBUTOR_HOST_ROOT/prepared/openclaw-state"
+export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"
+export OPENCLAW_WORKSPACE_DIR="$OPENCLAW_STATE_DIR/workspace"
+export OPENCLAW_GATEWAY_PORT=19091
+```
+
+For a new setup, choose an unused `CONTRIBUTOR_HOST_ROOT`. Do not point these
+variables at an existing Gateway's state. Keep the directory private and out
+of Git.
+
+### Install OpenClaw and prepare the plugin
+
+Run once, in the same terminal.
+
+```sh
+mkdir -m 700 "$CONTRIBUTOR_HOST_ROOT"
+npm install --prefix "$CONTRIBUTOR_HOST_ROOT/tools" \
+  --ignore-scripts --no-audit --no-fund openclaw@2026.10.6
+node host/openclaw/prepare-contributor-host.mjs \
+  "$CONTRIBUTOR_OPENCLAW_PACKAGE" \
+  "$CONTRIBUTOR_HOST_ROOT/prepared" \
+  "$CONTRIBUTOR_SOURCE_ROOT"
+```
+
+The preparation command prints the new state, plugin and configuration paths.
+It builds the plugin included in this repository and registers the source
+checkout as an **Example** project. It refuses to overwrite a prepared directory
+and does not start a Gateway or modify the installed OpenClaw package.
+
+### Configure your provider and start the Gateway
+
+Use your own provider credentials in the onboarding wizard. Choose a local
+Gateway and skip daemon installation.
+
+```sh
+node "$CONTRIBUTOR_OPENCLAW_BIN" onboard --classic --skip-daemon
+node "$CONTRIBUTOR_OPENCLAW_BIN" config patch \
+  --file "$CONTRIBUTOR_HOST_ROOT/prepared/openclaw-config-fragment.json" --dry-run
+node "$CONTRIBUTOR_OPENCLAW_BIN" config patch \
+  --file "$CONTRIBUTOR_HOST_ROOT/prepared/openclaw-config-fragment.json"
+node "$CONTRIBUTOR_OPENCLAW_BIN" gateway run --bind loopback --port "$OPENCLAW_GATEWAY_PORT"
+```
+
+The first patch command previews the configuration change. Apply it only after
+the preview succeeds. The last command starts the Gateway in the foreground.
+Leave this terminal running. If port 19091 is occupied, set
+`OPENCLAW_GATEWAY_PORT` to a free port in every host terminal. Do not use
+`--force` to stop another process.
+
+For provider onboarding details, see the
+[OpenClaw getting-started guide](https://docs.openclaw.ai/start/getting-started).
+Keep using the pinned package and isolated environment from this guide.
+
+## Pair and check a complete interaction
+
+Open another terminal at the repository root and repeat the
+[host environment block](#set-the-host-environment). Then generate a setup code.
+
+```sh
+node "$CONTRIBUTOR_OPENCLAW_BIN" qr --url "ws://127.0.0.1:$OPENCLAW_GATEWAY_PORT" --no-ascii
+```
+
+1. Paste the setup code into the app's Gateway connection field.
+2. Approve device pairing on your host when requested, using the commands below.
+3. Confirm **Example** appears in the project list.
+4. Send a short prompt in **Example** and wait for a reply. This initializes
+   the project's Gateway session before you create a thread.
+5. Create a thread, send another prompt, then reconnect and confirm the answer
+   remains visible.
+6. Ask the agent to use a structured question, answer it in the app, and confirm
+   the run continues. Support depends on the selected provider and CLI harness.
+
+If pairing is pending, use the same host terminal to list requests. Match the
+request to your simulator, then replace `REQUEST_ID` with its request ID.
+
+```sh
+node "$CONTRIBUTOR_OPENCLAW_BIN" devices list
+node "$CONTRIBUTOR_OPENCLAW_BIN" devices approve REQUEST_ID
+```
+
+Use harmless prompts for this check. Setup codes are temporary credentials.
+Keep them out of screenshots, logs and issues. A text reply confirms basic
+connectivity, but does not test interactive question support.
+
+Open the question mark (`?`) at the top left of the app for keyboard bindings.
+
+## Run it again
+
+Keep the prepared host directory. Do not rerun preparation or onboarding for
+ordinary restarts.
+
+In a terminal at `apps/mobile`, start Metro and reopen the installed contributor
+app in the simulator.
+
+```sh
+pnpm start:contributor
+```
+
+In a separate terminal at the repository root, repeat the
+[host environment block](#set-the-host-environment), then start the Gateway.
+
+```sh
+node "$CONTRIBUTOR_OPENCLAW_BIN" gateway run --bind loopback --port "$OPENCLAW_GATEWAY_PORT"
+```
+
+The app should reuse its saved connection. Generate a fresh setup code if
+pairing is needed again. Stop your foreground Metro and Gateway processes with
+Ctrl-C when finished. Do not stop an unrelated Gateway service.
+
+## Use a physical iPad or iPhone
+
+A physical-device build needs your own Apple development signing and a unique
+bundle identifier in the generated Xcode project. Open
+`apps/mobile/ios/VimicateContributor.xcworkspace`, select your team and signing
+settings, then build for your device. Do not reuse someone else's signing or
+release configuration.
+
+The device also needs an authenticated Gateway endpoint reachable from its
+network. `127.0.0.1` refers to the device itself, not your Mac. Configure remote
+access using OpenClaw's documentation and generate the setup code for that
+endpoint. The loopback recipe above is for a simulator on the same Mac.
+
+Contributor builds do not receive the maintainer's OTA updates. To use your
+own OTA workflow, configure your own Expo update project and install a native
+build compatible with it. Native module changes always require a new build.
+
+## Update OpenClaw
+
+Before changing the pinned host version, follow
+[Updating OpenClaw](../host/openclaw/README.md#updating-openclaw) for the included
+compatibility checker and isolated trial process. The repository does not ship
+an automatic OpenClaw updater.
+
+## Troubleshooting
+
+| What you see | What to check |
+| --- | --- |
+| A local native module is missing | Use the native contributor build, not Expo Go. Run `pnpm prebuild:contributor` and rebuild after native changes. |
+| The simulator app launches but cannot save pairing | Keep ad-hoc code signing enabled. An unsigned build cannot reliably use the app's Keychain. |
+| The host preparation command rejects OpenClaw | Check the pinned version and unmodified package contents. Do not bypass its fingerprint check. |
+| The preparation destination already exists | Reuse it for ordinary restarts, or choose a new host directory for a fresh setup. Do not delete working state to retry. |
+| The app cannot reach the Gateway | Check that it is running, the ports match, and the endpoint is reachable from the simulator or device. |
+| A setup code fails or has already been used | Generate a fresh code for the same Gateway and complete device approval. |
+| A new thread cannot be created | Send the first prompt in its parent project to initialize the Gateway session. |
+| The agent replies in text instead of showing a question card | Check that the provider and harness support structured questions. |
+| Shared iCloud Downloads is unavailable | This optional feature needs an iCloud directory on the host. Registered project files work without it. |
+
+For bug reports and source checks, see [Contributing](../CONTRIBUTING.md).
+For sensitive reports, use [Security reporting](../SECURITY.md).
+
+## Optional Release simulator build
+
+Use this when you need an embedded Release build instead of the development
+build above. It requires XcodeBuildMCP 2.7.0 in addition to the toolchain and
+an already generated contributor workspace.
+
+From `apps/mobile`, choose a simulator identifier with
+`xcodebuildmcp simulator list --enabled`, then replace `SIMULATOR_UUID` below.
 
 ```sh
 VIMICATE_BUILD_MODE=contributor xcodebuildmcp simulator build \
@@ -48,158 +242,5 @@ VIMICATE_BUILD_MODE=contributor xcodebuildmcp simulator build \
   --extra-args VIMICATE_BUILD_MODE=contributor
 ```
 
-Do not disable code signing. Ad-hoc signing needs no Apple account or signing
-certificate, but the simulator app needs a signature for application-private
-Keychain access. An unsigned app can launch while failing to save pairing
-credentials.
-
-Contributor mode is explicitly selected with `VIMICATE_BUILD_MODE=contributor`.
-The package commands above set it for each Expo invocation. It gives the app the
-name `Vimicate Contributor`, bundle identifier `org.vimicate.contributor` and URL
-scheme `vimicate-contributor`. It removes the maintainer's team, shared-Keychain
-entitlements, EAS ownership/project and remote update configuration. OTA updates
-are disabled, including manual update requests. Native Keychain queries use this
-app's private default access group rather than the legacy shared group. App files
-and SQLite data are isolated by the distinct application container. Pair this app
-as a new device with your own Gateway.
-
-The public snapshot's `app.json` already contains contributor defaults. It has no
-maintainer account, team, update project or shared-Keychain entitlement. Legacy
-service and storage identifiers are projected to a generic public namespace. The
-example shared-group identifier is inactive under application-private Keychain
-scope and is not a signing identity.
-
-Unset mode and explicit `production` mode preserve the checkout's `app.json`
-unchanged. They do not restore maintainer settings in the public snapshot.
-Unknown mode values fail. Never run a production
-prebuild over this contributor native directory. Create another checkout instead.
-Do not use the maintainer's Fastlane, TestFlight or physical QA signing wrappers.
-
-Physical device signing requires your own Apple development account and a unique
-bundle identifier selected in your generated Xcode project. That path has not
-been accepted as a credential-free simulator build, and does not grant access to
-the maintainer's distribution, Keychain or Expo project.
-
-## Prepare an independent stock host
-
-The host integration admits exact audited OpenClaw runtime fingerprints. Use the
-stock `openclaw@2026.10.6` package for this recipe. Newer or modified package
-bytes may fail closed until separately reviewed. No private updater, copied
-maintainer state, archived transcripts or import ledger is required for a fresh
-host.
-
-From the source root, choose a new sibling directory for host tooling and state.
-Keep it outside the source tree and do not commit it.
-
-```sh
-export CONTRIBUTOR_SOURCE_ROOT="$(pwd -P)"
-mkdir ../vimicate-contributor-host
-export CONTRIBUTOR_HOST_ROOT="$(cd ../vimicate-contributor-host && pwd -P)"
-npm install --prefix "$CONTRIBUTOR_HOST_ROOT/tools" \
-  --ignore-scripts --no-audit --no-fund openclaw@2026.10.6
-export CONTRIBUTOR_OPENCLAW_PACKAGE="$CONTRIBUTOR_HOST_ROOT/tools/node_modules/openclaw"
-export CONTRIBUTOR_OPENCLAW_BIN="$CONTRIBUTOR_OPENCLAW_PACKAGE/openclaw.mjs"
-node host/openclaw/prepare-contributor-host.mjs \
-  "$CONTRIBUTOR_OPENCLAW_PACKAGE" \
-  "$CONTRIBUTOR_HOST_ROOT/prepared" \
-  "$CONTRIBUTOR_SOURCE_ROOT"
-export OPENCLAW_STATE_DIR="$CONTRIBUTOR_HOST_ROOT/prepared/openclaw-state"
-export OPENCLAW_CONFIG_PATH="$OPENCLAW_STATE_DIR/openclaw.json"
-export OPENCLAW_WORKSPACE_DIR="$OPENCLAW_STATE_DIR/workspace"
-```
-
-The preparation command verifies runtime fingerprints, creates a new private
-plugin artifact and registry, and writes a config fragment. It creates a random
-local history secret and an empty import manifest. Native SQLite authority still
-has to prove every session generation. It never fabricates a historical family,
-modifies the installed OpenClaw package, discovers another host's state, overwrites
-an existing destination or starts a Gateway.
-
-The host artifact carries the source root's finalized MIT license and retained
-notices. Its integrity manifest hashes both along with every runtime payload.
-A source archive does not need Git metadata. Its manifest records unknown Git
-revision and dirty state explicitly, while retaining the exact payload hashes.
-
-Set up your own provider and local Gateway in that isolated state directory.
-Select your own provider credentials in the interactive wizard. Keep the host
-local and skip daemon installation for this first check.
-
-```sh
-node "$CONTRIBUTOR_OPENCLAW_BIN" onboard --classic --skip-daemon
-node "$CONTRIBUTOR_OPENCLAW_BIN" config patch \
-  --file "$CONTRIBUTOR_HOST_ROOT/prepared/openclaw-config-fragment.json" --dry-run
-node "$CONTRIBUTOR_OPENCLAW_BIN" config patch \
-  --file "$CONTRIBUTOR_HOST_ROOT/prepared/openclaw-config-fragment.json"
-node "$CONTRIBUTOR_OPENCLAW_BIN" gateway run --bind loopback --port 19091
-```
-
-Do not use `--force` or point these environment variables at an existing Gateway.
-The last command runs a separate foreground process. Use a free port and stop
-only that process after the check. For a simulator on the same Mac, loopback is
-sufficient. A physical device requires a separately configured, authenticated
-reachable endpoint. Shared iCloud Downloads features are optional and require a
-host iCloud directory. Registered project files do not require iCloud.
-
-## Pair and check a complete interaction
-
-In a second terminal with the same host environment variables, run
-
-```sh
-node "$CONTRIBUTOR_OPENCLAW_BIN" qr --url ws://127.0.0.1:19091 --no-ascii
-```
-
-Paste the generated setup code into the contributor app's Gateway connection
-field. Treat the code as a temporary credential. Do not include it in an issue,
-log, screenshot or commit. Approve device pairing in your own host when requested.
-Confirm the Example project appears. Send a harmless first prompt in the
-project itself to initialize its Gateway session. Then create a synthetic
-thread, send another prompt and check that the final answer remains after
-reconnecting. A registered project alone does not create a native Gateway
-session. The app explains this prerequisite if a thread is requested too soon.
-
-Also request a structured question through the selected provider, answer it in
-the app and confirm the same run resumes. Providers and CLI harnesses differ in
-question-tool support. Record the selected provider, question transport and any
-missing capability. A successful text response alone does not prove the question
-answer/resume path.
-
-## Reproducible checks and acceptance limits
-
-Run host contracts from the source root. Target installed-package acceptance
-explicitly rather than interpreting optional skipped tests as integration proof.
-
-```sh
-node --test host/openclaw/*.test.mjs
-OPENCLAW_HISTORY_TEST_PACKAGE_ROOT="$CONTRIBUTOR_OPENCLAW_PACKAGE" \
-  node --test host/openclaw/prepare-contributor-host.test.mjs \
-  host/openclaw/sqlite-history-runtime-acceptance.test.mjs \
-  host/openclaw/sqlite-plugin-runtime-acceptance.test.mjs
-```
-
-The 24 October check installed frozen mobile dependencies in a source copy with
-no existing native project, generated the contributor workspace and pods, and
-completed an unsigned Release simulator build and launched its unpaired app.
-A 25 October live check found that unsigned launch was insufficient for
-Keychain access. The corrected ad-hoc signed Release build saved credentials
-and paired with the isolated stock Gateway in a 17.6-second XCTest. The same
-check exposed and repaired base64 setup decoding without the browser
-TextDecoder global. Subsequent XCTest checks passed deterministic prompt
-transport, structured-question answer/resume and cold-relaunch persistence.
-The provider was a local protocol fixture, not a real model account.
-The generated and compiled native configuration has no development team or shared
-Keychain entitlement and has updates disabled with no update URL. Configuration
-regressions also verify the shipping configuration is unchanged. A separately
-downloaded unmodified stock OpenClaw package passed preparation and private-file
-isolation checks. Its native, captured-plugin and worker-captured history checks
-passed with unchanged databases. The actual plugin API check passed RPC scope,
-registry authority and narration checks. The stock CLI validated the config
-fragment without applying it.
-
-This is a separate source/state check on an existing development Mac, not a
-fresh-machine claim. Live provider authentication, a real prompt/question/answer cycle and
-physical keyboard acceptance must be recorded separately. Nothing in this recipe activates the maintainer's Gateway or publishes
-an app or update.
-
-Expo configuration semantics follow the
-[SDK 57 app config reference](https://docs.expo.dev/versions/v57.0.0/config/app/)
-and [SDK 57 Updates reference](https://docs.expo.dev/versions/v57.0.0/sdk/updates/).
+This builds the app but does not install or launch it. Keep ad-hoc signing
+enabled for Keychain access. It needs no Apple account or signing certificate.

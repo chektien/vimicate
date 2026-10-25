@@ -1,13 +1,18 @@
 # Vimicate
 
-Vimicate is a keyboard-first iPad and iPhone client for your own OpenClaw
-Gateway. It brings prompts, transcripts, project files and interactive agent
+<img src="apps/mobile/assets/icon.png" width="96" height="96" alt="Vimicate hjkl icon in green on charcoal">
+
+Vimicate is a keyboard-first **agent surface** for iPad and iPhone, connected
+to your own OpenClaw Gateway. It brings prompts, transcripts, project files and interactive agent
 questions into one workspace. Native Vim-style editing and pane navigation are
 designed for a hardware keyboard, with touch controls alongside them.
 
 Vimicate is a client, not an agent harness or hosted AI service. Your Gateway
 owns sessions, model access and tool execution. Pairing establishes device trust.
 The app communicates with the Gateway over WebSocket RPC and streamed events.
+
+[Get started](docs/CONTRIBUTOR_SETUP.md) · [Contribute](CONTRIBUTING.md) ·
+[Known limitations](docs/KNOWN_LIMITATIONS.md)
 
 ## Why Vimicate exists
 
@@ -39,6 +44,10 @@ for its touchscreen. I couldn’t find what I wanted, so here we are.
 <p align="center">
   <img src="docs/public/readme/motivation-keyboard-v4.png" width="60%" alt="Conceptual illustration of Vimicate at a café, with an HHKB keyboard on the author&#x27;s lap and an iPad with Apple Pencil on the table.">
 </p>
+
+Short of a better name, I think of Vimicate as an **agent surface**. It is
+where I steer agents, follow their work and use what they produce. The agents
+run elsewhere, but the conversations, decisions and files come together here.
 
 The name reflects that ambition. If agents increasingly help me operate my
 digital life, Vimicate lets me bring Vim’s way of interacting along for the ride,
@@ -208,7 +217,7 @@ OpenClaw’s process. Vimicate is the client, not another agent harness.
 
 This is an experimental source-only alpha for contributors. It is not a signed
 app download, an App Store release or a supported production deployment.
-Build, host-integration and device checks cover different boundaries. Read the
+Read the
 [known limitations](docs/KNOWN_LIMITATIONS.md) before using it.
 
 The source includes the React Native application, narrow native Expo modules,
@@ -218,96 +227,39 @@ original development history.
 
 ## Set up Vimicate
 
-You need an OpenClaw Gateway with your own model access, plus a native Vimicate
-build. This source alpha does not include an App Store or TestFlight download.
+Start with the [contributor setup guide](docs/CONTRIBUTOR_SETUP.md). It takes you
+through one complete path on a Mac.
 
-### 1. Prepare OpenClaw on your host computer
+1. Build **Vimicate Contributor** in an iOS simulator using Xcode and pnpm.
+2. Install the pinned OpenClaw package and prepare the included Vimicate plugin
+   in a separate host directory.
+3. Configure your model provider, start the Gateway and pair the app.
+4. Send a prompt, create a thread and check an interactive question.
 
-Read the official [OpenClaw getting-started guide](https://docs.openclaw.ai/start/getting-started)
-for installation, provider sign-in, and Gateway onboarding. Vimicate connects
-to that Gateway rather than directly to a model provider.
+The simulator path needs no Apple signing account or Expo account. Expo Go is
+not supported. A physical iPad or iPhone needs your own signing and a Gateway
+endpoint it can reach. The guide includes those differences, restart commands
+and troubleshooting.
 
-For this alpha, follow our [isolated host setup](docs/CONTRIBUTOR_SETUP.md#prepare-an-independent-stock-host)
-for the exact installation commands and Vimicate host integration. That recipe
-targets `openclaw@2026.10.6` with audited runtime fingerprints. A newer version
-is not automatically compatible. It prepares separate state, applies the host
-integration, and runs a local Gateway without changing an existing installation.
+The OpenClaw plugin source and build tools are included in
+[`host/openclaw`](host/openclaw). OpenClaw itself and model access are separate.
+The setup guide pins a compatible version, so do not substitute `latest`.
 
-### 2. Build the contributor app on a Mac
-
-Install Xcode, Node.js, pnpm, and CocoaPods using the tested versions in the
-[contributor guide](docs/CONTRIBUTOR_SETUP.md#toolchain). Then run
-
-```sh
-git clone https://github.com/chektien/vimicate.git
-cd vimicate/apps/mobile
-pnpm install --frozen-lockfile
-pnpm config:contributor
-pnpm prebuild:contributor
-pnpm ios:contributor --device
-```
-
-Choose an iOS simulator in the device selector for the initial setup. Expo Go
-cannot load Vimicate’s native modules. The simulator path needs no Apple signing
-account. Installing on your own iPad or iPhone requires your own development
-signing and a unique bundle identifier, as described in the contributor guide.
-
-### 3. Pair Vimicate with your Gateway
-
-With the isolated Gateway running, use the same host environment from step 1
-to generate a setup code
-
-```sh
-node "$CONTRIBUTOR_OPENCLAW_BIN" qr --url ws://127.0.0.1:19091 --no-ascii
-```
-
-Paste the setup code into Vimicate’s Gateway connection field and approve the
-device on your host when prompted. This loopback address works only for a
-simulator on the same Mac. An iPad or iPhone needs an authenticated Gateway
-endpoint reachable from that device, not `127.0.0.1`.
-
-Follow the [pairing and interaction checks](docs/CONTRIBUTOR_SETUP.md#pair-and-check-a-complete-interaction)
-to send a first prompt, create a thread, answer a structured question, and verify
-reconnection. Keep setup codes and credentials private.
-
-### 4. Learn the default bindings
-
-**Before you start, click the question mark (`?`) at the top left of the app.**
-It opens the Vim and keyboard shortcut reference. Read through the default
-bindings to understand how to navigate the workspace and edit prompts. This is
-the essential first stop for learning how to use Vimicate with your keyboard.
+Once connected, open the question mark (`?`) at the top left for Vim motions,
+pane navigation and prompt-editing bindings.
 
 ## Build and contribute
 
-Start with [contributor setup](docs/CONTRIBUTOR_SETUP.md), then read
-[contribution guidance](CONTRIBUTING.md). Native iOS development requires macOS
-and Xcode. Expo Go cannot load the local native modules.
-
-The application uses Expo SDK 57, React Native 0.86 and React 19.2.3. Install
-dependencies with the committed pnpm lockfile and patches.
-
-```sh
-cd apps/mobile
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test:public
-```
-
-Run portable host tests from the repository root.
-
-```sh
-node --test host/openclaw/*.test.mjs
-```
-
-Installed-runtime acceptance tests identify their required OpenClaw package
-explicitly. A skipped runtime test is not evidence that a host installation works.
+See [Contributing](CONTRIBUTING.md) for source checks, architecture guidance,
+bug reports and pull requests. Use the [setup guide](docs/CONTRIBUTOR_SETUP.md)
+for toolchain versions and build commands.
 
 ## Source layout
 
 - `apps/mobile/src` contains application owners, presentation and tests.
 - `apps/mobile/modules` contains narrow native platform bridges.
 - `host/openclaw` contains the separately installed Gateway integration.
-- `docs` contains setup and architecture documentation.
+- `docs` contains contributor setup, limitations and asset provenance.
 
 ## License and notices
 
