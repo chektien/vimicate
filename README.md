@@ -42,8 +42,7 @@ for its touchscreen. I couldn’t find what I wanted, so here we are.
 
 The name reflects that ambition. If agents increasingly help me operate my
 digital life, Vimicate lets me bring Vim’s way of interacting along for the ride,
-beyond the editor. I chose OpenClaw for its vibrant community, openness,
-configurability, and freedom to work across labs and models.
+beyond the editor.
 
 Ultimately, **Vimicate is a software expression of everything I enjoy about
 using a computer**, bringing together the feel of a mechanical keyboard, the
@@ -91,8 +90,8 @@ session shows claude-cli with Opus 5.5 and a different conversation.
 
 ### Use colon commands
 
-Type `:model ` to see model completions without leaving the conversation.
-The menu shows matching options from the connected backend's model catalogue.
+Type `:model` to switch models without leaving the conversation. The completion
+menu shows matching options from the connected backend's model catalogue.
 
 <p align="center">
   <img src="docs/public/readme/model-command-completion-v8.png" width="60%" alt="The native colon command bar with :model entered and a completion menu listing Astra and Opus model options beneath the conversation.">
@@ -101,10 +100,9 @@ The menu shows matching options from the connected backend's model catalogue.
 ### Keep files beside the conversation
 
 Browse project files and preview Markdown without leaving the workspace.
-Waiting sessions use diamond indicators in the project list.
 
 <p align="center">
-  <img src="docs/public/readme/project-files-ten-projects-v8.png" width="60%" alt="Project files and a Markdown preview beside the conversation, with all ten projects still visible.">
+  <img src="docs/public/readme/project-files-linked-v9.png" width="60%" alt="A field-guide.md link in the transcript beside the same file opened in the Markdown preview.">
 </p>
 
 ### Take the workspace to iPhone
@@ -114,9 +112,7 @@ check activity, answer a question in the conversation, or browse files and
 read a Markdown preview.
 
 <p align="center">
-  <img src="docs/public/readme/iphone-projects-v8.png" width="60%" alt="iPhone project drawer with ten home and work projects and activity indicators.">
-  <img src="docs/public/readme/iphone-question-v8.png" width="60%" alt="iPhone conversation with a question card, selectable answers and prompt controls.">
-  <img src="docs/public/readme/iphone-files-v8.png" width="60%" alt="iPhone project files and a readable Markdown preview.">
+  <img src="docs/public/readme/iphone-workspace-triptych-v9.png" width="60%" alt="Three iPhone views side by side showing the project drawer, a question in the conversation and a Markdown file preview.">
 </p>
 
 ### Learn the default bindings first
@@ -135,6 +131,9 @@ SQLite stores local data, SecureStore/Keychain holds credentials, and OpenClaw
 provides the agent backend. A small set of native Swift/Expo modules handles
 platform integration such as hardware-keyboard input and file previews.
 
+I chose OpenClaw for its vibrant community, openness, configurability, and
+freedom to work across labs and models.
+
 React Native is a good fit because most everyday changes are to the interface,
 Vim interactions and agent workflows, rather than new native capabilities.
 Those changes usually need no native code changes and can reach an existing,
@@ -151,12 +150,8 @@ OTA update, which I load back into the same app. That lets me keep customizing
 my workspace while using it.
 
 <p align="center">
-  <img src="docs/public/readme/vimicate-self-development-v1.png" alt="Vimicate development thread with a draft asking for a colon command and tap button to start a Ralph loop for the current feature" width="60%" />
+  <img src="docs/public/readme/vimicate-self-development-v2.png" alt="Vimicate development thread with a draft asking for a colon command and tap button to start a Ralph loop for the current feature" width="60%" />
 </p>
-
-*A real app capture with a synthetic Vimicate development thread and an example
-feature request. The Ralph-loop controls are being requested, not shown as
-implemented.*
 
 To adopt this loop, configure your own update project and channel and install
 a compatible native build. The public contributor configuration deliberately

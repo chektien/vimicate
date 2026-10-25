@@ -261,3 +261,27 @@ project and exact draft text. The fixture was isolated from production.
 
 All current README images use 60% width. Readers can open the full-size files
 to inspect fine interface text, especially on narrow screens.
+
+## Compact layout and linked-file refresh
+
+The v2 self-development screenshot stars the synthetic Vimicate project in
+the real app. The v9 files screenshot shows a transcript link to
+`field-guide.md` beside that same file in the preview. These are unchanged
+contributor-app captures from an isolated loopback fixture. The native capture
+check passed in 79.1 seconds, including the exact unsubmitted draft, star state,
+file reference and matching preview. No production session or model was used.
+
+`iphone-workspace-triptych-v9.png` combines the three existing v8 iPhone
+captures at their original resolution in a single 3690 by 2622 image. The
+36-pixel transparent gaps separate actual screens without adding decoration.
+The three phones share the existing 60% README image width, making each phone
+about one-third of its former display size and preventing line wrapping.
+The individual captures retain their pixels. Readers can open the full image
+for detail. This is image composition, not a newly captured interaction.
+
+The root README now has no image captions. Its synthetic-capture provenance
+remains here. Main implemented and reviewed the documentation changes, preserving
+the product's Menlo, charcoal, cream and olive UI. No new theme or decorative
+layout was added. Local rendered checks at 390, 1024 and 1440 pixels passed
+image loading and horizontal-overflow checks. This is local layout evidence,
+not a claim of physical-device acceptance or GitHub-hosted browser review.

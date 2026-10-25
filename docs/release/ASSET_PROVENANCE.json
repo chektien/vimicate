@@ -328,6 +328,33 @@
       "source": "docs/public/readme/README.md",
       "verification": "Recovered capture worker evidence and passing native UI checks. Main agent independently inspected this exact final image.",
       "metadataSanitization": "PNG metadata removed. Chunk lengths, CRCs and terminal IEND validated. Native display orientation retained. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/vimicate-self-development-v2.png",
+      "sha256": "42ed3fd1473807a78656919ec23724f5759dd38e7bb850139aea4629cb79483d",
+      "origin": "Real isolated iPad simulator capture with original synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Main agent captured and visually reviewed the image. Native XCTest passed starred-project, exact draft, transcript file reference and matching preview checks.",
+      "metadataSanitization": "Canvas PNG encoding with native orientation. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/project-files-linked-v9.png",
+      "sha256": "3a51122d711a89e65f4d211d3ac6dc90b4d87f3610ce75dfd57301a3b6bd1951",
+      "origin": "Real isolated iPad simulator capture with original synthetic conversation and project content",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Main agent captured and visually reviewed the image. Native XCTest passed starred-project, exact draft, transcript file reference and matching preview checks.",
+      "metadataSanitization": "Canvas PNG encoding with native orientation. No app content painted or replaced."
+    },
+    {
+      "path": "docs/public/readme/iphone-workspace-triptych-v9.png",
+      "sha256": "8bae76634c37fad184e08f9a93e9a429d123777b4882e1b0e0850833d7d01970",
+      "origin": "Side-by-side composite of three unchanged native iPhone v8 captures",
+      "licenseEvidence": "Project application UI and original synthetic demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Main agent composed and visually reviewed the three-panel image.",
+      "metadataSanitization": "Canvas PNG encoding with native orientation. No app content painted or replaced."
     }
   ]
 }
