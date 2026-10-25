@@ -132,9 +132,96 @@ question options, with question submission controls below its viewport.
 Model selection, provider execution and physical keyboard acceptance were not
 tested by this capture. The isolated app and owned fixture were stopped.
 
+### Vim navigation loop
+
+`vim-navigation-v5.gif` presents 16 native iPad capture states as a 24-second
+edited loop. Each state is held for 1.5 seconds. It is not continuous real-time
+footage. The app UI comes from the unchanged contributor Release build and the
+isolated ten-project fixture. All 956 contributor source inputs matched the
+published source snapshot.
+
+Native XCTest key events moved through the project list with j, k, G and gg,
+focused the transcript with Ctrl-K, moved by word and selected text, then focused
+the prompt with Ctrl-J. The prompt sequence enters Insert mode, types a short
+instruction, returns to Normal mode, moves with gg, w and b, and selects text in
+Visual mode. Exits use Ctrl-[. No prompt or question answer was submitted.
+The final capture test passed in 47.5 seconds.
+
+The main agent composed a translucent top annotation from the exact keys sent.
+It uses the app's charcoal background, olive highlight and cream text in Menlo.
+Chromium applies the original PNG orientation, scales the landscape capture to
+1366 by 1024, and composites the annotation. FFmpeg encodes the sequence at eight
+frames per second with a shared palette and infinite loop. Original captures
+remain unchanged. The output contains no comment or custom application metadata.
+The standard NETSCAPE loop extension is retained.
+
+The capture worker reviewed the native states. The main agent independently
+reviewed the composited states and encoded playback. This demonstrates the
+captured software interactions, not physical keyboard acceptance.
+
+### Markdown yank and prompt editing
+
+`vim-navigation-v6.gif` extends the navigation demo with 23 native capture states
+held for approximately 32 seconds. The unchanged contributor build matched all
+956 published source inputs. An isolated loopback fixture supplied the short
+Markdown checklist. The sequence is edited capture states, not real-time footage.
+
+After project and transcript motions, V and 2j select the checklist heading and
+two list items. The native y register preserves the original `##` heading and
+hyphen-prefixed Markdown lines. Ctrl-J focuses the empty prompt and p pastes the
+section. Native XCTest asserts that the pasted text exactly equals its source.
+No clipboard or prompt-content injection was used for the demonstrated paste.
+
+The prompt sequence uses gg and O to add `# Field guide` above the pasted section.
+Ctrl-[ returns to Normal mode, then G, $, b and cw change the final word from
+`later` to `after camp`. A final gg, V and j selects both Markdown headings.
+Literal text was entered through native hardware-key events. The captures show
+the completed strings rather than every typed character. No prompt was submitted.
+The final native test passed in 67.5 seconds, including exact pasted and edited
+text assertions. The capture worker stopped the owned app and loopback fixture.
+
+The main agent used the same translucent annotation and palette encoding as v5.
+Original capture hashes were unchanged. The worker reviewed native states, and
+the main agent independently inspected the composed states and encoded playback.
+Local README review covered 390, 1024 and 1440 pixel widths. These checks do not
+establish physical keyboard acceptance or GitHub-hosted playback. The previous
+v5 animation and iPhone captures are retained unchanged.
+
+### iPhone layouts
+
+The three `iphone-*-v5.png` images were captured at 1206 by 2622 pixels from the
+unchanged contributor app in an isolated iPhone simulator. The project drawer
+shows ten projects in latest-activity order with home and work labels and native
+activity indicators. The conversation shows a question card with Quick note
+selected. The files pane shows a Markdown preview and the native Share control.
+
+The final native capture test passed in 15.7 seconds. It checked project order
+and visibility, question selection and accessible controls, and file preview
+headings. Question submission, sharing and provider execution were not tested.
+The footer remains horizontally scrollable at phone width. Both the worker and
+main agent inspected all three final PNGs. Owned fixtures and apps were stopped.
+
 ## Metadata and provenance
 
 Ancillary PNG metadata was removed without re-encoding. Chunk lengths and CRCs
 were validated, IEND was checked, and the retained IHDR and IDAT chunks were
 verified byte-for-byte. The asset provenance manifest records final hashes.
-The screenshots' pixels are unchanged. The narrative remains generated artwork.
+The standalone PNG screenshots' pixels are unchanged. The GIF is a scaled,
+palette-encoded sequence with an added keystroke overlay. The narrative remains generated artwork.
+
+### Content-sized keystroke annotation
+
+`vim-navigation-v7.gif` retains the v6 source captures, interactions and timing.
+The main agent revised and reviewed only the presentation layer. The annotation
+fits its longest text line with 12 pixels of padding on either side, replacing
+the fixed 650-pixel box. Key text increases from 26 to 36 pixels and captions
+from 14 to 20 pixels for readability when the README scales the animation.
+The charcoal background is 60 percent opaque, down from 88 percent.
+These requested size and opacity adjustments are presentation-specific
+exceptions. Menlo, charcoal, olive and cream remain from the product palette.
+The border groups the key with its action caption, without decorative effects.
+
+Original capture hashes remain unchanged. Review covers every encoded state,
+the loop boundary and README layouts at 390, 1024 and 1440 pixels. The earlier
+versions remain available. Local playback review does not establish hosted or
+chat-client playback.

@@ -13,26 +13,32 @@ The app communicates with the Gateway over WebSocket RPC and streamed events.
 
 **I’m using my editor less. I don’t want to use Vim less.**
 
-I’ve been a Vim and Neovim user for years, and I’m a mechanical keyboard
-enthusiast. I enjoy figuring out how to move through documents without reaching
-for the mouse, even if I’m still not particularly good at it. It makes knowledge
-work feel a little like a game, with motions to learn, combinations to discover,
-and skills to keep honing.
+I’ve been a Vim and Neovim user for years, and I enjoy using mechanical keyboards.
+I enjoy figuring out how to move through documents without reaching
+for the mouse, even if I’m still not particularly good at it.
+**Vim makes knowledge work feel like a game**, with motions to learn, secret key
+combos to discover, and generally skills to keep honing.
 
-![Conceptual illustration of editing code in a Neovim terminal, with large syntax-highlighted text and line numbers relative to the cursor.](docs/public/readme/motivation-vim-v4.png)
+<p align="center">
+  <img src="docs/public/readme/motivation-vim-v4.png" width="80%" alt="Conceptual illustration of editing code in a Neovim terminal, with large syntax-highlighted text and line numbers relative to the cursor.">
+</p>
 
 As more of my work shifts to agents, I open Neovim less often. Most of my
 interaction with my computer now happens through an agent connected to a remote
 desktop, usually from my iPad. I love the iPad for touch and handwriting. But
 when I’m working with an agent, I don’t want to touch the screen at all.
 
-![Conceptual illustration of touching a visualization on an iPad resting on the author's lap, connected to a Mac Studio at home.](docs/public/readme/motivation-touch-v4.png)
+<p align="center">
+  <img src="docs/public/readme/motivation-touch-v4.png" width="80%" alt="Conceptual illustration of touching a visualization on an iPad resting on the author&#x27;s lap, connected to a Mac Studio at home.">
+</p>
 
 That’s the **slightly ridiculous combination behind Vimicate**. I wanted an agent
 app that felt native to Vim motions and a hardware keyboard, on a device famous
 for its touchscreen. I couldn’t find what I wanted, so here we are.
 
-![Conceptual illustration of Vimicate at a café, with an HHKB keyboard on the author's lap and an iPad with Apple Pencil on the table.](docs/public/readme/motivation-keyboard-v4.png)
+<p align="center">
+  <img src="docs/public/readme/motivation-keyboard-v4.png" width="80%" alt="Conceptual illustration of Vimicate at a café, with an HHKB keyboard on the author&#x27;s lap and an iPad with Apple Pencil on the table.">
+</p>
 
 The name reflects that ambition. If agents increasingly help me operate my
 digital life, Vimicate lets me bring Vim’s way of interacting along for the ride,
@@ -46,51 +52,81 @@ with agents.
 
 ## A look inside
 
-These are real iPad simulator captures using fictional projects and
-conversations. No personal projects or live agent responses are shown.
+A keyboard-first workspace on iPad, with touch-friendly layouts on iPhone.
 
-### Follow your projects
+### Move through the workspace with Vim
+
+Jump between projects, transcript and prompt without reaching for the screen.
+Use familiar motions to move by word or line, yank a Markdown section from
+the transcript, and paste it into your prompt. Edit its headings and checklist
+without leaving the keyboard. The keys appear above the workspace as the demo
+moves through each pane.
+
+<p align="center">
+  <img src="docs/public/readme/vim-navigation-v7.gif" width="80%" alt="Vim pane navigation, yanking a Markdown section into the prompt and editing it, with a translucent keystroke overlay.">
+</p>
 
 Keep home and work projects together, ordered by latest activity. Project
 indicators distinguish running sessions, failures and unread updates.
-
-![Ten fictional home and work projects ordered by latest activity, beside a conversation and Vim-style prompt editor.](docs/public/readme/workspace-ten-projects-v2.png)
+[View the workspace still.](docs/public/readme/workspace-ten-projects-v2.png)
 
 ### Make decisions in the conversation
 
 Read progress updates and answer an agent's question without leaving the
-transcript. This fictional planning session shows Codex with Astra and high
+transcript. This planning session shows Codex with Astra and high
 reasoning effort in the status bar.
 
-![A Codex Astra session with high reasoning effort, progress commentary and an interactive question in the transcript.](docs/public/readme/codex-astra-question-v3.png)
+<p align="center">
+  <img src="docs/public/readme/codex-astra-question-v3.png" width="80%" alt="A Codex Astra session with high reasoning effort, progress commentary and an interactive question in the transcript.">
+</p>
 
 ### Follow work across backends
 
 Keep the same workspace when a project uses a different backend. This second
-fictional session shows claude-cli with Opus 5.5 and a different conversation.
+session shows claude-cli with Opus 5.5 and a different conversation.
 
-![A claude-cli Opus 5.5 session with a fictional project conversation and ten home and work projects in the sidebar.](docs/public/readme/claude-opus-workspace-v3.png)
+<p align="center">
+  <img src="docs/public/readme/claude-opus-workspace-v3.png" width="80%" alt="A claude-cli Opus 5.5 session with a project conversation and ten home and work projects in the sidebar.">
+</p>
 
 ### Use colon commands
 
 Type `:model ` to see model completions without leaving the conversation.
 The menu shows matching options from the connected backend's model catalogue.
 
-![The native colon command bar with :model entered and a completion menu listing Astra and Opus model options beneath the fictional conversation.](docs/public/readme/model-command-completion-v4.png)
+<p align="center">
+  <img src="docs/public/readme/model-command-completion-v4.png" width="80%" alt="The native colon command bar with :model entered and a completion menu listing Astra and Opus model options beneath the conversation.">
+</p>
 
 ### Keep files beside the conversation
 
 Browse project files and preview Markdown without leaving the workspace.
 Waiting sessions use diamond indicators in the project list.
 
-![Project files and a Markdown preview beside the conversation, with all ten projects still visible.](docs/public/readme/project-files-ten-projects-v2.png)
+<p align="center">
+  <img src="docs/public/readme/project-files-ten-projects-v2.png" width="80%" alt="Project files and a Markdown preview beside the conversation, with all ten projects still visible.">
+</p>
+
+### Take the workspace to iPhone
+
+The same workspace adapts to a smaller screen. Open the project drawer to
+check activity, answer a question in the conversation, or browse files and
+read a Markdown preview.
+
+<p align="center">
+  <img src="docs/public/readme/iphone-projects-v5.png" width="208" alt="iPhone project drawer with ten home and work projects and activity indicators.">
+  <img src="docs/public/readme/iphone-question-v5.png" width="208" alt="iPhone conversation with a question card, selectable answers and prompt controls.">
+  <img src="docs/public/readme/iphone-files-v5.png" width="208" alt="iPhone project files and a readable Markdown preview.">
+</p>
 
 ### Learn the default bindings first
 
 **Click the question mark (`?`) at the top left before you start.** The built-in
 reference explains the default bindings for navigation, editing and each pane.
 
-![The built-in keyboard shortcut reference opened over the fictional demo workspace.](docs/public/readme/keyboard-shortcuts-ten-projects-v2.png)
+<p align="center">
+  <img src="docs/public/readme/keyboard-shortcuts-ten-projects-v2.png" width="80%" alt="The built-in keyboard shortcut reference opened over the workspace.">
+</p>
 
 ## Development transparency
 

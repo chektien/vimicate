@@ -13,8 +13,17 @@ describe('independent pane font scales', () => {
   });
 
   it('restores bounded values and falls back per malformed pane', () => {
-    expect(parsedPaneFontScales('{"projects":9,"transcript":1.2,"prompt":"bad","filesList":0,"filesPreview":1.24}')).toEqual({ projects: 1.5, transcript: 1.2, prompt: 0.9, filesList: 0.75, filesPreview: 1.24 });
+    expect(parsedPaneFontScales('{"projects":9,"transcript":1.2,"prompt":"bad","filesList":0,"filesPreview":1.24}')).toEqual({ projects: 2, transcript: 1.2, prompt: 0.9, filesList: 0.75, filesPreview: 1.24 });
     expect(parsedPaneFontScales('bad')).toEqual(DEFAULT_PANE_FONT_SCALES);
+  });
+
+  it('allows larger projects while retaining every other pane cap', () => {
+    const current = { ...DEFAULT_PANE_FONT_SCALES, projects: 1.5, transcript: 1.5, prompt: 1.5 };
+    expect(adjustedPaneFontScales(current, 'projects', 1).projects).toBe(1.6);
+    expect(adjustedPaneFontScales({ ...current, projects: 2 }, 'projects', 1).projects).toBe(2);
+    expect(adjustedPaneFontScales(current, 'transcript', 1).transcript).toBe(1.5);
+    expect(adjustedPaneFontScales(current, 'prompt', 1).prompt).toBe(1.5);
+    expect(parsedPaneFontScales(JSON.stringify({ ...current, projects: 1.8 })).projects).toBe(1.8);
   });
 
   it('migrates the existing three-pane payload without resetting its values', () => {

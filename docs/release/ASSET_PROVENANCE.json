@@ -175,6 +175,60 @@
       "source": "docs/public/readme/README.md",
       "verification": "Demo worker captured and inspected the image, then main agent independently reviewed it. Native XCTest verified colon command model input, both completion options, latest-activity sort and tenth project. No command was submitted.",
       "metadataSanitization": "Removed eXIf only. Chunk lengths and CRCs validated, terminal IEND checked, retained image-data chunks unchanged."
+    },
+    {
+      "path": "docs/public/readme/vim-navigation-v5.gif",
+      "sha256": "61ad14911e3eff7cb4132b29e44fa8d42562d8990cedb0baf0ce9406735621c0",
+      "origin": "Edited native iPad capture sequence with keystroke annotations",
+      "licenseEvidence": "Project application UI and original demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured and inspected by demo worker, independently reviewed by main agent. Native capture checks passed. No product source changes.",
+      "metadataSanitization": "Browser-oriented native captures scaled to 1366 by 1024, annotated and palette-encoded as a 24-second GIF. Original captures unchanged. Only the standard looping extension is retained."
+    },
+    {
+      "path": "docs/public/readme/iphone-projects-v5.png",
+      "sha256": "a54d6d235135b9c7da3a25cab70244884972540bc28eb3a4b0f8113215cd5654",
+      "origin": "Isolated iPhone simulator capture with synthetic demo content",
+      "licenseEvidence": "Project application UI and original demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured and inspected by demo worker, independently reviewed by main agent. Native capture checks passed. No product source changes.",
+      "metadataSanitization": "Removed eXIf and iTXt only. PNG boundaries, CRCs and terminal IEND checked. IHDR/IDAT bytes and decoded RGBA pixels unchanged."
+    },
+    {
+      "path": "docs/public/readme/iphone-question-v5.png",
+      "sha256": "c7fa8bef153d685b0b66d5c5daeae1772f487b420fa97c4eb1d0a1e51bb85eb1",
+      "origin": "Isolated iPhone simulator capture with synthetic demo content",
+      "licenseEvidence": "Project application UI and original demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured and inspected by demo worker, independently reviewed by main agent. Native capture checks passed. No product source changes.",
+      "metadataSanitization": "Removed eXIf and iTXt only. PNG boundaries, CRCs and terminal IEND checked. IHDR/IDAT bytes and decoded RGBA pixels unchanged."
+    },
+    {
+      "path": "docs/public/readme/iphone-files-v5.png",
+      "sha256": "d74177ff42a5797e731f45397a0c5cd9294a2df356c23315820afc4cfe642996",
+      "origin": "Isolated iPhone simulator capture with synthetic demo content",
+      "licenseEvidence": "Project application UI and original demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Captured and inspected by demo worker, independently reviewed by main agent. Native capture checks passed. No product source changes.",
+      "metadataSanitization": "Removed eXIf and iTXt only. PNG boundaries, CRCs and terminal IEND checked. IHDR/IDAT bytes and decoded RGBA pixels unchanged."
+    },
+    {
+      "path": "docs/public/readme/vim-navigation-v6.gif",
+      "sha256": "66bd89d4fbdf1e2125a1c0632ed6e6af9d57ea89cdcea0e2598db30fab354726",
+      "origin": "Edited native iPad capture sequence demonstrating Markdown yank, paste and prompt editing",
+      "licenseEvidence": "Project application UI and original demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Capture worker verified exact native yank, paste and edited prompt values. Main agent independently reviewed composited states and encoded playback. Native XCTest passed in 67.5 seconds. No product source changes.",
+      "metadataSanitization": "Browser-oriented native captures scaled to 1366 by 1024, annotated and palette-encoded as an approximately 32-second GIF. Original captures unchanged. Only the standard looping extension is retained."
+    },
+    {
+      "path": "docs/public/readme/vim-navigation-v7.gif",
+      "sha256": "5662b8dcb64cdfaf2ade1d10a99bd3a93173f56dcca63cf34112a9f8d616ca2c",
+      "origin": "Edited native iPad capture sequence demonstrating Markdown yank, paste and prompt editing",
+      "licenseEvidence": "Project application UI and original demo content",
+      "source": "docs/public/readme/README.md",
+      "verification": "Same verified native captures as v6. Main agent resized the annotation and reviewed all composed states, encoded playback and responsive README layouts. No product source changes.",
+      "metadataSanitization": "Browser-oriented native captures scaled to 1366 by 1024, annotated and palette-encoded as an approximately 32-second GIF. Original captures unchanged. Only the standard looping extension is retained."
     }
   ]
 }
