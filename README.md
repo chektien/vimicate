@@ -1,12 +1,8 @@
 # Vimicate
 
-<p align="center">
-  <a href="https://youtu.be/euXl1xJc8XM">
-    <img src="https://i.ytimg.com/vi/euXl1xJc8XM/maxresdefault.jpg" width="60%" alt="Watch the Vimicate launch video on YouTube">
-  </a>
-  <br>
-  <a href="https://youtu.be/euXl1xJc8XM">Watch the 74-second introduction</a>
-</p>
+https://github.com/user-attachments/assets/e3e974ed-983a-4ce9-9b40-3ff422b7c213
+
+[full res](https://youtu.be/euXl1xJc8XM)
 
 Vimicate is a keyboard-first **agent surface** for iPad and iPhone, connected
 to your own OpenClaw Gateway. It brings prompts, transcripts, project files and interactive agent
