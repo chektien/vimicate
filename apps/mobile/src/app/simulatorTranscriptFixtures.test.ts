@@ -7,7 +7,6 @@ import { resolve } from 'node:path';
 import { createTranscriptBuffer } from '../transcript/transcriptBuffer';
 import { compileTranscriptMarkdown } from '../transcript/transcriptMarkdown';
 import { nextTranscriptSearchCursor } from '../transcript/transcriptMessageSearch';
-import { resolvedTranscriptSkillInvocation, transcriptRowSkillInvocation } from '../transcript/transcriptSkillInvocation';
 import { buildVisibleTranscriptRenderRows, transcriptNavigationSourceRows } from '../transcript/transcriptVisibleRows';
 import {
   SIMULATOR_TRANSCRIPT_ACTIONABLE_FILE,
@@ -58,19 +57,19 @@ describe('isolated simulator transcript regression fixture', () => {
     expect(exhausted.filter((message) => message.text.includes(SIMULATOR_TRANSCRIPT_MARKERS.historyPageThree))).toHaveLength(1);
   });
 
-  it('derives skill labels from production prose/tool evidence and rejects ambiguous prose', () => {
+  it('keeps all commentary plain and names only completed skill reads', () => {
     const messages = simulatorTranscriptFixtureMessages();
     const rows = buildVisibleTranscriptRenderRows(messages, new Set());
     const resolved = (marker: string) => {
       const row = rows.find((candidate) => candidate.compiled.source.includes(marker));
       expect(row).toBeDefined();
-      const explicit = transcriptRowSkillInvocation(row!.message.role, row!.compiled.source);
-      return resolvedTranscriptSkillInvocation(row!.compiled.source, explicit, row!.inferredSkillInvocation ?? null)?.invocation.label ?? null;
+      return row!.readSkills?.[0] ?? null;
     };
 
-    expect(resolved(SIMULATOR_TRANSCRIPT_MARKERS.skillPositive)).toBe('browser-automation');
+    expect(resolved(SIMULATOR_TRANSCRIPT_MARKERS.skillPositive)).toBeNull();
     expect(resolved(SIMULATOR_TRANSCRIPT_MARKERS.skillNegative)).toBeNull();
-    expect(resolved(SIMULATOR_TRANSCRIPT_MARKERS.skillInferred)).toBe('sit-authentication');
+    expect(resolved(SIMULATOR_TRANSCRIPT_MARKERS.skillInferred)).toBeNull();
+    expect(rows.find(row => row.message.id.endsWith('-skill-evidence'))?.readSkills).toEqual(['sit-authentication']);
   });
 
   it('uses the production Markdown compiler for absolute, relative and literal citation boundaries', () => {

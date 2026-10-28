@@ -6,7 +6,7 @@ import type { ProjectFileContent, ProjectFileList } from '../gateway/projectFile
 import type { ProjectFilesPort } from './projectFilesTypes';
 import { useProjectFilesController, type ProjectFilesController } from './useProjectFilesController';
 
-const probe = vi.hoisted(() => ({ scroll: [] as Array<{ pane: string; index: number }>, controller: null as ProjectFilesController | null, openMedia: vi.fn(), focus: vi.fn(), fontStep: vi.fn(), alignments: [] as Array<number | undefined>, previewMounts: 0, lists: new WeakMap<HTMLElement, Record<string, unknown>>(), gestures: new WeakMap<HTMLElement, Record<string, (event: unknown) => unknown>>() }));
+const probe = vi.hoisted(() => ({ share: vi.fn(), scroll: [] as Array<{ pane: string; index: number }>, controller: null as ProjectFilesController | null, openMedia: vi.fn(), focus: vi.fn(), fontStep: vi.fn(), alignments: [] as Array<number | undefined>, previewMounts: 0, lists: new WeakMap<HTMLElement, Record<string, unknown>>(), gestures: new WeakMap<HTMLElement, Record<string, (event: unknown) => unknown>>() }));
 vi.mock('react-native', async () => {
   const { createElement, forwardRef, useImperativeHandle, useEffect } = await import('react');
   const Host = ({ children, accessibilityLabel, onPress, ...props }: { children?: React.ReactNode; accessibilityLabel?: string; onPress?: () => void; [key: string]: unknown }) => createElement('div', {
@@ -28,7 +28,7 @@ vi.mock('react-native', async () => {
 });
 vi.mock('./useProjectFilesSplit', () => ({ useProjectFilesSplit: () => ({ listHeight: 100, dividerHeight: 4, onLayoutHeight: () => undefined, dividerPanHandlers: {}, resize: () => undefined }) }));
 vi.mock('./ProjectFilesDivider', () => ({ ProjectFilesDivider: () => null }));
-vi.mock('../../modules/vimicate-file-links', () => ({ VimicateFilePreviewView: null, VimicateHTMLPreviewView: null, isVimicateFileShareAvailable: () => false }));
+vi.mock('../../modules/vimicate-file-links', () => ({ VimicateFilePreviewView: null, VimicateHTMLPreviewView: null, isVimicateFileShareAvailable: () => false, isVimicateStreamedFileShareAvailable: () => false, maximumVimicateFileShareBytes: () => 32 * 1024 * 1024, shareVimicateFile: probe.share }));
 vi.mock('expo-symbols', () => ({ SymbolView: () => <span /> }));
 vi.mock('../transcript/TranscriptMarkdownLine', () => ({ TranscriptMarkdownLine: ({ line, row, navigation }: { line: { source: string }; row: number; navigation: { cursor: { row: number; column: number } } }) => <span data-row={row} data-column={navigation.cursor.row === row ? navigation.cursor.column : -1}>{line.source}</span> }));
 
@@ -45,7 +45,7 @@ function Harness({ width = 300, previewFontScale = 0.88, scopeKey, filesPort = p
   useLayoutEffect(() => { probe.controller = controller; });
   return <ProjectFilesPane controller={controller} {...(rootLabel ? { rootLabel } : {})} {...(rootPath ? { rootPath } : {})} presentation="sidebar" width={width} previewFontScale={previewFontScale} focused onFontStep={probe.fontStep} onRequestFocus={probe.focus} {...{ onOpenMedia: probe.openMedia }} />;
 }
-beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); probe.scroll.length = 0; probe.alignments.length = 0; probe.previewMounts = 0; probe.controller = null; probe.openMedia.mockReset(); probe.focus.mockReset(); probe.fontStep.mockReset(); node = document.createElement('div'); document.body.append(node); root = createRoot(node); });
+beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); probe.scroll.length = 0; probe.alignments.length = 0; probe.previewMounts = 0; probe.controller = null; probe.share.mockReset().mockResolvedValue({ status: 'cancelled' }); probe.openMedia.mockReset(); probe.focus.mockReset(); probe.fontStep.mockReset(); node = document.createElement('div'); document.body.append(node); root = createRoot(node); });
 afterEach(async () => { await act(async () => root.unmount()); node.remove(); vi.unstubAllGlobals(); });
 
 it('identifies the shared Downloads root separately from a project path', async () => {
@@ -382,4 +382,61 @@ it('offers touch sorting while keeping the selected file and preview', async () 
   expect(probe.controller!.selectedEntry!.path).toBe(selected);
   expect(probe.controller!.content!.path).toBe(selected);
   expect(node.querySelector('[aria-label="File sort options"]')).toBeNull();
+});
+
+
+it.each(['unsupported', 'failed'] as const)('Enter shares a %s preview from either Files region without retrying the preview', async kind => {
+  const entry = { name: 'archive.zip', path: 'archive.zip', kind: 'unsupported' as const, mimeType: 'application/zip', size: 10, mtimeMs: 1 };
+  const readFile = vi.fn().mockRejectedValue(new Error('Preview exceeds limit'));
+  const readFileForSharing = vi.fn().mockResolvedValue({ filename: entry.name, mimeType: entry.mimeType, dataBase64: 'AA==' });
+  const filesPort: ProjectFilesPort = { listDirectory: async () => ({ ...list, entries: [{ ...entry, kind: kind === 'unsupported' ? 'unsupported' : 'document' }] }), readFile, readFileForSharing };
+  await act(async () => root.render(<Harness filesPort={filesPort} />));
+  await act(async () => probe.controller!.openBrowser());
+  expect(readFileForSharing).not.toHaveBeenCalled();
+  for (const region of ['list', 'preview'] as const) {
+    act(() => probe.controller!.setRegion(region));
+    await act(async () => probe.controller!.handleKey(hardware('enter')));
+  }
+  expect(readFileForSharing).toHaveBeenCalledTimes(2);
+  expect(probe.share).toHaveBeenCalledTimes(2);
+  expect(probe.share).toHaveBeenLastCalledWith('AA==', entry.name, entry.mimeType, expect.any(Object));
+  expect(readFile).toHaveBeenCalledTimes(kind === 'unsupported' ? 0 : 1);
+});
+
+
+it('keeps Enter for search and valid/loading previews, and never shares a stale selection', async () => {
+  const unsupported = { name: 'archive.zip', path: 'archive.zip', kind: 'unsupported' as const, mimeType: 'application/zip', size: 10, mtimeMs: 2 };
+  let finish!: (value: ProjectFileContent) => void;
+  const readFile = vi.fn(() => new Promise<ProjectFileContent>(resolve => { finish = resolve; }));
+  const readFileForSharing = vi.fn();
+  const filesPort: ProjectFilesPort = { listDirectory: async () => ({ ...list, entries: [unsupported, ...list.entries] }), readFile, readFileForSharing };
+  await act(async () => root.render(<Harness filesPort={filesPort} />));
+  await act(async () => probe.controller!.openBrowser());
+  for (const key of ['/', 'a', 'enter', 'g', 'enter']) await act(async () => probe.controller!.handleKey(hardware(key)));
+  expect(readFileForSharing).not.toHaveBeenCalled();
+  // Select and press Enter before React commits the old fallback's unmount.
+  act(() => { probe.controller!.select(1); probe.controller!.handleKey(hardware('enter')); });
+  expect(readFileForSharing).not.toHaveBeenCalled();
+  await act(async () => probe.controller!.handleKey(hardware('enter')));
+  expect(readFileForSharing).not.toHaveBeenCalled();
+  await act(async () => finish(file));
+  act(() => probe.controller!.setRegion('list'));
+  await act(async () => probe.controller!.handleKey(hardware('enter')));
+  expect(probe.controller!.region).toBe('preview');
+  expect(readFileForSharing).not.toHaveBeenCalled();
+});
+
+it('coalesces repeated Enter during original download and cancels when Files closes', async () => {
+  const entry = { name: 'archive.zip', path: 'archive.zip', kind: 'unsupported' as const, mimeType: 'application/zip', size: 10, mtimeMs: 1 };
+  let finish!: (value: { filename: string; mimeType: string; dataBase64: string }) => void;
+  const readFileForSharing = vi.fn<NonNullable<ProjectFilesPort['readFileForSharing']>>(() => new Promise(resolve => { finish = resolve; }));
+  const filesPort: ProjectFilesPort = { listDirectory: async () => ({ ...list, entries: [entry] }), readFile: vi.fn(), readFileForSharing };
+  await act(async () => root.render(<Harness filesPort={filesPort} />));
+  await act(async () => probe.controller!.openBrowser());
+  for (let i = 0; i < 3; i++) await act(async () => probe.controller!.handleKey(hardware('enter')));
+  expect(readFileForSharing).toHaveBeenCalledTimes(1);
+  await act(async () => probe.controller!.close());
+  expect(readFileForSharing.mock.calls[0]![0].signal!.aborted).toBe(true);
+  await act(async () => finish({ filename: entry.name, mimeType: entry.mimeType, dataBase64: 'AA==' }));
+  expect(probe.share).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { validSkillName } from '../tooling/skillReadEvidence';
 import { repairedCachedMarkdownImages } from './cachedMarkdownImages';
 import { persistedAsyncMetadata } from '../questions/asyncQuestionContract';
 import { type WorkspaceAttachment, type WorkspaceMessage, type WorkspaceMessageRole } from '../workspace/workspaceTypes';
@@ -6,7 +7,7 @@ import { pruneUnownedRestoredLiveRows } from './transcriptChronology';
 import { validatedAbsorbedLiveIdentity } from './transcriptIdentityWall';
 import { inactiveMessageRecovery } from './messageRecovery';
 import { reconcileClaudeNativeLive } from './claudeNativeLiveConvergence';
-import { transcriptInputAcceptedAt, transcriptInputReceiptRunId, transcriptCliProvenance, transcriptDisplayPosition, transcriptSessionIdentity } from '../workspace/transcriptMetadata';
+import { transcriptInternalEvent, transcriptInputAcceptedAt, transcriptInputReceiptRunId, transcriptCliProvenance, transcriptDisplayPosition, transcriptSessionIdentity } from '../workspace/transcriptMetadata';
 
 // This is a restart/offline preview, not canonical scrollback. Keeping the
 // bridge payload small prevents a cache write from spanning iOS suspension;
@@ -65,6 +66,7 @@ function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): Workspa
     id: message.id,
     ...persistedAsyncMetadata(message as unknown as Record<string, unknown>),
     role: message.role,
+    ...(message.role === 'tool' && transcriptInternalEvent(message.internalEvent) ? { internalEvent: transcriptInternalEvent(message.internalEvent)! } : {}),
     text,
     ...(message.timestamp ? { timestamp: message.timestamp } : {}),
     ...(message.state && message.state !== 'streaming' ? { state: message.state } : {}),
@@ -102,6 +104,7 @@ function parsedMessage(value: unknown): WorkspaceMessage[] {
     id: value.id,
     ...persistedAsyncMetadata(value),
     role: value.role as WorkspaceMessageRole,
+    ...(value.role === 'tool' && transcriptInternalEvent(value.internalEvent) ? { internalEvent: transcriptInternalEvent(value.internalEvent)! } : {}),
     text: value.text,
     ...(typeof value.timestamp === 'string' ? { timestamp: value.timestamp } : {}),
     ...(state ? { state } : {}),
@@ -135,7 +138,7 @@ function parsedRecovery(value: unknown): WorkspaceMessage['recovery'] | undefine
 
 function parsedTool(value: unknown) {
   if (!record(value) || typeof value.name !== 'string' || typeof value.summary !== 'string') return undefined;
-  return { name: value.name, summary: value.summary, ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}) };
+  return { name: value.name, summary: value.summary, ...(validSkillName(value.skillName) ? { skillName: value.skillName } : {}), ...(value.resultSucceeded === true ? { resultSucceeded: true as const } : {}), ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}) };
 }
 
 function parsedAttachment(value: unknown): WorkspaceAttachment[] {

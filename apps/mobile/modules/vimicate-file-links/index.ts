@@ -4,3 +4,4 @@ export type { VimicateFilePreviewViewProps, VimicateFilePreviewStatus } from './
 
 export { VimicateHTMLPreviewView, isVimicateHTMLPreviewAvailable, isVimicateFileShareAvailable, maximumVimicateFileShareBytes, shareVimicateFile } from './src/VimicateHTMLPreviewView';
 export type { VimicateFileShareAnchor, VimicateFileShareResult } from './src/VimicateFileLinksModule';
+export { isVimicateStreamedFileShareAvailable, beginVimicateFileShare } from './src/VimicateStreamedFileShare';

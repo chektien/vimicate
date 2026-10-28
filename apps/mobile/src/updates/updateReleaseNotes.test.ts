@@ -44,4 +44,10 @@ describe('OTA update release notes', () => {
     });
   });
 
+  it('does not invent release notes for a contributor build', () => {
+    expect(updateReleaseNotesFromManifest({
+      updates: { enabled: false },
+      extra: { appFlavor: 'vimicate-contributor', storageNamespace: 'org.vimicate.contributor' },
+    })).toBeNull();
+  });
 });

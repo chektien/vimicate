@@ -1,3 +1,4 @@
+import { skillNameFromArguments, successfulSkillReadResult } from './skillReadEvidence';
 export const TOOL_SUMMARY_CHARACTER_LIMIT = 96;
 
 export type ToolSummaryPhase = 'start' | 'update' | 'result' | 'error' | 'unknown';
@@ -20,6 +21,8 @@ export type ToolActivity = {
   summary: string;
   /** Raw payload, retained for deliberate expansion. */
   detail: string;
+  skillName?: string;
+  resultSucceeded?: true;
 };
 
 type ToolSummaryInput = {
@@ -92,12 +95,15 @@ function toolActivityFromPart(part: Record<string, unknown>): ToolActivity {
   const callId = toolCallIdentity(part);
   const failed = part.is_error === true || part.isError === true;
   const argumentsValue = kind === 'call' ? part.arguments ?? part.args ?? part.input : undefined;
+  const skillName = kind === 'call' ? skillNameFromArguments(name, argumentsValue) : undefined;
   const detailValue = kind === 'call' ? argumentsValue : part.content ?? part.text ?? part.result ?? part.output;
   return {
     kind,
     name,
     callId,
     status: kind === 'call' ? 'running' : failed ? 'failed' : 'ok',
+    ...(skillName ? { skillName } : {}),
+    ...(kind === 'result' && !failed && successfulSkillReadResult(name, detailValue) ? { resultSucceeded: true as const } : {}),
     summary: conciseToolSummary({
       name,
       phase: kind === 'call' ? 'start' : failed ? 'error' : 'result',
@@ -115,12 +121,15 @@ export function toolActivityFromLiveEvent(data: Record<string, unknown>): ToolAc
   const kind: ToolActivityKind = phase === 'start' ? 'call' : 'result';
   const failed = phase === 'error' || data.isError === true;
   const name = safeToolName(stringValue(data.name));
+  const skillName = phase === 'start' ? skillNameFromArguments(name, data.args) : undefined;
   const payload = phase === 'start' ? data.args : phase === 'update' ? data.partialResult : data.result;
   return {
     kind,
     name,
     callId: stringValue(data.toolCallId) || stringValue(data.toolUseId) || stringValue(data.tool_use_id),
     status: phase === 'start' || phase === 'update' ? 'running' : failed ? 'failed' : 'ok',
+    ...(skillName ? { skillName } : {}),
+    ...(phase === 'result' && !failed && successfulSkillReadResult(name, payload) ? { resultSucceeded: true as const } : {}),
     summary: conciseToolSummary({
       name,
       phase: failed ? 'error' : phase,
@@ -155,7 +164,7 @@ export function toolCallActivityIndex(rows: readonly unknown[]) {
 export function toolActivityPairedWithCall(activity: ToolActivity, calls: ReadonlyMap<string, ToolActivity>) {
   const call = activity.kind === 'result' && activity.callId ? calls.get(activity.callId) : undefined;
   if (!call) return activity;
-  const named = toolActivityNamed(activity, call.name);
+  const named = { ...toolActivityNamed(activity, call.name), ...(call.skillName ? { skillName: call.skillName } : {}) };
   return named.status === 'failed'
     ? { ...named, summary: boundedSummary(`${call.name} · failed · ${summaryAction(call.summary)}`) }
     : { ...named, summary: call.summary };
@@ -425,3 +434,8 @@ function commandLikeKey(value: typeof semanticKeys[number]) { return value === '
 function stringValue(value: unknown) { return typeof value === 'string' ? value : ''; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+export function toolSkillEvidence(activity: ToolActivity) {
+  return { ...(activity.skillName ? { skillName: activity.skillName } : {}),
+    ...(activity.resultSucceeded && activity.status === 'ok' && successfulSkillReadResult(activity.name, activity.detail) ? { resultSucceeded: true as const } : {}) };
+}

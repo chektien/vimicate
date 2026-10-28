@@ -11,6 +11,8 @@ export type TranscriptCliProvenance =
   | { kind: 'claude-aggregate'; runId: string };
 
 export type TranscriptMessageMetadata = AsyncQuestionMetadata & {
+  /** Typed internal runtime input, never inferred from authored prose. */
+  internalEvent?: 'exec' | 'inter_session';
   /** Concrete session named by history, not the selected route. */
   transcriptSessionId?: string;
   narrationItemId?: string;
@@ -156,3 +158,7 @@ function record(value: unknown): Record<string, unknown> {
 function ordinal(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0; }
 function positiveSafeInteger(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0; }
 function boundedText(value: unknown, limit: number): value is string { return typeof value === 'string' && value.length > 0 && value.length <= limit; }
+
+export function transcriptInternalEvent(value: unknown) {
+  return value === 'exec' || value === 'inter_session' ? value : undefined;
+}

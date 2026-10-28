@@ -23,13 +23,18 @@ export function routeTranscriptQuestionKey({ buffer, navigation, sourceRows, mes
   const key = normalizedHardwareKey(event);
   const line = transcriptLineAt(buffer, navigation.cursor.row);
   const current = line && messages[line.messageIndex];
-  const anchor = (index: number) => select({ ...navigation, cursor: { row: buffer.lastRowByMessage[index]!, column: 0 }, desiredColumn: 0, followTail: false });
+  // A card-only fallback retains its raw source range for yank/search, but
+  // hides those lines. Enter, reverse entry and return must share the last
+  // rendered navigation stop, never a hidden raw-text coordinate.
+  const cardRow = (index: number) => sourceRows.findLast(row => row >= buffer.firstRowByMessage[index]! && row <= buffer.lastRowByMessage[index]!)
+    ?? buffer.lastRowByMessage[index]!;
+  const anchor = (index: number) => select({ ...navigation, cursor: { row: cardRow(index), column: 0 }, desiredColumn: 0, followTail: false });
   if (current?.question || current?.asyncQuestion) {
     const result = handle(current, event);
-    if (result === 'before') { anchor(line!.messageIndex); reveal(buffer.lastRowByMessage[line!.messageIndex]!); return true; }
+    if (result === 'before') { anchor(line!.messageIndex); reveal(cardRow(line!.messageIndex)); return true; }
     if (result === 'after') return false;
     if (result) { anchor(line!.messageIndex); return true; }
-    if (key === 'j' && navigation.cursor.row === buffer.lastRowByMessage[line!.messageIndex]) {
+    if (key === 'j' && navigation.cursor.row === cardRow(line!.messageIndex)) {
       if (handle(current, event, 'forward')) { anchor(line!.messageIndex); return true; }
     }
   }
@@ -38,7 +43,7 @@ export function routeTranscriptQuestionKey({ buffer, navigation, sourceRows, mes
     const previousRow = sourceRows[index - 1];
     const previous = previousRow === undefined ? undefined : transcriptLineAt(buffer, previousRow);
     const message = previous && messages[previous.messageIndex];
-    if (previous && previous.messageIndex !== line?.messageIndex && previousRow === buffer.lastRowByMessage[previous.messageIndex]
+    if (previous && previous.messageIndex !== line?.messageIndex && previousRow === cardRow(previous.messageIndex)
       && (message?.question || message?.asyncQuestion) && handle(message, event, 'backward')) {
       anchor(previous.messageIndex); return true;
     }

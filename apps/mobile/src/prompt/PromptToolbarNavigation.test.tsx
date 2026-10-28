@@ -15,7 +15,7 @@ vi.mock('expo-symbols', () => ({ SymbolView: () => <span /> }));
 vi.mock('../../modules/vimicate-editor', () => ({ PromptDropSurface: ({ children }: { children: import('react').ReactNode }) => <div>{children}</div>, VimicateEditorView: (props: typeof native.props) => { native.props = props; return <pre>{props.navigationCommand}</pre>; } }));
 vi.mock('./PromptHistoryBrowserPanel', () => ({ PromptHistoryBrowserPanel: () => null }));
 import { PromptPane } from './PromptPane';
-import { createPromptState } from './vimPromptCore';
+import { createPromptState, handlePromptKey } from './vimPromptCore';
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -38,6 +38,26 @@ const expandNavigation = () => act(async () => button('Show navigation keys')!.c
 const navigationCommand = () => container.querySelector('pre')!.textContent;
 
 beforeEach(() => { commandHistory.mockClear(); requestPromptFocus.mockClear(); });
+
+it('shows r as pending, then commits a digit replacement without a reversed 7r hint', async () => {
+  const initial = { ...createPromptState('80% width'), selection: { start: 0, end: 0 } };
+  const pending = handlePromptKey(initial, { key: 'r' }).state;
+  await render(false, false, { state: pending });
+  expect(container.textContent).toContain('r…');
+  const replaced = handlePromptKey(pending, { key: '7' }).state;
+  await render(false, false, { state: replaced });
+  expect(JSON.parse(native.props.editorState).text).toBe('70% width');
+  expect(container.textContent).not.toContain('r…');
+});
+
+it('shows operator and motion counts in their command order', async () => {
+  let state = createPromptState('one two three');
+  for (const [key, hint] of [['2', '2…'], ['d', '2d…'], ['3', '2d3…'], ['f', '2d3f…']] as const) {
+    state = handlePromptKey(state, { key }).state;
+    await render(false, false, { state });
+    expect(container.textContent).toContain(hint);
+  }
+});
 
 it('gives the toolbar arrows to colon command history while the command line is open', async () => {
   await render(true, true);

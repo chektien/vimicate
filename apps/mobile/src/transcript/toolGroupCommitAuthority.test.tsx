@@ -41,18 +41,19 @@ it('keeps overlap identity session-scoped and restores it on thread return', asy
   await act(async () => root.render(<Scene messages={[tool('a'), tool('b'), tool('c')]} />));
   expect(committed[0]!.id).toBe(original);
 });
-it('preserves adjacent skill-load evidence through the real grouped display pipeline', async () => {
+it('keeps proven skill reads on tool activity through the grouped display pipeline', async () => {
   const narration: WorkspaceMessage = {
     id: 'narration', role: 'narration', text: "I'm loading that operating skill before inspection.",
     sessionKey: 's', runId: 'r',
   };
   const evidence: WorkspaceMessage = {
     id: 'evidence', role: 'tool', text: 'read /fixture/skills/sit-authentication/SKILL.md',
-    sessionKey: 's', runId: 'r', tool: { name: 'exec', summary: 'read /fixture/skills/sit-authentication/SKILL.md' },
+    sessionKey: 's', runId: 'r', tool: { name: 'exec', summary: 'read /fixture/skills/sit-authentication/SKILL.md', skillName: 'sit-authentication', resultSucceeded: true },
   };
   await act(async () => root.render(<Scene messages={[narration, evidence]} />));
   expect(committed[1]?.toolGroup).toMatchObject({ count: 1, lastMessageId: 'evidence' });
   const row = buildVisibleTranscriptRenderRows(committed, new Set())[0];
   expect(row?.message.id).toBe('narration');
-  expect(row?.inferredSkillInvocation).toEqual({ label: 'sit-authentication' });
+  expect(row?.readSkills).toBeUndefined();
+  expect(buildVisibleTranscriptRenderRows(committed, new Set())[1]?.readSkills).toEqual(['sit-authentication']);
 });

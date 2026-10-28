@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const SQLITE_HISTORY_RUNTIME = '2026.10.6';
+export const SQLITE_HISTORY_RUNTIME = '2026.10.7';
 import { PROFILES } from './sqlite-history-profiles.mjs';
 
 export const SQLITE_HISTORY_SUPPORTED_RUNTIMES = Object.freeze(Object.keys(PROFILES));

@@ -266,7 +266,8 @@ export function createProjectFiles({ vimicateDir, homeDir = process.env.HOME }) 
   function exportChunkAt(root, params) {
     // Explicit transfer is independent of rendering. Each response is at most
     // 256 KiB base64, without raising preview limits or Gateway frame limits.
-    const limit = 32 * 1024 * 1024, chunkBytes = 196608;
+    check(params?.transferMode === undefined || params.transferMode === 'disk', 'invalid share transfer mode');
+    const limit = params.transferMode === 'disk' ? Number.MAX_SAFE_INTEGER : 32 * 1024 * 1024, chunkBytes = 196608;
     check(Number.isSafeInteger(params?.size) && params.size >= 0 && params.size <= limit,
       `share file exceeds ${limit} bytes`);
     check(Number.isSafeInteger(params?.mtimeMs) && params.mtimeMs >= 0, 'invalid share file timestamp');
@@ -280,7 +281,7 @@ export function createProjectFiles({ vimicateDir, homeDir = process.env.HOME }) 
     const versionOf = stat => [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':');
     try {
       const before = statFd(fd, 'path is unavailable');
-      check(before.isFile() && before.size <= limit, `share file exceeds ${limit} bytes`);
+      check(before.isFile() && Number.isSafeInteger(before.size) && before.size <= limit, `share file exceeds ${limit} bytes`);
       check(Number.isFinite(before.ctimeMs), 'invalid share file version');
       const version = versionOf(before);
       check(before.size === params.size && Math.trunc(before.mtimeMs) === params.mtimeMs

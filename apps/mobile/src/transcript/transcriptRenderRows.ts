@@ -2,7 +2,7 @@ import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { transcriptChronology, type TranscriptChronology } from './transcriptChronology';
 import { compileTranscriptMarkdown, plainTranscriptMarkdownLine, type CompiledMarkdownLine } from './transcriptMarkdown';
 import { transcriptGroupPositions, transcriptRolePresentation, type TranscriptGroupPosition, type TranscriptRolePresentation } from './transcriptPresentation';
-import { transcriptSkillInvocationFromFollowingTool, type TranscriptSkillEvidence } from './transcriptSkillInvocation';
+import { transcriptReadSkills } from './transcriptSkillInvocation';
 
 export type TranscriptRenderRow = {
   key: string;
@@ -18,7 +18,7 @@ export type TranscriptRenderRow = {
   chronology: TranscriptChronology;
   firstSourceRowInMessage: number;
   lastSourceRowInMessage: number;
-  inferredSkillInvocation?: TranscriptSkillEvidence;
+  readSkills?: string[];
   toolGroupDepth?: number;
   questionCardOnly?: boolean;
   foldKey?: string;
@@ -37,7 +37,7 @@ export function buildTranscriptRenderRows(messages: WorkspaceMessage[]): Transcr
       : sourceLines.map(plainTranscriptMarkdownLine);
     const firstSourceRowInMessage = sourceRow;
     const lastSourceRowInMessage = sourceRow + sourceLines.length - 1;
-    const inferredSkillInvocation = transcriptSkillInvocationFromFollowingTool(messages, messageIndex) ?? undefined;
+    const readSkills = transcriptReadSkills(messages, messageIndex, messageIndex);
     return sourceLines.map((text, lineInMessage) => ({
       key: `${message.id}:${lineInMessage}`,
       sourceRow: sourceRow++,
@@ -52,7 +52,7 @@ export function buildTranscriptRenderRows(messages: WorkspaceMessage[]): Transcr
       chronology: chronology[messageIndex] ?? {},
       firstSourceRowInMessage,
       lastSourceRowInMessage,
-      ...(inferredSkillInvocation ? { inferredSkillInvocation } : {}),
+      ...(readSkills.length ? { readSkills } : {}),
     }));
   });
 }

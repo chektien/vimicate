@@ -10,6 +10,10 @@ export function projectFileShareFailure(error: unknown, presenting: boolean): st
   }
   if (/^vimicate\.files\.exportChunk timed out$/i.test(message)) return 'The file download timed out. Try sharing again.';
   if (/unknown method:\s*vimicate\.files\.exportChunk$/i.test(message)) return 'This Gateway needs an update to support original-file sharing.';
+  if (/^vimicate project files: share file exceeds 33554432 bytes$/i.test(message)) {
+    return 'This Gateway needs an update to stream files larger than 32 MiB.';
+  }
+  if (/Not enough free space/i.test(message)) return 'Not enough free space on this device to download the original. Free up space and try again.';
   if (/^vimicate project files: file changed before sharing$/i.test(message)) return 'The file changed. Refresh the folder, then share it again.';
   if (message === 'Invalid original file transfer response.') return 'The file transfer could not be verified. Nothing was shared. Try again.';
   return 'The original file could not be downloaded. Try again.';

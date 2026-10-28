@@ -1,4 +1,5 @@
 import { useProjectFilePreviewLineSelection } from './useProjectFilePreviewLineSelection';
+import { useProjectFilePreviewActions } from './useProjectFilePreviewActions';
 import { useProjectFileSort } from './useProjectFileSort';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { HardwareKeyEvent } from '../../modules/vimicate-editor';
@@ -44,7 +45,6 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
   const [region, setRegion] = useState<'list' | 'preview'>('list');
   const regionRef = useRef(region); regionRef.current = region;
   const publishRegion = (next: 'list' | 'preview') => { regionRef.current = next; setRegion(next); };
-  const nativePreviewRef = useRef<{ projectId: string; scopeKey: string; path: string } | null>(null);
   const [helpVisible, setHelpVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const searchRef = useRef<string | null>(null);
@@ -83,10 +83,7 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
     && content?.projectId === projectId && contentScope === scopeKey && content.path === selectedEntry?.path ? content : null;
   const previewPositions = useProjectFilePreviewPositions(visibleContent, previewPhase === 'ready', scopeKey, previewNavigation, lastSearch, lastSearchDirection);
 
-  const setNativePreviewActive = useCallback((active: boolean) => {
-    nativePreviewRef.current = active && contentRef.current ? { projectId: projectRef.current, scopeKey: scopeRef.current, path: contentRef.current.path } : null;
-    if (active) { searchRef.current = null; setSearchQuery(null); }
-  }, []);
+  const { nativeHTMLPreviewActive, setNativePreviewActive, registerFallbackOpen, openFallback } = useProjectFilePreviewActions(projectId, scopeKey, contentRef, projectRef, scopeRef, searchRef, setSearchQuery);
 
   const close = useCallback(() => {
     dismissSort(); openRef.current = false;
@@ -324,12 +321,13 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
       else if (!event.control && !event.command && !event.option && (key === 'space' || [...key].length === 1)) publishSearch((searchRef.current + (key === 'space' ? ' ' : key)).slice(0, 256));
       return true;
     }
+    if (openFallback(event, visibleEntries[navigationRef.current.index], previewPhase,
+      activeRef.current && phaseRef.current === 'ready' && !directoryChecking.current && !navigationRef.current.pending)) {
+      const next = { ...navigationRef.current, count: '' }; navigationRef.current = next; setNavigation(next); return true;
+    }
     if (event.control && !event.command && !event.option && (key === 'j' || key === 'down')) { publishRegion('preview'); return true; }
     if (event.control && !event.command && !event.option && (key === 'k' || key === 'up')) { publishRegion('list'); return true; }
-    // Rendered HTML owns interaction. Never yank/edit/move a hidden source cursor.
-    const native = nativePreviewRef.current;
-    if (regionRef.current === 'preview' && native?.projectId === projectRef.current && native?.scopeKey === scopeRef.current
-      && native?.path === content?.path && content?.kind === 'text' && content.mimeType === 'text/html') {
+    if (regionRef.current === 'preview' && nativeHTMLPreviewActive(content)) {
       if (escape) close();
       else if (event.control && key.toLowerCase() === 'r') refresh();
       return true;
@@ -398,9 +396,9 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
     if (result.effect === 'toggle-help') setHelpVisible((current) => !current);
     if (result.effect === 'open') openEntry(result.state.index);
     return true;
-  }, [close, closeOnHandoff, content, contentScope, loadDirectory, onHandoff, onStatus, onYank, openEntry, previewPhase, refresh, select, selectedEntry?.path, visibleEntries, sorting]);
+  }, [close, closeOnHandoff, content, contentScope, loadDirectory, nativeHTMLPreviewActive, onHandoff, onStatus, onYank, openEntry, openFallback, previewPhase, refresh, select, selectedEntry?.path, visibleEntries, sorting]);
 
-  return { projectId, scopeKey, readFileForSharing: port?.readFileForSharing, sorting, open, openBrowser, openFilePath, close, refresh, parent, openEntry, path: stateProjectIsCurrent ? path : '', entries: visibleEntries, selectedIndex: navigation.index, selectedEntry, select, showHidden, phase, problem, content: visibleContent, previewPhase, previewProblem, previewNavigation, selectPreviewLine, setNativePreviewActive, region, setRegion: publishRegion, helpVisible, setHelpVisible, searchQuery, searchDirection: searchDirection.current, handleKey };
+  return { projectId, scopeKey, registerFallbackOpen, readFileForSharing: port?.readFileForSharing, sorting, open, openBrowser, openFilePath, close, refresh, parent, openEntry, path: stateProjectIsCurrent ? path : '', entries: visibleEntries, selectedIndex: navigation.index, selectedEntry, select, showHidden, phase, problem, content: visibleContent, previewPhase, previewProblem, previewNavigation, selectPreviewLine, setNativePreviewActive, region, setRegion: publishRegion, helpVisible, setHelpVisible, searchQuery, searchDirection: searchDirection.current, handleKey };
 }
 
 function errorDetail(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }

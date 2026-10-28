@@ -22,6 +22,7 @@ function sameWorkspaceMessage(left: WorkspaceMessage, right: WorkspaceMessage) {
 export function sameWorkspaceMessageExceptText(left: WorkspaceMessage, right: WorkspaceMessage) {
   return left === right || (left.id === right.id
     && left.role === right.role
+    && left.internalEvent === right.internalEvent
     && left.timestamp === right.timestamp
     && left.state === right.state
     && left.runId === right.runId
@@ -51,6 +52,7 @@ function sameTool(left: WorkspaceMessage['tool'], right: WorkspaceMessage['tool'
   return left === right || Boolean(left && right
     && left.name === right.name
     && left.summary === right.summary
+    && left.skillName === right.skillName && left.resultSucceeded === right.resultSucceeded
     && left.durationMs === right.durationMs);
 }
 

@@ -10,6 +10,7 @@ import { buildSqlitePlugin } from './build-sqlite-plugin.mjs';
 
 const target = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
 const fixtures = {
+  '2026.10.7': ['reply-run-registry.registry-CLWEwkqe.mjs', 'sessions-read-BXwTspcX.mjs', 'plugin-setup-module-DkTSoH8N.mjs'],
   '2026.10.4': ['reply-run-registry.registry-5e3UVXZS.mjs', 'sessions-read-DziXtPpO.mjs', 'plugin-setup-module-CeetwhwH.mjs'],
   '2026.10.5': ['reply-run-registry.registry-BswPq0Xd.mjs', 'sessions-read-DNOkgOd5.mjs', 'plugin-setup-module-ivVK8RSf.mjs'],
   '2026.10.6': ['reply-run-registry.registry-BzgREenr.mjs', 'sessions-read-CLHMalI8.mjs', 'plugin-setup-module-BtgPcZxn.mjs'],
@@ -18,7 +19,7 @@ if (process.env.VIMICATE_RUN_TRUTH_ACCEPTANCE_CHILD !== '1') {
   test('captured reader observes the native steering backend, not a duplicate module-local registry',
     { skip: !target }, async t => {
       const metadata = JSON.parse(await fs.readFile(path.join(target, 'package.json')));
-      if (!fixtures[metadata.version]) return t.skip('audited 10.4/10.5 runtime');
+      if (!fixtures[metadata.version]) return t.skip('no run-truth fixture for this runtime');
       const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'vimicate-run-truth-')));
       t.after(() => fs.rm(root, { recursive: true, force: true }));
       const plugin = path.join(root, 'plugin');
@@ -37,9 +38,9 @@ if (process.env.VIMICATE_RUN_TRUTH_ACCEPTANCE_CHILD !== '1') {
   const load = name => import(pathToFileURL(path.join(target, 'dist', name)).href);
   const version = JSON.parse(await fs.readFile(path.join(target, 'package.json'))).version;
   const fixture = fixtures[version];
-  const contexts = await load(['2026.10.5', '2026.10.6'].includes(version) ? (version === '2026.10.6' ? 'agent-run-registry-B2Kia58i.mjs' : 'agent-run-registry-zReSioYT.mjs') : 'agent-run-registry-BaxMDLZF.mjs');
-  const claim = contexts[['2026.10.5', '2026.10.6'].includes(version) ? 'i' : 'r'];
-  const clear = contexts[['2026.10.5', '2026.10.6'].includes(version) ? 'o' : 'a'];
+  const contexts = await load(['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) ? (['2026.10.6', '2026.10.7'].includes(version) ? 'agent-run-registry-B2Kia58i.mjs' : 'agent-run-registry-zReSioYT.mjs') : 'agent-run-registry-BaxMDLZF.mjs');
+  const claim = contexts[['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) ? 'i' : 'r'];
+  const clear = contexts[['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) ? 'o' : 'a'];
   const { g: registry } = await load(fixture[0]);
   const { t: handlers } = await load(fixture[1]);
   const { n: PluginInstance, r: bindPluginInstanceModuleLoader } = await load(fixture[2]);
@@ -84,7 +85,7 @@ if (process.env.VIMICATE_RUN_TRUTH_ACCEPTANCE_CHILD !== '1') {
     operation.complete();
     assert.equal(registry.resolveCurrentMessageInjectionTarget(key), undefined);
     assert.equal((await captured.loadSessionRunTruthRuntime(target)).registry.resolveCurrentMessageInjectionTarget(key), undefined);
-    if (['2026.10.5', '2026.10.6'].includes(version)) await acceptAttachedRunIdentity();
+    if (['2026.10.5', '2026.10.6', '2026.10.7'].includes(version)) await acceptAttachedRunIdentity();
     console.log('native and captured steering identity accepted');
   } finally {
     clear('actual-native-run');

@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ProjectFileEntry } from '../gateway/projectFiles';
 import type { ProjectFileShareReader, ProjectFileShareTransfer } from '../gateway/projectFileSharing';
 
-const probe = vi.hoisted(() => ({ share: vi.fn(), maximum: 32 * 1024 * 1024, state: 'active', listener: null as ((state: string) => void) | null }));
+const probe = vi.hoisted(() => ({ share: vi.fn(), begin: vi.fn(), append: vi.fn(), present: vi.fn(), cancel: vi.fn(),
+  streamed: false, maximum: 32 * 1024 * 1024, state: 'active', listener: null as ((state: string) => void) | null }));
 vi.mock('react-native', async () => {
   const { createElement, forwardRef, useImperativeHandle } = await import('react');
   const Host = forwardRef(({ children, accessibilityLabel, onPress, disabled }: {
@@ -19,7 +20,8 @@ vi.mock('react-native', async () => {
       probe.listener = listener; return { remove: () => { probe.listener = null; } };
     } } };
 });
-vi.mock('../../modules/vimicate-file-links', () => ({ maximumVimicateFileShareBytes: () => probe.maximum, shareVimicateFile: probe.share }));
+vi.mock('../../modules/vimicate-file-links', () => ({ maximumVimicateFileShareBytes: () => probe.maximum, shareVimicateFile: probe.share,
+  isVimicateStreamedFileShareAvailable: () => probe.streamed, beginVimicateFileShare: probe.begin }));
 import { ProjectFileShareFallback } from './ProjectFileShareFallback';
 
 const entry: ProjectFileEntry = { name: 'original.pdf', path: 'folder/original.pdf', kind: 'document',
@@ -29,6 +31,10 @@ let root: Root; let node: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); probe.maximum = 32 * 1024 * 1024; probe.state = 'active';
   probe.share.mockReset().mockResolvedValue({ status: 'shared' });
+  probe.streamed = false;
+  probe.append.mockReset().mockResolvedValue(undefined); probe.present.mockReset().mockResolvedValue({ status: 'shared' });
+  probe.cancel.mockReset().mockResolvedValue(undefined);
+  probe.begin.mockReset().mockResolvedValue({ append: probe.append, present: probe.present, cancel: probe.cancel });
   node = document.createElement('div'); document.body.append(node); root = createRoot(node);
 });
 afterEach(async () => { await act(async () => root.unmount()); node.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -101,6 +107,8 @@ it.each([
   ['Gateway is not connected', 'The Gateway is disconnected. Wait for it to reconnect, then try sharing again.'],
   ['vimicate.files.exportChunk timed out', 'The file download timed out. Try sharing again.'],
   ['unknown method: vimicate.files.exportChunk', 'This Gateway needs an update to support original-file sharing.'],
+  ['vimicate project files: share file exceeds 33554432 bytes', 'This Gateway needs an update to stream files larger than 32 MiB.'],
+  ['Not enough free space on this device.', 'Not enough free space on this device to download the original. Free up space and try again.'],
   ['vimicate project files: file changed before sharing', 'The file changed. Refresh the folder, then share it again.'],
   ['Invalid original file transfer response.', 'The file transfer could not be verified. Nothing was shared. Try again.'],
 ])('reports actionable share failure for %s without opening a native chooser', async (reason, expected) => {
@@ -116,4 +124,78 @@ it('does not expose unknown host diagnostics or blame connection for native pres
   expect(node.textContent).toContain('The original file could not be downloaded. Try again.');
   probe.share.mockRejectedValueOnce(new Error('health timed out')); await click();
   expect(node.textContent).toContain('The file downloaded, but the share sheet could not open. Try again.');
+});
+
+it('streams beyond preview and legacy share ceilings only after an explicit tap and cleans native custody', async () => {
+  probe.streamed = true;
+  const read = vi.fn<ProjectFileShareReader>(async input => {
+    await input.writeChunk!(0, 'YQ==');
+    return { filename: 'original.pdf', mimeType: 'application/pdf', streamed: true };
+  });
+  await render(read, { ...entry, size: 64 * 1024 * 1024 });
+  expect(probe.begin).not.toHaveBeenCalled();
+  await click();
+  expect(probe.begin).toHaveBeenCalledWith(entry.name, 64 * 1024 * 1024);
+  expect(probe.append).toHaveBeenCalledWith(0, 'YQ==');
+  expect(probe.present).toHaveBeenCalledTimes(1); expect(probe.cancel).toHaveBeenCalledTimes(1);
+  expect(probe.share).not.toHaveBeenCalled();
+});
+it.each(['cancel', 'selection', 'background', 'unmount'])('cancels native custody and prevents stale stream presentation after %s', async reason => {
+  probe.streamed = true;
+  const p = pendingRead(); await render(p.read); await click();
+  if (reason === 'cancel') await click('Cancel file download');
+  if (reason === 'selection') await render(p.read, { ...entry, path: 'other.pdf' });
+  if (reason === 'background') act(() => { probe.state = 'background'; probe.listener?.('background'); });
+  if (reason === 'unmount') await act(async () => root.render(null));
+  expect(probe.cancel).toHaveBeenCalledTimes(1);
+  await act(async () => p.finish()); expect(probe.present).not.toHaveBeenCalled();
+});
+it('cancels a native stage whose begin completes after scope disposal', async () => {
+  probe.streamed = true;
+  let finish!: (value: unknown) => void;
+  probe.begin.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const read = vi.fn<ProjectFileShareReader>();
+  await render(read); await click(); await act(async () => root.render(null));
+  await act(async () => finish({ append: probe.append, present: probe.present, cancel: probe.cancel }));
+  expect(probe.cancel).toHaveBeenCalledTimes(1);
+  expect(read).not.toHaveBeenCalled(); expect(probe.present).not.toHaveBeenCalled();
+});
+it('cancels native presentation when its scope is disposed while the chooser is pending', async () => {
+  probe.streamed = true;
+  let finish!: (value: unknown) => void;
+  probe.present.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const read = vi.fn<ProjectFileShareReader>().mockResolvedValue({ filename: entry.name, mimeType: 'application/pdf', streamed: true });
+  await render(read); await click(); expect(probe.present).toHaveBeenCalledTimes(1);
+  await act(async () => root.render(null)); expect(probe.cancel).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ status: 'cancelled' }));
+});
+
+it('does not recreate an idle timeout when a cancelled native append resolves after cleanup', async () => {
+  vi.useFakeTimers(); probe.streamed = true;
+  let finish!: () => void;
+  probe.append.mockReturnValue(new Promise<void>(resolve => { finish = resolve; }));
+  const read = vi.fn<ProjectFileShareReader>(async input => {
+    return new Promise((_resolve, reject) => {
+      input.signal!.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+      void input.writeChunk!(0, 'YQ==');
+    });
+  });
+  await render(read); await click(); expect(probe.append).toHaveBeenCalledTimes(1);
+  await click('Cancel file download');
+  await act(async () => root.render(null));
+  expect(vi.getTimerCount()).toBe(0);
+  await act(async () => finish());
+  expect(vi.getTimerCount()).toBe(0); expect(probe.present).not.toHaveBeenCalled();
+});
+it('retains presented native custody across receiving-app background handoff until chooser completion', async () => {
+  probe.streamed = true;
+  let finish!: (value: unknown) => void;
+  probe.present.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const read = vi.fn<ProjectFileShareReader>().mockResolvedValue({ filename: entry.name, mimeType: 'application/pdf', streamed: true });
+  await render(read); await click();
+  expect(probe.present).toHaveBeenCalledTimes(1);
+  act(() => { probe.state = 'background'; probe.listener?.('background'); });
+  expect(probe.cancel).not.toHaveBeenCalled(); expect(read.mock.calls[0]![0].signal!.aborted).toBe(false);
+  await act(async () => finish({ status: 'shared' }));
+  expect(probe.cancel).toHaveBeenCalledTimes(1);
 });

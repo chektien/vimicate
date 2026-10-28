@@ -31,6 +31,15 @@ const PROFILES = {
     'run-state-CteOnHdg.mjs': '88c5dbaca2efe6b7d81a8639fbee10bd68cf4ed7bdd73cd3f1d444fc8caa00f0',
     'agent-run-registry-B2Kia58i.mjs': 'c9f4f4f212243869e6139a2a4e164ea91d5c7d7e9e841cd2b0e2657cb6b4ab47',
   }, names: ['sessions-read-CLHMalI8.mjs', 'reply-run-registry.registry-BzgREenr.mjs', 'agent-run-registry-B2Kia58i.mjs'], contextKeys: ['u', 'm'] },
+  // Exact stock and independently composed 10.7 native read owners.
+  '2026.10.7': { pins: {
+    'sessions-read-BXwTspcX.mjs': '99177eb84c5f83e9ec139265a82d74a7b40b87dc65c79fb453b77310c29bb5e1',
+    'reply-run-registry.registry-CLWEwkqe.mjs': ['37065df16b88723461726b15c9c8a35fb58495a27e0427512c12610a86464cea',
+      '3821fc29255382ef3442e001b1369c6eaa08e3a9b41956a7aa7eeea36cb6f941'],
+    'reply-run-registry.state-BRc2hVR0.mjs': 'c95ff55271d25e7c177b43c4f08226a7e0a1a44f4f27824e25314fb05decfb0f',
+    'run-state-BoegaeAc.mjs': '3c41fa35671a7751674613db4580fb0b70efa47b115dd28ef2280a39bbd3c99d',
+    'agent-run-registry-B2Kia58i.mjs': 'c9f4f4f212243869e6139a2a4e164ea91d5c7d7e9e841cd2b0e2657cb6b4ab47',
+  }, names: ['sessions-read-BXwTspcX.mjs', 'reply-run-registry.registry-CLWEwkqe.mjs', 'agent-run-registry-B2Kia58i.mjs'], contextKeys: ['u', 'm'] },
 };
 export async function loadSessionRunTruthRuntime(packageRoot) {
   const root = await fs.realpath(packageRoot);

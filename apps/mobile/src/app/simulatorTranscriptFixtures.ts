@@ -129,7 +129,7 @@ export function simulatorTranscriptFixtureMessages(loadedOlderPageCount = 0): Wo
       tool: {
         name: 'exec',
         summary: 'read /fixture/skills/sit-authentication/SKILL.md',
-        durationMs: 4,
+        durationMs: 4, skillName: 'sit-authentication', resultSucceeded: true as const,
       },
     },
     message(

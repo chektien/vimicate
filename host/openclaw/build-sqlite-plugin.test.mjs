@@ -34,7 +34,7 @@ test('packaged integration explicitly activates at startup and excludes old JSON
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const result = await buildSqlitePlugin(path.join(root, 'plugin'));
   assert.equal(sqlitePluginManifest.activation.onStartup, true);
-  assert.equal(result.runtime, '2026.10.6');
+  assert.equal(result.runtime, '2026.10.7');
   assert.equal(Object.keys(result.files).length, 25);
   assert.ok(result.files['vimicate-narration-page-views.mjs']);
   const integrity = await verifyArtifactIntegrity(result.destination);
@@ -57,6 +57,8 @@ test('packaged integration explicitly activates at startup and excludes old JSON
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.2'));
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.4'));
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.5'));
+  assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.6'));
+  assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.7'));
   assert.equal(Object.keys(result.files).some(name => name.includes('ledger') || name.includes('installer')), false);
   await fs.appendFile(path.join(result.destination, 'index.mjs'), '\n// altered entry\n');
   await assert.rejects(verifyArtifactIntegrity(result.destination), /integrity mismatch/);

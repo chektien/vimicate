@@ -20,6 +20,7 @@ let package = Package(
             "VimicateInlinePreviewStaging.swift", "VimicateRTFPreviewPolicy.swift",
             "VimicateInlinePreviewFocusPolicy.swift",
             "VimicateHTMLPreviewPolicy.swift",
+            "VimicateFileShareStreamStore.swift",
             "VimicateFileProviderMapping.swift"
         ]),
         .testTarget(name: "VimicateFilePreviewTests", dependencies: ["VimicateFilePreview"], path: "tests")

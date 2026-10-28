@@ -10,9 +10,9 @@ const packageRoot = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
 test('installed audited runtime supplies the canonical history and authority ports', { skip: !packageRoot }, async t => {
   const info = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
   let overriddenEntries;
-  if (['2026.9.8', '2026.9.9', '2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6'].includes(info.version)) {
+  if (['2026.9.8', '2026.9.9', '2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7'].includes(info.version)) {
     ({ n: overriddenEntries } = await import(pathToFileURL(path.join(packageRoot,
-      `dist/${['2026.10.5', '2026.10.6'].includes(info.version) ? 'runtime-process-entrypoints-De68tE_W.mjs' : ['2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6'].includes(info.version) ? 'runtime-process-entrypoints-Dgz2IR4T.mjs' : info.version === '2026.9.9' ? 'runtime-process-entrypoints-Bh4reDp0.mjs' : 'runtime-process-entrypoints-CbWx0yUe.mjs'}`)).href));
+      `dist/${['2026.10.5', '2026.10.6', '2026.10.7'].includes(info.version) ? 'runtime-process-entrypoints-De68tE_W.mjs' : ['2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7'].includes(info.version) ? 'runtime-process-entrypoints-Dgz2IR4T.mjs' : info.version === '2026.9.9' ? 'runtime-process-entrypoints-Bh4reDp0.mjs' : 'runtime-process-entrypoints-CbWx0yUe.mjs'}`)).href));
     overriddenEntries.secretEgressProxy.root = '/explicit-fixture-root';
     overriddenEntries.codeModeNode.package = { name: 'fixture', distWorkerPath: 'fixture.worker.js' };
   }
@@ -43,7 +43,7 @@ test('installed audited runtime supplies the canonical history and authority por
   assert.equal(nextOffset({ messages, projected: messages, totalMessages: 5, offset: 0,
     rawPageMessages: 1, replayOldestRecord: false }), 2);
   assert.equal(chat.o({ projected: messages, bounded: messages }), false);
-  if (['2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6'].includes(info.version)) {
+  if (['2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7'].includes(info.version)) {
     const rows = [{ __openclaw: { id: 'older' } }, { __openclaw: { id: 'newer' } }];
     assert.equal(nextOffset({ messages: rows, projected: rows, totalMessages: 8,
       offset: 0, rawPageMessages: 2, messageSequences: { 'id:older': 4, 'id:newer': 5 } }), 5);
@@ -76,6 +76,7 @@ test('installed audited runtime supplies the canonical history and authority por
     '2026.10.4': 'runtime-process-entrypoints-Dgz2IR4T.mjs',
     '2026.10.5': 'runtime-process-entrypoints-De68tE_W.mjs',
     '2026.10.6': 'runtime-process-entrypoints-De68tE_W.mjs',
+    '2026.10.7': 'runtime-process-entrypoints-De68tE_W.mjs',
     '2026.9.9': 'runtime-process-entrypoints-Bh4reDp0.mjs',
   };
   if (entrypointFiles[info.version]) {
@@ -99,7 +100,8 @@ test('unknown versions and changed native bytes fail before module execution', a
     ['2026.10.2', 'chat-history-pages-BxZu7NVk.mjs'],
     ['2026.10.4', 'chat-history-pages-Dwy5WUPH.mjs'],
     ['2026.10.5', 'chat-history-pages-DPfzrnwK.mjs'],
-    ['2026.10.6', 'chat-history-pages-_X-Upbh7.mjs']]) {
+    ['2026.10.6', 'chat-history-pages-_X-Upbh7.mjs'],
+    ['2026.10.7', 'chat-history-pages-CHtAXEWj.mjs']]) {
     await fs.writeFile(metadata, JSON.stringify({ name: 'openclaw', version }));
     await fs.writeFile(path.join(root, 'dist', filename), 'throw new Error("unverified module executed");');
     await assert.rejects(loadSqliteHistoryRuntime(root), /native reader fingerprint mismatch/);

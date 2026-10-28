@@ -14,6 +14,7 @@ import { buildSqlitePlugin } from './build-sqlite-plugin.mjs';
 const exec = promisify(execFile);
 const target = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
 const fixtures = {
+  '2026.10.7': { accessor: 'session-accessor-DHlzhHwY.mjs', loader: 'plugin-setup-module-DkTSoH8N.mjs', entrypoints: 'runtime-process-entrypoints-De68tE_W.mjs' },
   '2026.9.8': { accessor: 'session-accessor-CbRJM5Iy.mjs', loader: 'plugin-setup-module-CbcpILjg.mjs', entrypoints: 'runtime-process-entrypoints-CbWx0yUe.mjs' },
   '2026.10.5': { accessor: 'session-accessor-ripvAz_n.mjs', loader: 'plugin-setup-module-ivVK8RSf.mjs', entrypoints: 'runtime-process-entrypoints-De68tE_W.mjs' },
   '2026.10.6': { accessor: 'session-accessor-6sSzHMY-.mjs', loader: 'plugin-setup-module-BtgPcZxn.mjs', entrypoints: 'runtime-process-entrypoints-De68tE_W.mjs' },
@@ -23,11 +24,11 @@ const fixtures = {
 };
 const isChild = process.env.VIMICATE_NATIVE_ACCEPTANCE_CHILD === '1';
 if (!isChild) {
-  test('exact audited 9.8/9.9/10.2/10.4/10.5/10.6 archived mixed-storage pages finish under native and captured plugin loading without writes',
+  test('exact audited runtime archived mixed-storage pages finish under native and captured plugin loading without writes',
     { skip: !target }, async t => {
       const metadata = JSON.parse(await fs.readFile(path.join(target, 'package.json'), 'utf8'));
       const fixture = fixtures[metadata.version];
-      if (!fixture) return t.skip('exact 9.8/9.9/10.2/10.4/10.5 fixture contract');
+      if (!fixture) return t.skip('no archived fixture contract for this runtime');
       const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'vimicate-native-history-')));
       t.after(() => fs.rm(root, { recursive: true, force: true }));
       const plugin = path.join(root, 'plugin');
@@ -37,7 +38,7 @@ if (!isChild) {
       await fs.writeFile(path.join(plugin, 'probe.mjs'),
         `import { randomUUID } from 'node:crypto'; export const captureIdentity = randomUUID();\nexport { n as entries } from ${JSON.stringify(pathToFileURL(path.join(target,
           `dist/${fixture.entrypoints}`)).href)};\n`);
-      const modes = ['2026.10.4', '2026.10.5', '2026.10.6'].includes(metadata.version) ? ['native', 'capture', 'worker-capture'] : ['native', 'capture'];
+      const modes = ['2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7'].includes(metadata.version) ? ['native', 'capture', 'worker-capture'] : ['native', 'capture'];
       for (const mode of modes) {
         const captured = mode !== 'native';
         const stateDir = path.join(root, `${mode}-state`);
@@ -68,7 +69,7 @@ if (!isChild) {
           stdout = output;
         } else {
           ({ stdout } = await exec(process.execPath, [fileURLToPath(import.meta.url)], {
-            timeout: ['2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6'].includes(metadata.version) && captured ? 90000 : 30000, env,
+            timeout: ['2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7'].includes(metadata.version) && captured ? 90000 : 30000, env,
           }));
         }
         const reports = stdout.split('\n').filter(line => line.startsWith('{'));
@@ -103,7 +104,7 @@ if (!isChild) {
   for (let i = 0; i < 9; i++) {
     const result = native.appendTranscriptMessageSync(scope, { eventId: `fixture-${i}`, now: 1700000000000+i,
       message: { role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: `fixture ${i} 🦉 中文` + (i === 3 ? " repeated".repeat(10000) : "") }],
-        ...(['2026.10.5', '2026.10.6'].includes(version) && i === 8 ? { __openclaw: { replyToId: 'fixture-0' } } : {}),
+        ...(['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) && i === 8 ? { __openclaw: { replyToId: 'fixture-0' } } : {}),
         ...(i % 2 ? { stopReason: 'stop', api: 'openai-responses', provider: 'openai', model: 'fixture' } : {}) } });
     assert.equal(result.ok, true);
   }
@@ -166,7 +167,7 @@ if (!isChild) {
         maxSingleMessageBytes: 128*1024 }).messages, 512*1024).items);
     const directIds = canonical.map(m=>m.__openclaw?.id);
     assert.deepEqual(page.messages, canonical);
-    if (['2026.10.5', '2026.10.6'].includes(version) && offset === 0) {
+    if (['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) && offset === 0) {
       const quoted = page.messages.find(message => message.__openclaw?.id === 'fixture-8').__openclaw.replyToMessage;
       assert.equal(quoted.ok, true);
       assert.equal(quoted.message.__openclaw.id, 'fixture-0');

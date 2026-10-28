@@ -120,19 +120,35 @@ artifact root are reused by `vimicate.files.exportChunk`. No download URL,
 new root or provider grant is introduced. Preview reads retain their 1 MiB text
 and 8 MiB image/document bounds.
 
-An original transfer is capped at 32 MiB and uses sequential 192 KiB raw chunks
-(at most 256 KiB of base64 per RPC). Every chunk validates scope, relative path,
-selected size/timestamp, byte count, canonical encoding and stable descriptor
-version. Changing files fail closed. Cancellation, selection changes, pane
-disposal and backgrounding prevent a pending transfer from opening a chooser.
-Each RPC is bounded to 20 seconds and the transfer to five minutes. Cancelled
-in-flight RPCs drain without fetching another chunk or publishing contents.
-Once explicitly presented, UIKit and the native sharing owner hold the tapped
-snapshot until completion, cancellation or the existing 30-minute expiry.
+Capable native builds stream originals straight into one private temporary file.
+There is no preview-derived total-size ceiling. Sequential 192 KiB raw chunks
+(at most 256 KiB base64 per RPC) are validated before each native disk append.
+Every chunk validates scope, relative path, selected size/timestamp, byte count,
+canonical encoding and stable descriptor version. No complete-file base64 or
+Data buffer is retained in this path. Changing files fail closed.
 
-Sharing above 8 MiB requires a new native build declaring the larger bound and
-the updated Gateway plugin. Old binaries explain the required update before
-downloading. An older Gateway fails without trying another root or transport.
+The native bridge accepts opaque transfer IDs, never writable file paths. It
+checks free disk space before staging and each append, uses private 0700/0600
+storage excluded from backup, and requires the exact expected length before
+presentation. Final close happens off-main and the finalized ID stays revocable
+until the foreground presenter claims it. Selection changes, pane disposal,
+explicit cancellation and backgrounding revoke pending transfers. Each RPC is
+bounded to 20 seconds and idle transfers expire after five minutes. Cancelled
+RPCs and native writes drain without publishing a stale original or restarting
+an idle timer. Expired crash remnants are removed only from owned directories.
+
+After presentation, UIKit retains the tapped snapshot through the receiving-app
+handoff, even if opening that app backgrounds Vimicate, until chooser completion,
+explicit scope cancellation, module destruction or the 30-minute chooser expiry.
+
+Streaming requires a new native build declaring `supportsStreamedFileSharing`
+and an updated Gateway accepting `transferMode: 'disk'`. The host lifts only the
+whole-file export ceiling for that opt-in, not the chunk or preview limits.
+Older binaries keep their declared bounded base64 fallback (8 or 32 MiB) and
+explain the native update requirement before downloading larger originals. New
+binaries with an older host still stream files within that host's legacy bound,
+and report the Gateway update requirement above 32 MiB. No alternate root or
+transport is tried. App identities, dependencies and Expo runtime are unchanged.
 
 ## Build and test
 

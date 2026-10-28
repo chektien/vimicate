@@ -12,6 +12,7 @@ import { promptSoftwareKeyboardEnabled } from './softwareKeyboardPolicy';
 import { PROMPT_TOOLBAR_NAVIGATION_KEYS, promptToolbarKeyEvent, promptToolbarNavigationTarget, type PromptToolbarNavigationKey, type PromptToolbarNavigationTarget } from './promptToolbarActions';
 import { PromptHistoryBrowserPanel } from './PromptHistoryBrowserPanel';
 import type { PromptHistoryBrowserState } from './promptHistoryBrowser';
+import { promptModeHint } from './promptCommand';
 
 // Room for the regular-width mode hint. Compact toolbars show no hint.
 const MIN_TOOLBAR_FREE_SPACE = 56;
@@ -58,7 +59,7 @@ export function PromptPane({ navigationRequest, sessionKey = '', onDrop, dropEna
         <PromptToolbarButton label="Attach files" symbol="paperclip" fallback="⌁" compact={compact} disabled={importing || attachmentLimitReached} onPress={onPickDocument} />
         <View style={styles.attachmentSpace} onLayout={({ nativeEvent }) => setAttachmentSpaceWidth(nativeEvent.layout.width)}>
           {attachments.length ? <PromptAttachmentRail attachments={attachments} compact={compact} visibleSlots={visibleAttachmentSlots} onPreviewAttachment={onPreviewAttachment} onRemoveAttachment={onRemoveAttachment} /> : null}
-          {compact ? null : <Text numberOfLines={1} style={styles.hint}>{state.pending ? `${state.count}${state.pending}…` : state.visualMode ? `visual ${state.visualMode}` : state.mode === 'insert' ? 'Esc normal' : ''}</Text>}
+          {compact ? null : <Text numberOfLines={1} style={styles.hint}>{promptModeHint(state)}</Text>}
         </View>
         <PromptToolbarButton label={historyBrowser.open ? 'Close prompt history' : 'Open prompt history'} symbol="clock.arrow.circlepath" fallback="↶" compact={compact} selected={historyBrowser.open} onPress={() => { setNavigationExpanded(false); onRequestPromptFocus(); onToggleHistory(); }} />
         <PromptToolbarButton label="Open colon command" text=":" compact={compact} onPress={() => { setNavigationExpanded(false); onCloseHistory(); onOpenCommand(); }} />

@@ -25,9 +25,11 @@ export function projectTranscriptToolGroups(messages: WorkspaceMessage[], previo
     while (end < messages.length && groupable(messages[end]!)) end++;
     const members = messages.slice(index, end);
     const count = members.length;
+    const notices = members.filter(m => m.internalEvent !== undefined).length;
+    const unit = notices === count ? 'update' : notices ? 'item' : 'call';
     const running = members.filter(m => m.state === 'streaming').length;
     const failed = members.filter(m => m.state === 'error').length;
-    const text = [activityLabel(members), `${count} ${count === 1 ? 'call' : 'calls'}`, running ? `${running} running` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(' · ');
+    const text = [activityLabel(members), `${count} ${unit}${count === 1 ? '' : 's'}`, running ? `${running} running` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(' · ');
     const lastMessageId = members.at(-1)!.id;
     const prior = members.map(member => owners.get(member.id)).find(header => header && !used.has(header.id));
     let id = prior?.id ?? `tool-group:${first.id}`;
@@ -57,6 +59,8 @@ function groupable(message: WorkspaceMessage) {
  */
 function activityLabel(messages: WorkspaceMessage[]): string {
   const labels = new Set(messages.map(message => {
+    if (message.internalEvent === 'inter_session') return 'Session messages';
+    if (message.internalEvent === 'exec') return 'Background command status';
     const name = message.tool?.name.toLowerCase().split(/__|\./).at(-1) ?? '';
     switch (name) {
       case 'read': case 'read_file': return 'Reading files';

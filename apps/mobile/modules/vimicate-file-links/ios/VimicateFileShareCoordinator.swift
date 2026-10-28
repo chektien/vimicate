@@ -17,6 +17,7 @@ final class VimicateFileShareCoordinator {
     private var file: VimicateInlinePreviewFile?
     private weak var activity: UIActivityViewController?
     private var expiry: Timer?
+    private var streamID: String?
 
     func share(_ input: VimicateInlinePreviewStaging.Input, anchor: VimicateFileShareAnchor?,
                from presenter: UIViewController, promise: Promise) {
@@ -39,29 +40,49 @@ final class VimicateFileShareCoordinator {
                     self.fail("The Files pane is no longer available for sharing.")
                     return
                 }
-                self.file = file
-                let controller = UIActivityViewController(activityItems: [file.url], applicationActivities: nil)
-                controller.completionWithItemsHandler = { [weak self] _, completed, _, error in
-                    guard let self, self.generation == id else { return }
-                    if let error { self.fail(error.localizedDescription) }
-                    else { self.finish(completed ? "shared" : "cancelled") }
-                }
-                if let popover = controller.popoverPresentationController {
-                    popover.sourceView = presenter.view
-                    popover.sourceRect = self.sourceRect(anchor, in: presenter.view)
-                    // Any side: a tall share sheet (contacts + apps + actions) anchored
-                    // mid-screen overflowed below the button with only up/down allowed,
-                    // hiding its action rows. Beside the button it gets full height.
-                    popover.permittedArrowDirections = .any
-                }
-                self.activity = controller
-                presenter.present(controller, animated: true)
-                self.expiry = Timer.scheduledTimer(withTimeInterval: VimicateInlinePreviewStaging.maximumLifetime,
-                    repeats: false) { [weak self] _ in
-                    guard let self, self.generation == id else { return }
-                    self.invalidate()
-                }
+                self.present(file, anchor: anchor, from: presenter, id: id)
             }
+        }
+    }
+
+    func shareStaged(_ file: VimicateInlinePreviewFile, id: String, anchor: VimicateFileShareAnchor?,
+                     from presenter: UIViewController, promise: Promise) {
+        guard pending == nil, canPresent(presenter) else {
+            promise.reject("E_FILE_SHARE_VIEW", "The share sheet cannot be presented right now.")
+            return
+        }
+        pending = promise
+        streamID = id
+        present(file, anchor: anchor, from: presenter, id: generation)
+    }
+
+    func cancel(id: String) {
+        if streamID == id { invalidate() }
+    }
+
+    private func present(_ file: VimicateInlinePreviewFile, anchor: VimicateFileShareAnchor?,
+                         from presenter: UIViewController, id: UUID) {
+        self.file = file
+        let controller = UIActivityViewController(activityItems: [file.url], applicationActivities: nil)
+        controller.completionWithItemsHandler = { [weak self] _, completed, _, error in
+            guard let self, self.generation == id else { return }
+            if let error { self.fail(error.localizedDescription) }
+            else { self.finish(completed ? "shared" : "cancelled") }
+        }
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = self.sourceRect(anchor, in: presenter.view)
+            // Any side: a tall share sheet (contacts + apps + actions) anchored
+            // mid-screen overflowed below the button with only up/down allowed,
+            // hiding its action rows. Beside the button it gets full height.
+            popover.permittedArrowDirections = .any
+        }
+        self.activity = controller
+        presenter.present(controller, animated: true)
+        self.expiry = Timer.scheduledTimer(withTimeInterval: VimicateInlinePreviewStaging.maximumLifetime,
+            repeats: false) { [weak self] _ in
+            guard let self, self.generation == id else { return }
+            self.invalidate()
         }
     }
 
@@ -97,6 +118,7 @@ final class VimicateFileShareCoordinator {
         expiry?.invalidate()
         expiry = nil
         pending = nil
+        streamID = nil
         activity = nil
         file = nil
     }

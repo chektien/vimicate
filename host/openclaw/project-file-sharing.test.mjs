@@ -107,3 +107,22 @@ test('iCloud placeholders retain their confined materialization identity without
   assert.throws(() => f.files.locationExportChunk(f.request), error => error.icloudPlaceholder === true
     && error.icloudPath === path.join(f.project, 'original.pdf') && /still downloading/u.test(error.message));
 });
+
+test('disk opt-in lifts only the total share ceiling while legacy clients and previews stay bounded', t => {
+  const f = fixture(t, Buffer.alloc(0));
+  const size = 64 * 1024 * 1024 + 17;
+  fs.truncateSync(path.join(f.project, 'original.pdf'), size);
+  const entry = f.files.locationList({ location: 'project', projectId: 'synthetic', path: '', includeDocuments: true }).entries[0];
+  const request = { ...f.request, size, mtimeMs: entry.mtimeMs };
+  assert.throws(() => f.files.locationExportChunk(request), /33554432/u);
+  const first = f.files.locationExportChunk({ ...request, transferMode: 'disk' });
+  assert.equal(first.size, size); assert.equal(first.dataBase64.length, 262144);
+  const lastOffset = Math.floor((size - 1) / 196608) * 196608;
+  const last = f.files.locationExportChunk({ ...request, transferMode: 'disk', offset: lastOffset, version: first.version });
+  assert.equal(Buffer.from(last.dataBase64, 'base64').length, size - lastOffset);
+  assert.throws(() => f.files.locationRead({ ...request, includeDocuments: true }), /8388608/u);
+  assert.throws(() => f.files.locationExportChunk({ ...request, transferMode: 'unbounded' }), /mode/u);
+  assert.throws(() => f.files.locationExportChunk({ ...request, transferMode: 'disk', path: '../private' }), /traversal/u);
+  fs.truncateSync(path.join(f.project, 'original.pdf'), size + 1);
+  assert.throws(() => f.files.locationExportChunk({ ...request, transferMode: 'disk', offset: 196608, version: first.version }), /changed/u);
+});

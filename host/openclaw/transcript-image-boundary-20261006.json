@@ -1,0 +1,18 @@
+{
+  "runtime": "2026.10.6",
+  "status": "blocked-not-a-repair",
+  "pins": {
+    "redact-BeXveACv.mjs": "c57506b419670c09b44932ce0ed545a9b08c41f8991c52627d35f4a59e769d37",
+    "reply-directives-s-Q6bOJ0.mjs": "228a5af04288f5a4eab1851d0f4309babbc473676b90f31f82035cb17dd47aea",
+    "parse-output-Cm5sumXS.mjs": "151294936529ea8d38630b3c9fa9b33e160e31cc1965ae3cb14228cda9c530c7",
+    "transcript-image-artifacts-BNfLH5hX.mjs": "c178ec43dd57b075cfcaf3e68e4d7adc801eeee92383fdc8fac567310a821aca",
+    "transcript-commit.runtime-ULhd5Zdu.mjs": "269999465480ac56ee9fd67233f1235d030a70a4f1c3ab08896bb49fd9db97bf",
+    "chat-send-commentary-media-B-iib9_2.mjs": "d1cfb0c96eaa0af1bdf1554b2fd96b978eec9ef1e1493c6e476bb0a47712583a",
+    "managed-image-attachments-D3mpm5lG.mjs": "4227da40943bfefd962b4b161c14496c8ffff69ffa99dc6856324dbc9a15589f",
+    "placement-turn-claim-events-BV9cElnu.mjs": "80588119e545909595c9f6f3bd2f17b8b7996d95e6a250a128b5f58692d26386",
+    "session-accessor.sqlite-transcript-store-DZB3Lw_U.mjs": "30cb4ae46e00508d7fd51e33041d0f985a7154d2df59f282c838f868cd4794ef",
+    "reply-media-runtime-BkiubGPu.mjs": "17d5cb3bb90b0620a74b48c5d6ca14a25fd201adba7271bf10550ebd4551bbf6",
+    "hooks-Cydhx3JC.mjs": "30c074fd14b942df295771d912f20b7d470a9713789c1303138541bbd5c533dd",
+    "cli-session-history.claude-D2IdibKv.mjs": "91f2a2ffb6a306dc8f7a6b776a9dd73283dece9b811990a9f501189f40443aea"
+  }
+}

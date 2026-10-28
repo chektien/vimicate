@@ -1,4 +1,6 @@
+import { isSessionNotice, projectSessionNotice, foldedSessionNoticeMirrors } from './sessionNoticeProjection';
 import { markdownImageSources } from './markdownImagePath';
+import { isInternalExecutionNotice, projectExecutionNotice, foldedExecutionNoticeMirrors } from './executionNoticeProjection';
 import { asyncQuestionMetadata, matchesAsyncAnswer, privateQuestionText } from '../questions/asyncQuestionContract';
 import { mediaDirectiveLines } from './mediaDirectiveLines';
 import { joinedUserPromptEnvelopes, strippedUserPromptEnvelope } from '../gateway/promptEnvelope';
@@ -7,7 +9,7 @@ import { displayedCommandTextFromWire } from '../gateway/gatewayCommands';
 import { projectAssistantProtocolContent } from '../gateway/assistantProtocolProjection';
 import { compactEmptyConversationBoundaries } from '../gateway/conversationBoundaries';
 import { historyMessageRecoveryDescriptor } from '../gateway/messageCompleteness';
-import { toolActivitiesFromContent, toolActivityFromContent, toolActivityPairedWithCall, toolCallActivityIndex, toolContentPartKind, toolRowText } from '../tooling/toolActivity';
+import { toolActivitiesFromContent, toolActivityFromContent, toolActivityPairedWithCall, toolCallActivityIndex, toolContentPartKind, toolRowText, toolSkillEvidence } from '../tooling/toolActivity';
 import { conversationalToolProtocol } from '../tooling/embeddedToolProtocol';
 import { historyDisplayOrder } from './historyDisplayOrder';
 import { claudeOversizedRecordContent } from './claudeOversizedRecord';
@@ -37,7 +39,7 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
     // row, so a message interleaving prose with tool parts keeps only the prose
     // a reader is meant to read. A tool row whose producer kept no structure at
     // all still resolves an identity from its stored text.
-    const structured = toolActivitiesFromContent(content).map((activity) => toolActivityPairedWithCall(activity, callActivities));
+    const structured = toolActivitiesFromContent(content).map((activity) => toolActivityPairedWithCall(activity.kind === 'result' && (raw.isError === true || raw.is_error === true) ? { ...activity, status: 'failed' } : activity, callActivities));
     const inferred = structured.length || role !== 'tool' ? null : toolActivityFromContent(content, extractedText);
     // A runtime can also lose the structure of its own tool traffic and leave
     // the invocation, its framing and the raw result inside the message's own
@@ -50,7 +52,7 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
     // images. Those strings are read-only tool output, not transcript media.
     // Keep genuine structured image blocks, but only scan prose rows for
     // Markdown/MEDIA/path attachments.
-    const extractedAttachments = extractAttachments(raw, workspacePath, role !== 'tool');
+    const extractedAttachments = extractAttachments(raw, workspacePath, role !== 'tool' && !isInternalExecutionNotice(raw) && !isSessionNotice(raw));
     const assistantContent = role === 'assistant'
       ? projectAssistantProtocolContent(text, extractedAttachments, true)
       : { text, attachments: extractedAttachments };
@@ -79,7 +81,7 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
         role: 'tool' as const,
         text: toolRowText(activity),
         ...(activity.status === 'failed' ? { state: 'error' as const } : {}),
-        tool: { name: activity.name, summary: activity.summary },
+        tool: { name: activity.name, summary: activity.summary, ...toolSkillEvidence(activity) },
       })),
     ];
     // A tool row can carry structured media instead of any resolvable activity.
@@ -96,7 +98,7 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
       ...(index === 0 && idempotencyKey ? { idempotencyKey } : {}),
       ...(index === 0 && attachments.length ? { attachments } : {}),
       ...(index === 0 && recovery ? { recovery } : {}),
-    }));
+    })).map((row, index) => index === 0 ? projectSessionNotice(projectExecutionNotice(row, raw), raw) : row);
     const joined = role === 'user' ? joinedUserPromptEnvelopes(extractedText) : null;
     if (joined && projectedRows[0]) joinedPrompts.set(projectedRows[0], joined.map(displayedCommandTextFromWire));
     return projectedRows;
@@ -132,7 +134,7 @@ export function authoritativeHistoryChronology(
   messages: WorkspaceMessage[],
   eligible: (message: WorkspaceMessage) => boolean = () => true,
 ) {
-  return historyDisplayOrder(messages, eligible);
+  return historyDisplayOrder(foldedSessionNoticeMirrors(foldedExecutionNoticeMirrors(messages)), eligible);
 }
 
 function isCompactionControlMessage(value: string) {

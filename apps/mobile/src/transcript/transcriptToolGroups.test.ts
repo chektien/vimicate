@@ -1,5 +1,6 @@
 import { settleCommandOperation, beginCommandOperation } from '../gateway/commandOperation';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as rowBudget from './transcriptRowBudget';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { projectTranscriptToolGroups } from './transcriptToolGroups';
 import { buildVisibleTranscriptRenderRows, transcriptNavigationSourceRows, transcriptRenderIndexForSourceRow } from './transcriptVisibleRows';
@@ -114,6 +115,33 @@ describe('nested continuous tool groups', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.fold?.hiddenLineCount).toBe(20_004);
     expect(rows[0]?.compiled.source).toBe('Tool activity · 2 calls');
+  });
+  it('does not recount retained closed-group payloads when an optimistic prompt is appended', () => {
+    const first = tool('retained-first', `exec\n${'first retained result\n'.repeat(1000)}`);
+    const second = tool('retained-second', `read\n${'second retained result\n'.repeat(1000)}`);
+    const previous = projectTranscriptToolGroups([first, second]);
+    const countLines = vi.spyOn(rowBudget, 'transcriptSourceLineCount');
+    try {
+      const initialRows = buildVisibleTranscriptRenderRows(previous, new Set());
+      expect(initialRows[0]?.fold?.hiddenLineCount).toBe(2004);
+      countLines.mockClear();
+      const prompt: WorkspaceMessage = { id: 'local-prompt', role: 'user', source: 'local', text: 'Continue' };
+      const appended = projectTranscriptToolGroups([first, second, prompt], previous);
+      const nextRows = buildVisibleTranscriptRenderRows(appended, new Set());
+      expect(nextRows.map(row => row.message.id)).toEqual([previous[0]!.id, prompt.id]);
+      expect(nextRows[0]?.fold?.hiddenLineCount).toBe(2004);
+      expect(nextRows[1]?.sourceRow).toBe(2005);
+      expect(countLines.mock.calls.filter(([text]) => text === first.text || text === second.text)).toHaveLength(0);
+
+      // A changed child must invalidate its own count without rereading its sibling.
+      countLines.mockClear();
+      const grown = { ...second, text: `${second.text}\none more line` };
+      const revised = buildVisibleTranscriptRenderRows(projectTranscriptToolGroups([first, grown, prompt], appended), new Set());
+      expect(revised[0]?.fold?.hiddenLineCount).toBe(2005);
+      expect(revised[1]?.sourceRow).toBe(2006);
+      expect(countLines.mock.calls.filter(([text]) => text === first.text)).toHaveLength(0);
+      expect(countLines.mock.calls.filter(([text]) => text === grown.text)).toHaveLength(1);
+    } finally { countLines.mockRestore(); }
   });
   it('keeps command output expanded and formatted, without unfolding machine diagnostics', () => {
     const rows = buildVisibleTranscriptRenderRows([

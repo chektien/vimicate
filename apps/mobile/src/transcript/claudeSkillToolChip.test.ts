@@ -17,8 +17,8 @@ const text = (id: string, body: string, at: number, stopReason = 'tool_use') => 
 
 function chips(raw: Record<string, unknown>[]) {
   const rows = projectTranscriptToolGroups(messagesFromPayload({ sessionKey: 'k', sessionId: '33333333-3333-4333-8333-333333333333', messages: raw }));
-  return buildVisibleTranscriptRenderRows(rows, new Set()).filter(row => row.inferredSkillInvocation)
-    .map(row => `${row.message.role}:${row.inferredSkillInvocation!.label}`);
+  return buildVisibleTranscriptRenderRows(rows, new Set()).filter(row => row.readSkills)
+    .map(row => `${row.message.role}:${row.readSkills!.join(',')}`);
 }
 
 describe('Claude Skill tool chip', () => {
@@ -26,31 +26,32 @@ describe('Claude Skill tool chip', () => {
     expect(chips([
       { role: 'user', content: 'Tighten the abstract.', timestamp: 1 },
       skillCall('skill', 2), bash('read', 3), text('answer', 'Done.', 4, 'end_turn'),
-    ])).toEqual(['tool:paper-writing']);
+    ])).toEqual(['tool:openclaw-skills:paper-writing']);
   });
 
-  it('keeps one chip on the announcing narration instead of repeating it on the group', () => {
+  it('keeps the announcement plain and identifies skill reads on the group', () => {
     expect(chips([
       { role: 'user', content: 'Tighten the abstract.', timestamp: 1 },
       text('say', "The writing skill has the procedure, so I'll load it.", 2),
       skillCall('skill', 3), bash('read', 4), text('answer', 'Done.', 5, 'end_turn'),
-    ])).toEqual(['narration:paper-writing']);
+    ])).toEqual(['tool:openclaw-skills:paper-writing']);
   });
 
   it('does not chip a tool group without a Skill call', () => {
     expect(chips([{ role: 'user', content: 'List files.', timestamp: 1 }, bash('a', 2), bash('b', 3)])).toEqual([]);
   });
 
-  it('shows each expanded Skill member once while the group header keeps the first skill', () => {
+  it('summarizes distinct skills on the header and names each expanded read', () => {
     const raw = [skillCall('first', 1), bash('between', 2), skillCall('second', 3, 'literature-review')];
     const messages = projectTranscriptToolGroups(messagesFromPayload({ sessionKey: 'k', sessionId: '33333333-3333-4333-8333-333333333333', messages: raw }));
     const header = messages.find(message => message.toolGroup)!;
     const collapsed = buildVisibleTranscriptRenderRows(messages, new Set());
-    expect(collapsed.filter(row => row.inferredSkillInvocation).map(row => row.inferredSkillInvocation!.label)).toEqual(['paper-writing']);
+    expect(collapsed.filter(row => row.readSkills).map(row => row.readSkills!.join(','))).toEqual(['openclaw-skills:paper-writing,openclaw-skills:literature-review']);
     const expanded = buildVisibleTranscriptRenderRows(messages, new Set([header.id]));
-    expect(expanded.filter(row => row.inferredSkillInvocation).map(row => [row.message.id, row.inferredSkillInvocation!.label])).toEqual([
-      [header.id, 'paper-writing'],
-      ['second', 'literature-review'],
+    expect(expanded.filter(row => row.readSkills).map(row => [row.message.id, row.readSkills!.join(',')])).toEqual([
+      [header.id, 'openclaw-skills:paper-writing,openclaw-skills:literature-review'],
+      ['first#tool-1', 'openclaw-skills:paper-writing'],
+      ['second#tool-1', 'openclaw-skills:literature-review'],
     ]);
   });
 });

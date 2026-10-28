@@ -11,13 +11,11 @@ import { transcriptRenderedCursorIndex, transcriptRenderedCursorSourceIndex } fr
 
 type GlyphChunk = { key: string; text: string; glyph: MarkdownGlyph; selected: boolean; searched: boolean; cursor: boolean };
 
-export type TranscriptSemanticHighlight = { start: number; end: number; kind: 'skill' };
+type TranscriptMarkdownLineProps = { line: CompiledMarkdownLine; row: number; navigation: TranscriptVimState; cursorVisible?: boolean; searchEnabled?: boolean; machine?: boolean; fontScale: number };
 
-type TranscriptMarkdownLineProps = { line: CompiledMarkdownLine; row: number; navigation: TranscriptVimState; cursorVisible?: boolean; searchEnabled?: boolean; machine?: boolean; fontScale: number; semanticHighlights?: TranscriptSemanticHighlight[] };
-
-export const TranscriptMarkdownLine = memo(function TranscriptMarkdownLine({ line, row, navigation, cursorVisible = true, searchEnabled = true, machine = false, fontScale, semanticHighlights = [] }: TranscriptMarkdownLineProps) {
+export const TranscriptMarkdownLine = memo(function TranscriptMarkdownLine({ line, row, navigation, cursorVisible = true, searchEnabled = true, machine = false, fontScale }: TranscriptMarkdownLineProps) {
   const linkOpener = useTranscriptLinkOpener();
-  const chunks = glyphChunks(line, row, navigation, cursorVisible, semanticHighlights, undefined, searchEnabled);
+  const chunks = glyphChunks(line, row, navigation, cursorVisible, undefined, searchEnabled);
   const text = <Text selectable selectionColor={colors.purple} style={[styles.text, machine && styles.machine, line.kind === 'heading' && headingStyle(line.headingLevel), line.kind === 'code' && styles.codeText, line.kind === 'fence' && styles.fenceText, line.kind === 'quote' && styles.quoteText, markdownTextMetrics(line, machine, fontScale)]}>
     {chunks.length ? chunks.map((chunk) => renderChunk(chunk, linkOpener)) : <Text style={cursorVisible && navigation.cursor.row === row ? styles.blockCursor : undefined}> </Text>}
   </Text>;
@@ -40,7 +38,7 @@ export const TranscriptMarkdownLine = memo(function TranscriptMarkdownLine({ lin
     ]}>
       {line.table.cells.map((cell, index) => {
         const cellLine = { ...line, glyphs: cell.glyphs };
-        const cellChunks = glyphChunks(cellLine, row, navigation, cursorVisible, semanticHighlights, cursorSourceIndex, searchEnabled);
+        const cellChunks = glyphChunks(cellLine, row, navigation, cursorVisible, cursorSourceIndex, searchEnabled);
         const emptyCursor = cursorSourceIndex !== undefined && !cell.glyphs.length && navigation.cursor.column === sourceCellStart(line, index);
         return <View
           key={`${row}-cell-${index}`}
@@ -76,8 +74,7 @@ function transcriptMarkdownLinePropsEqual(previous: TranscriptMarkdownLineProps,
     || previous.row !== next.row
     || previous.searchEnabled !== next.searchEnabled
     || previous.machine !== next.machine
-    || previous.fontScale !== next.fontScale
-    || !equalSemanticHighlights(previous.semanticHighlights, next.semanticHighlights)) return false;
+    || previous.fontScale !== next.fontScale) return false;
   return !transcriptMarkdownLineNavigationChanged(
     previous.line.source,
     previous.row,
@@ -88,18 +85,9 @@ function transcriptMarkdownLinePropsEqual(previous: TranscriptMarkdownLineProps,
   );
 }
 
-function equalSemanticHighlights(previous: TranscriptSemanticHighlight[] | undefined, next: TranscriptSemanticHighlight[] | undefined) {
-  const left = previous ?? [];
-  const right = next ?? [];
-  return left.length === right.length
-    && left.every((highlight, index) => highlight.start === right[index]?.start
-      && highlight.end === right[index]?.end
-      && highlight.kind === right[index]?.kind);
-}
-
 export function transcriptRenderedText(line: CompiledMarkdownLine) { return line.glyphs.map((glyph) => glyph.char).join(''); }
 
-function renderChunk(chunk: GlyphChunk & { skill: boolean }, linkOpener: TranscriptLinkOpener) {
+function renderChunk(chunk: GlyphChunk, linkOpener: TranscriptLinkOpener) {
   return <Text
     key={chunk.key}
     suppressHighlighting
@@ -114,7 +102,6 @@ function renderChunk(chunk: GlyphChunk & { skill: boolean }, linkOpener: Transcr
       chunk.glyph.marks.includes('code') && styles.inlineCode,
       chunk.glyph.marks.includes('strike') && styles.strike,
       chunk.glyph.marks.includes('link') && styles.link,
-      chunk.skill && styles.skillReference,
       chunk.searched && styles.searchMatch,
       chunk.selected && styles.visualSelection,
       chunk.cursor && styles.blockCursor,
@@ -122,7 +109,7 @@ function renderChunk(chunk: GlyphChunk & { skill: boolean }, linkOpener: Transcr
   >{chunk.text}</Text>;
 }
 
-function glyphChunks(line: CompiledMarkdownLine, row: number, navigation: TranscriptVimState, cursorVisible: boolean, semanticHighlights: TranscriptSemanticHighlight[], cursorSourceIndex?: number, searchEnabled = true): (GlyphChunk & { skill: boolean })[] {
+function glyphChunks(line: CompiledMarkdownLine, row: number, navigation: TranscriptVimState, cursorVisible: boolean, cursorSourceIndex?: number, searchEnabled = true): (GlyphChunk)[] {
   const highlight = transcriptLineHighlight(navigation, row, line.source.length);
   const searchRanges = searchEnabled ? transcriptSearchRanges(line.source, navigation.searchQuery, line) : [];
   const cursorIndex = cursorVisible
@@ -130,16 +117,15 @@ function glyphChunks(line: CompiledMarkdownLine, row: number, navigation: Transc
       ? transcriptRenderedCursorIndex(line.glyphs, highlight.cursorColumn)
       : line.glyphs.findIndex((glyph) => glyph.sourceIndex === cursorSourceIndex)
     : -1;
-  const chunks: (GlyphChunk & { skill: boolean })[] = [];
+  const chunks: (GlyphChunk)[] = [];
   line.glyphs.forEach((glyph, index) => {
     const selected = Boolean(highlight.lineSelected || (highlight.selection && glyph.sourceIndex >= highlight.selection.start && glyph.sourceIndex <= highlight.selection.end));
     const searched = searchRanges.some((range) => glyph.sourceIndex >= range.start && glyph.sourceIndex <= range.end);
     const cursor = cursorIndex === index;
-    const skill = semanticHighlights.some((range) => range.kind === 'skill' && glyph.sourceIndex >= range.start && glyph.sourceIndex < range.end);
     const prior = chunks.at(-1);
-    const same = prior && prior.selected === selected && prior.searched === searched && prior.cursor === cursor && prior.skill === skill && linkKey(prior.glyph) === linkKey(glyph) && prior.glyph.marks.join('|') === glyph.marks.join('|');
+    const same = prior && prior.selected === selected && prior.searched === searched && prior.cursor === cursor && linkKey(prior.glyph) === linkKey(glyph) && prior.glyph.marks.join('|') === glyph.marks.join('|');
     if (same) prior.text += glyph.char;
-    else chunks.push({ key: `${row}-${index}`, text: glyph.char, glyph, selected, searched, cursor, skill });
+    else chunks.push({ key: `${row}-${index}`, text: glyph.char, glyph, selected, searched, cursor });
   });
   return chunks;
 }
@@ -174,7 +160,6 @@ const styles = StyleSheet.create({
   text: { flex: 1, paddingRight: 8, color: colors.ink, fontFamily: type.mono, fontSize: 13, lineHeight: 20 }, machine: { color: colors.inkMuted, fontSize: 11.5, lineHeight: 18 },
   headingOne: { color: colors.inkBright, fontSize: 15, lineHeight: 22, fontWeight: '800' }, headingTwo: { color: colors.inkBright, fontSize: 14, lineHeight: 21, fontWeight: '800' }, headingOther: { color: colors.ink, fontWeight: '800' },
   strong: { color: colors.inkBright, fontWeight: '800' }, emphasis: { fontStyle: 'italic' }, strike: { textDecorationLine: 'line-through', color: colors.faint }, link: { color: colors.blue, textDecorationLine: 'underline' }, inlineCode: { color: colors.inkBright, backgroundColor: colors.raised },
-  skillReference: { color: colors.orange, fontWeight: '700' },
   quote: { flex: 1, minWidth: 0, flexDirection: 'row', paddingLeft: 4 }, quoteRail: { width: 2, marginRight: 8, backgroundColor: colors.borderStrong }, quoteText: { color: colors.inkMuted, fontStyle: 'italic' },
   list: { flex: 1, minWidth: 0, flexDirection: 'row' }, listMarker: { width: 28, paddingRight: 7, color: colors.inkMuted, fontFamily: type.mono, fontSize: 12, lineHeight: 20, textAlign: 'right' }, checked: { color: colors.activeAccent },
   codeLine: { flex: 1, minWidth: 0, paddingHorizontal: 8 }, codeText: { color: colors.inkBright, fontSize: 12 }, fenceLine: { flex: 1, minWidth: 0, paddingHorizontal: 8 }, fenceText: { color: colors.faint, fontSize: 9 },

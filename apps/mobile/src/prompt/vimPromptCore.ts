@@ -1,17 +1,14 @@
 import { normalizedHardwareKey } from '../keyboard/hardwareKey';
 import { promptControlEffect } from './promptControlEffect';
 import { textObjectRange } from '../editor/vimTextObjects';
-import { isPromptFindMotion, promptFindDestination, promptFindOperatorMotion, type PromptFindMotion } from './vimPromptCharacterMotion';
+import { isPromptFindMotion, promptFindDestination, promptFindOperatorMotion } from './vimPromptCharacterMotion';
+import { promptKeyIsCount, promptOperator, type PromptOperator, type PromptPending } from './promptCommand';
 
 export type VimMode = 'normal' | 'insert';
 export type PromptVisualMode = 'character' | 'line' | 'block';
 export type Selection = { start: number; end: number };
 type Snapshot = { text: string; selection: Selection };
-type PromptOperator = 'd' | 'c' | 'y';
 type PromptRegisterKind = 'character' | 'line';
-type PromptPending = '' | 'g' | 'r' | PromptOperator | PromptFindMotion
-  | 'dg' | 'cg' | 'yg' | 'di' | 'ci' | 'yi' | 'da' | 'ca' | 'ya'
-  | `${PromptOperator}${PromptFindMotion}`;
 
 export type PromptState = Snapshot & {
   authority: number;
@@ -146,7 +143,7 @@ export function handlePromptKey(state: PromptState, input: VimKey): PromptResult
   if (input.control && key.toLowerCase() === 'v') return done(enterVisual(state, 'block'));
   if (key === 'enter') return { state: { ...state, pending: '', count: '', operatorCount: 1 }, effect: 'submit' };
 
-  if (/^[1-9]$/.test(key) || (key === '0' && state.count)) return done({ ...state, count: `${state.count}${key}` });
+  if (promptKeyIsCount(state, key)) return done({ ...state, count: `${state.count}${key}` });
   const repetitions = Math.max(1, Number(state.count || '1'));
   const clean = (next: PromptState) => ({ ...next, count: '', operatorCount: 1, pending: '' as const });
 
@@ -155,7 +152,8 @@ export function handlePromptKey(state: PromptState, input: VimKey): PromptResult
     if (state.pending === 'r') {
       if (key.length !== 1 || state.selection.end >= state.text.length) return done(clean(state));
       const end = Math.min(lineBounds(state.text, state.selection.end).end, state.selection.end + repetitions);
-      return done(clean(replaceRangeWithUndo(state, state.selection.end, end, key.repeat(end - state.selection.end))));
+      const next = replaceRangeWithUndo(state, state.selection.end, end, key.repeat(end - state.selection.end));
+      return done(clean({ ...next, selection: collapsed(Math.max(state.selection.end, end - 1)) }));
     }
     if (isPromptFindMotion(state.pending)) {
       const destination = promptFindDestination(state.text, state.selection.end, key, state.pending, repetitions);
@@ -350,11 +348,6 @@ function wordBackward(state: PromptState) { return wordBackwardBy(state, false);
 function WORDBackward(state: PromptState) { return wordBackwardBy(state, true); }
 function wordEnd(state: PromptState) { return wordEndBy(state, false); }
 function WORDEnd(state: PromptState) { return wordEndBy(state, true); }
-
-function promptOperator(pending: PromptPending): PromptOperator | null {
-  const value = pending[0];
-  return value === 'd' || value === 'c' || value === 'y' ? value : null;
-}
 
 function applyPromptOperator(state: PromptState, operator: PromptOperator, rawStart: number, rawEnd: number): PromptState {
   const start = Math.max(0, Math.min(rawStart, rawEnd, state.text.length));

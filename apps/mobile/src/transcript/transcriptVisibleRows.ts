@@ -6,7 +6,7 @@ import { transcriptChronology } from './transcriptChronology';
 import { transcriptGroupPositions, transcriptRolePresentation } from './transcriptPresentation';
 import type { TranscriptRenderRow } from './transcriptRenderRows';
 import { boundedExpandedTranscriptLine, MACHINE_FOLD_CHARACTER_LIMIT, MAX_EXPANDED_MESSAGE_ROWS, transcriptMessageIsFoldedByDefault, transcriptSourceLineCount } from './transcriptRowBudget';
-import { transcriptSkillInvocationFromFollowingTool, transcriptSkillInvocationFromToolRows } from './transcriptSkillInvocation';
+import { transcriptReadSkills, skillActivitySummary } from './transcriptSkillInvocation';
 import { projectTranscriptDetailsDisclosure, type DisclosureLine } from './transcriptDetailsDisclosure';
 import { isAsyncQuestionFallback } from '../questions/asyncQuestionPresentation';
 
@@ -32,12 +32,11 @@ export function buildVisibleTranscriptRenderRows(messages: WorkspaceMessage[], e
   let sourceRow = 0;
   let groupEnd = -1;
   let groupCollapsed = false;
-  let groupHeaderSkillMember = -1;
   const messageIndexByID = new Map(messages.map((message, index) => [message.id, index]));
 
   messages.forEach((message, messageIndex) => {
     if (messageIndex <= groupEnd && groupCollapsed) {
-      sourceRow += transcriptSourceLineCount(message.text);
+      sourceRow += preparedTranscriptMessage(message).sourceLineCount;
       return;
     }
     const presentation = transcriptRolePresentation(message.role);
@@ -48,13 +47,8 @@ export function buildVisibleTranscriptRenderRows(messages: WorkspaceMessage[], e
     const sourceLineCount = prepared.sourceLineCount;
     const firstSourceRowInMessage = sourceRow;
     const lastSourceRowInMessage = sourceRow + sourceLineCount - 1;
-    const inToolGroup = messageIndex <= groupEnd;
-    const toolSkill = message.role === 'tool' && (inToolGroup
-      ? messageIndex !== groupHeaderSkillMember
-      : !transcriptSkillInvocationFromFollowingTool(messages, messageIndex - 1))
-      ? transcriptSkillInvocationFromToolRows(messages, messageIndex, inToolGroup ? messageIndex : message.toolGroup ? messageIndexByID.get(message.toolGroup.lastMessageId) ?? messageIndex : messageIndex) : null;
-    const inferredSkillInvocation = transcriptSkillInvocationFromFollowingTool(messages, messageIndex) ?? toolSkill ?? undefined;
-    const shared = { messageIndex, message, presentation, groupPosition: groups[messageIndex] ?? 'standalone' as const, chronology: chronology[messageIndex] ?? {}, firstSourceRowInMessage, lastSourceRowInMessage, ...(inferredSkillInvocation ? { inferredSkillInvocation } : {}), ...(messageIndex <= groupEnd ? { toolGroupDepth: 1 } : {}) };
+    const readSkills = transcriptReadSkills(messages, messageIndex, message.toolGroup ? messageIndexByID.get(message.toolGroup.lastMessageId) ?? messageIndex : messageIndex);
+    const shared = { messageIndex, message, presentation, groupPosition: groups[messageIndex] ?? 'standalone' as const, chronology: chronology[messageIndex] ?? {}, firstSourceRowInMessage, lastSourceRowInMessage, ...(readSkills.length ? { readSkills } : {}), ...(messageIndex <= groupEnd ? { toolGroupDepth: 1 } : {}) };
 
     // Keep the original source range for yank/search/history and one navigation
     // anchor for the card. Hidden fallback lines must not become invisible stops.
@@ -69,21 +63,13 @@ export function buildVisibleTranscriptRenderRows(messages: WorkspaceMessage[], e
     }
     if (message.toolGroup) {
       groupEnd = messageIndexByID.get(message.toolGroup.lastMessageId) ?? messageIndex;
-      groupHeaderSkillMember = -1;
-      for (let member = messageIndex + 1; member <= groupEnd; member += 1) {
-        const skill = transcriptSkillInvocationFromToolRows(messages, member, member);
-        if (skill) {
-          if (skill.label === inferredSkillInvocation?.label) groupHeaderSkillMember = member;
-          break;
-        }
-      }
       groupCollapsed = !expandedMessageIDs.has(message.id);
       const hiddenLineCount = messages.slice(messageIndex + 1, groupEnd + 1)
-        .reduce((count, member) => count + transcriptSourceLineCount(member.text), 0);
+        .reduce((count, member) => count + preparedTranscriptMessage(member).sourceLineCount, 0);
       visible.push({ ...shared, key: `${message.id}:fold`, sourceRow,
         lineInMessage: 0, firstInMessage: true, lastInMessage: true,
         lastSourceRowInMessage: groupCollapsed ? sourceRow + hiddenLineCount : sourceRow,
-        compiled: plainTranscriptMarkdownLine(message.text),
+        compiled: plainTranscriptMarkdownLine(skillActivitySummary(message.text, readSkills, true)),
         fold: { expanded: !groupCollapsed, hiddenLineCount } });
       sourceRow += sourceLineCount;
       return;
@@ -214,7 +200,7 @@ function sameTranscriptRenderRow(left: TranscriptRenderRow, right: TranscriptRen
     && left.chronology.dividerLabel === right.chronology.dividerLabel
     && left.chronology.timeLabel === right.chronology.timeLabel
     && left.chronology.focusedTimeLabel === right.chronology.focusedTimeLabel
-    && left.inferredSkillInvocation?.label === right.inferredSkillInvocation?.label
+    && JSON.stringify(left.readSkills) === JSON.stringify(right.readSkills)
     && left.toolGroupDepth === right.toolGroupDepth
     && left.questionCardOnly === right.questionCardOnly
     && left.foldKey === right.foldKey
@@ -306,7 +292,7 @@ function foldedMessageRow(message: WorkspaceMessage, lineCount: number, sourceRo
     : message.tool
       ? conciseToolSummary({ name: message.tool.name, phase: message.state ?? '', metadata: message.tool.summary })
       : machineHeadline(message);
-  const summary = [semanticSummary, formattedDuration(message.tool?.durationMs)].filter(Boolean).join(' · ');
+  const summary = [skillActivitySummary(semanticSummary, transcriptReadSkills([message], 0, 0)), formattedDuration(message.tool?.durationMs)].filter(Boolean).join(' · ');
   const noun = hiddenLineCount === 1 ? 'line' : 'lines';
   const marker = hiddenLineCount ? `… [${hiddenLineCount} ${noun} folded]` : '… [details folded]';
   return {
@@ -345,7 +331,7 @@ function foldedMachineRows(rows: TranscriptRenderRow[]) {
   const semanticSummary = first.message.tool
     ? conciseToolSummary({ name: first.message.tool.name, phase: first.message.state ?? '', metadata: first.message.tool.summary })
     : machineHeadline(first.message);
-  const summary = [semanticSummary, formattedDuration(first.message.tool?.durationMs)].filter(Boolean).join(' · ');
+  const summary = [skillActivitySummary(semanticSummary, first.readSkills ?? []), formattedDuration(first.message.tool?.durationMs)].filter(Boolean).join(' · ');
   const noun = hiddenLineCount === 1 ? 'line' : 'lines';
   const marker = hiddenLineCount ? `… [${hiddenLineCount} ${noun} folded]` : '… [details folded]';
   const folded: TranscriptRenderRow = {

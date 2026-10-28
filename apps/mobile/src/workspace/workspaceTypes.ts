@@ -57,7 +57,7 @@ export type WorkspaceMessage = TranscriptMessageMetadata & {
   /** One proven terminal live identity absorbed by this canonical assistant. */
   absorbedLiveIdentity?: { messageId: string; runId: string };
   toolGroup?: { count: number; lastMessageId: string }; // Ephemeral display header, never canonical.
-  tool?: { name: string; summary: string; durationMs?: number };
+  tool?: { name: string; summary: string; durationMs?: number; skillName?: string; resultSucceeded?: true };
   attachments?: WorkspaceAttachment[];
   question?: QuestionRecord;
   approval?: { id: string; kind: 'exec' | 'plugin'; allowedDecisions: ApprovalDecision[]; resolved: boolean; expiresAtMs?: number; outcome?: 'allowed' | 'denied' | 'expired' | 'resolved-externally' };

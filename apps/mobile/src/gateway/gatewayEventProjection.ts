@@ -2,7 +2,7 @@ import { asyncQuestionMetadata, privateQuestionText } from '../questions/asyncQu
 import { liveNarrationInsertionIndex } from './liveNarrationPlacement';
 import { semanticWorkspaceRole, type ApprovalDecision, type WorkspaceMessage, type WorkspaceProject } from '../workspace/workspaceTypes';
 import { messagesFromPayload, gatewayAttachments, gatewayContentText } from '../workspace/historyMessageProjection';
-import { machineActivitySummary, preferredToolSummary, toolActivityFromContent, toolActivityFromLiveEvent, toolRowText } from '../tooling/toolActivity';
+import { machineActivitySummary, preferredToolSummary, toolActivityFromContent, toolActivityFromLiveEvent, toolRowText, toolSkillEvidence } from '../tooling/toolActivity';
 import { embeddedToolProtocolFromText } from '../tooling/embeddedToolProtocol';
 import { gatewayFrameSessionKey, type GatewayFrame } from './gatewayEvents';
 import { runLifecycleMessageID } from './runCompletionMessage';
@@ -67,7 +67,7 @@ export function projectGatewayEvent(frame: GatewayFrame, selectedSessionKey: str
         text: toolRowText(activity),
         state: failed ? 'error' : state === 'delta' ? 'streaming' : 'complete',
         runId,
-        tool: { name: activity.name, summary: activity.summary },
+        tool: { name: activity.name, summary: activity.summary, ...toolSkillEvidence(failed ? { ...activity, status: 'failed' } : activity) },
       }, eventTimestamp);
     }
     const extractedText = gatewayContentText(content) || stringValue(payload.errorMessage);
@@ -117,7 +117,7 @@ export function projectGatewayEvent(frame: GatewayFrame, selectedSessionKey: str
         // `isError`; only the activity owner knows that is a failure.
         state: activity.status === 'failed' ? 'error' : phase === 'result' ? 'complete' : 'streaming',
         runId,
-        tool: { name: activity.name, summary: activity.summary, ...(durationMs ? { durationMs } : {}) },
+        tool: { name: activity.name, summary: activity.summary, ...toolSkillEvidence(activity), ...(durationMs ? { durationMs } : {}) },
       }, eventTimestamp);
     }
     if (stream === 'item' && stringValue(data.kind) === 'preamble') {
@@ -239,9 +239,16 @@ function upsertLiveMessageRaw(messages: WorkspaceMessage[], message: WorkspaceMe
   const index = messages.findIndex((candidate) => candidate.id === message.id);
   if (index < 0) return insertNewLiveMessage(messages, message);
   const previous = messages[index]!;
+  // A late start/update must not undo a witnessed successful result. It may
+  // supply the invocation identity when the result arrived first.
+  if (previous.tool?.resultSucceeded && previous.state === 'complete' && message.state === 'streaming') {
+    if (!previous.tool.skillName && message.tool?.skillName) return messages.map((row, i) => i === index
+      ? { ...previous, tool: { ...previous.tool!, skillName: message.tool!.skillName! } } : row);
+    return messages;
+  }
   const converged = !previous.tool || !message.tool
     ? convergedLiveMessage(previous, message)
-    : { ...message, tool: { ...message.tool, summary: preferredToolSummary(previous.tool.summary, message.tool.summary) } };
+    : { ...message, tool: { ...message.tool, ...(previous.tool.skillName ? { skillName: previous.tool.skillName } : {}), summary: preferredToolSummary(previous.tool.summary, message.tool.summary) } };
   // The first live frame can be flushed without a source timestamp and land
   // at the tail. A later frame or durable narration snapshot can then add the
   // authoritative event coordinate under the same identity. Updating that

@@ -15,6 +15,11 @@ declare class VimicateFileLinksModule extends NativeModule<{}> {
   readonly supportsHTMLPreview?: boolean;
   readonly supportsFileSharing?: boolean;
   readonly maximumFileShareBytes?: number;
+  readonly supportsStreamedFileSharing?: boolean;
+  beginFileShare(filename: string, size: number): Promise<string>;
+  appendFileShare(id: string, offset: number, dataBase64: string): Promise<void>;
+  presentFileShare(id: string, anchor: VimicateFileShareAnchor | null): Promise<VimicateFileShareResult>;
+  cancelFileShare(id: string): Promise<void>;
   shareFile(dataBase64: string, filename: string, mimeType: string, anchor: VimicateFileShareAnchor | null): Promise<VimicateFileShareResult>;
   openLocalPath(path: string): Promise<LocalPathOpenResult>;
   materializeLocalImage(path: string, promptIfNeeded: boolean): Promise<LocalImageMaterializeResult>;

@@ -15,7 +15,6 @@ import type { TranscriptVimState } from './transcriptVim';
 import { workspaceFontMetrics } from '../ui/workspaceTypography';
 import { transcriptSourceRowNavigationChanged } from './transcriptRowRenderPolicy';
 import { transcriptAuthoredPromptChrome } from './transcriptAuthoredPromptChrome';
-import { resolvedTranscriptSkillInvocation, transcriptRowSkillInvocation } from './transcriptSkillInvocation';
 import { transcriptRowLifecycle, transcriptRowTimestamp } from './transcriptRowMetadata';
 import { transcriptMessageMarker } from './transcriptPresentation';
 import { transcriptGutterRailKind } from './transcriptGutterRail';
@@ -54,11 +53,7 @@ function TranscriptSourceRowContent({ row, followingDateLabel, navigation, focus
   const attachmentLabel = row.firstInMessage ? attachmentOnlyPromptLabel(message) : null;
   const current = row.sourceRow === navigation.cursor.row;
   const authoredPrompt = transcriptAuthoredPromptChrome(message.role, row.firstInMessage, row.lastInMessage, current);
-  const explicitSkillInvocation = transcriptRowSkillInvocation(message.role, row.compiled.source);
-  const inferredSkillInvocation = message.role === 'narration' || message.role === 'tool' ? row.inferredSkillInvocation ?? null : null;
-  const resolvedSkillInvocation = resolvedTranscriptSkillInvocation(row.compiled.source, explicitSkillInvocation, row.firstInMessage ? inferredSkillInvocation : null);
-  const skillInvocation = resolvedSkillInvocation?.invocation ?? null;
-  const skillReference = resolvedSkillInvocation?.reference ?? null;
+  const readSkills = row.firstInMessage ? row.readSkills : undefined;
   const messageFocused = navigation.cursor.row >= row.firstSourceRowInMessage && navigation.cursor.row <= row.lastSourceRowInMessage;
   const grouped = row.groupPosition !== 'standalone';
   const glyphWidth = (marker ? 23 : 7) * fontScale;
@@ -71,7 +66,7 @@ function TranscriptSourceRowContent({ row, followingDateLabel, navigation, focus
   const gutterRail = transcriptGutterRailKind({ focused, current, authoredPrompt: authoredPrompt.band, grouped });
   const gutterLabel = transcriptGutterLabel(row.sourceRow, navigation.cursor.row, sourceNavigationIndex, cursorNavigationIndex);
   const focusMetrics = transcriptFocusMetrics(fontScale, focused);
-  const rowAccessibilityLabel = `${message.role}, line ${row.sourceRow + 1}, gutter ${gutterLabel}, ${attachmentLabel ?? (row.compiled.source || 'blank')}${skillInvocation ? `, invokes ${skillInvocation.label} skill` : ''}${row.fold ? `, ${row.fold.expanded ? 'collapse' : 'expand'} details` : ''}`;
+  const rowAccessibilityLabel = `${message.role}, line ${row.sourceRow + 1}, gutter ${gutterLabel}, ${attachmentLabel ?? (row.compiled.source || 'blank')}${readSkills?.length ? `, skill read, ${readSkills.join(', ')}` : ''}${row.fold ? `, ${row.fold.expanded ? 'collapse' : 'expand'} details` : ''}`;
   return (
     <View>
       <Pressable accessible={false} onPress={onPress} style={[styles.root, { paddingTop: firstGap }, { paddingBottom: lastGap }, grouped && message.role !== 'tool' && styles.grouped, authoredPrompt.band && styles.authoredPrompt, focused && current && styles.current, focused && authoredPrompt.active && styles.authoredPromptActive]}>
@@ -92,8 +87,7 @@ function TranscriptSourceRowContent({ row, followingDateLabel, navigation, focus
         <View style={[styles.columns, { minHeight: (machine ? 18 : 20) * fontScale }, machine && styles.machineColumns]}>
           <TranscriptGutterNumber sourceRow={row.sourceRow} cursorRow={navigation.cursor.row} label={gutterLabel} focused={focused} fontScale={fontScale} gutterWidth={gutterWidth} />
           <Text allowFontScaling={false} style={[styles.marker, workspaceFontMetrics(11, fontScale, 20), { width: glyphWidth, color: presentation.tone }]}>{row.firstInMessage ? marker : ''}</Text>
-          {skillInvocation ? <View pointerEvents="none" accessible={false} style={styles.skillTag}><Text allowFontScaling={false} ellipsizeMode="middle" numberOfLines={1} style={[styles.skillTagText, workspaceFontMetrics(8, fontScale, 13)]}>{skillInvocation.label}</Text></View> : null}
-          {attachmentLabel ? <Text style={[styles.attachmentLabel, workspaceFontMetrics(13, fontScale, 20)]}>{attachmentLabel}</Text> : <TranscriptMarkdownLine line={row.compiled} row={row.sourceRow} navigation={navigation} searchEnabled={transcriptRoleIsSearchable(message.role)} cursorVisible={focused} machine={machine} fontScale={fontScale} semanticHighlights={skillReference ? [{ ...skillReference, kind: 'skill' }] : []} />}
+          {attachmentLabel ? <Text style={[styles.attachmentLabel, workspaceFontMetrics(13, fontScale, 20)]}>{attachmentLabel}</Text> : <TranscriptMarkdownLine line={row.compiled} row={row.sourceRow} navigation={navigation} searchEnabled={transcriptRoleIsSearchable(message.role)} cursorVisible={focused} machine={machine} fontScale={fontScale} />}
           {row.fold && (row.firstInMessage || row.foldKey) ? <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${row.fold.expanded ? 'Collapse' : 'Expand'} ${message.toolGroup ? 'tool calls' : `${message.role} details`}`}
@@ -146,7 +140,6 @@ function approvalExpiry(expiresAtMs: number) { const seconds = Math.max(0, Math.
 
 const styles = StyleSheet.create({
   root: { flexDirection: 'row', minHeight: 20 }, accessibilityRow: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, current: { backgroundColor: 'rgba(60,56,54,0.22)' }, grouped: { backgroundColor: 'rgba(60,56,54,0.14)' }, authoredPrompt: { backgroundColor: colors.authoredPromptSurface }, authoredPromptActive: { backgroundColor: colors.authoredPromptSurfaceActive }, gutterRail: { position: 'absolute', left: 0, top: 0, bottom: 0 }, gutterRailActive: { width: 2, backgroundColor: colors.activeAccent }, gutterRailAuthored: { width: 2, backgroundColor: colors.authoredPromptRail }, gutterRailGrouped: { width: 1, backgroundColor: colors.borderStrong }, gutterSpacer: { width: 2 }, authoredPromptEdge: { position: 'absolute', left: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.authoredPromptBorder }, authoredPromptTopEdge: { top: 0 }, authoredPromptBottomEdge: { bottom: 0 },
-  skillTag: { maxWidth: 176, height: 14, marginTop: 2, marginRight: 6, paddingHorizontal: 4, justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(254,190,47,0.54)', borderRadius: 3, backgroundColor: 'rgba(254,190,47,0.10)' }, skillTagText: { color: colors.orange, fontFamily: type.mono, fontSize: 8, lineHeight: 13, fontWeight: '700', letterSpacing: 0.15 },
   body: { flex: 1, minWidth: 0 }, columns: { minHeight: 20, flexDirection: 'row', alignItems: 'flex-start' }, machineColumns: { minHeight: 18 }, line: { flexShrink: 0, paddingRight: 6, color: 'rgba(168,153,132,0.42)', fontFamily: type.mono, fontVariant: ['tabular-nums'], fontSize: 11, lineHeight: 20, textAlign: 'right' }, currentLine: { color: 'rgba(176,189,42,0.70)' }, marker: { flexShrink: 0, fontFamily: type.mono, fontSize: 11, lineHeight: 20, fontWeight: '600', textAlign: 'center' }, lifecycle: { width: 20, color: colors.activeAccent, fontFamily: type.mono, fontSize: 9, lineHeight: 20, textAlign: 'center' }, lifecycleError: { color: colors.red },
   // Focus may change timestamp content and colour, but not the row's width.
   timestamp: { flexShrink: 0, paddingHorizontal: 7, color: colors.faint, fontFamily: type.mono, fontSize: 9, lineHeight: 20, textAlign: 'right' }, timestampFocused: { color: colors.inkMuted },
