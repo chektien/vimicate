@@ -210,3 +210,15 @@ describe('transcript markdown compiler', () => {
   });
 
 });
+
+describe('HTML comment lines', () => {
+  it('renders whole-line comments as blank lines while keeping the source line mapping', () => {
+    const compiled = compileTranscriptMarkdown('<!-- cli-update-question -->\n## CLI updates\n<!-- /cli-update-question -->\n```\n<!-- kept in code -->\n```\ntext <!-- inline --> stays');
+    expect(compiled).toHaveLength(7);
+    expect(compiled[0]).toMatchObject({ kind: 'blank', glyphs: [] });
+    expect(compiled[1]?.kind).toBe('heading');
+    expect(compiled[2]).toMatchObject({ kind: 'blank', glyphs: [] });
+    expect(compiled[4]?.kind).toBe('code');
+    expect(compiled[6]?.kind).toBe('paragraph');
+  });
+});

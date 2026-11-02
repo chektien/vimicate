@@ -2,6 +2,7 @@ import type { WorkspaceAttachment, WorkspaceMessage } from '../workspace/workspa
 import { assistantTextIsGatewayTruncated } from './messageCompleteness';
 import { preferredToolSummary } from '../tooling/toolActivity';
 import { assistantAttachmentSnapshot } from './assistantAttachmentSnapshot';
+import { cumulativeNarrationText, identifyNarrationMessageOwners, narrationMessageIdentity, rejectConflictingNarrationIDs } from './narrationTextConvergence';
 import { identifyCanonicalNarrationAliases } from './narrationLiveIdentity';
 import { sharedNarrationDisplayOrder } from '../workspace/historyDisplayOrder';
 import { isPendingInputCustodyRow } from './pendingInputSnapshot';
@@ -20,7 +21,7 @@ export function coalesceTranscriptIdentities(messages: WorkspaceMessage[]) {
   // delayed live rows and persisted older copies may still know only the ID.
   // Join exact IDs first so a metadata-bearing copy also bridges native aliases.
   const identified = coalesceByIdentity(
-    coalesceByIdentity(identifyCanonicalNarrationAliases(messages), messageIdentity),
+    coalesceByIdentity(identifyCanonicalNarrationAliases(identifyNarrationMessageOwners(rejectConflictingNarrationIDs(messages))), messageIdentity),
     transcriptPublicationIdentity,
   );
   return reconcilePendingInputAliases(identified);
@@ -218,12 +219,14 @@ function coalesceByIdentity(messages: WorkspaceMessage[], identityOf: (message: 
   return result.length === messages.length && result.every((message, index) => message === messages[index]) ? messages : result;
 }
 
-function messageIdentity(message: WorkspaceMessage) { return `message\u0000${message.id}`; }
+function messageIdentity(message: WorkspaceMessage) {
+  return message.role === 'narration' ? narrationMessageIdentity(message) : `message\u0000${message.id}`;
+}
 
 export function transcriptPublicationIdentity(message: WorkspaceMessage) {
   if (message.asyncQuestion && message.sessionKey) return `async-question\u0000${message.sessionKey}\u0000${message.asyncQuestion.itemId}`;
   if (message.role === 'narration' && message.transcriptSessionId && message.narrationItemId) {
-    return `narration\u0000${message.sessionKey}\u0000${message.transcriptSessionId}\u0000${message.narrationItemId}`;
+    return `narration\u0000${message.sessionKey}\u0000${message.transcriptSessionId}\u0000${message.runId ?? ''}\u0000${message.narrationItemId}`;
   }
   if (!message.idempotencyKey) return messageIdentity(message);
   const submission = message.idempotencyKey.replace(/:(?:user|assistant)$/i, '');
@@ -293,6 +296,7 @@ export function convergedTranscriptRepresentation(left: WorkspaceMessage, right:
     ...alternate,
     ...preferred,
     id: left.id,
+    text: cumulativeNarrationText(preferred, alternate),
     ...(left.displayPosition || right.displayPosition ? { displayPosition: left.displayPosition ?? right.displayPosition } : {}),
     ...(state ? { state } : {}),
     ...(preferred.runId || alternate.runId ? { runId: preferred.runId || alternate.runId } : {}),

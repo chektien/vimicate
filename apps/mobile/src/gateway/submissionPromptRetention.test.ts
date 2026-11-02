@@ -7,6 +7,8 @@ import type { QueuedPromptTracking } from './queuedPromptSubmission';
 import { HistoryPublicationAuthority } from './historyPublicationAuthority';
 import { SessionRunRegistry } from './sessionRunRegistry';
 
+vi.mock('expo-application', () => ({ nativeApplicationVersion: '0.1.1', nativeBuildVersion: '7' }));
+vi.mock('expo-updates', () => ({ updateId: '01a18d31-6bc9-719b-9906-27a090f3e6b5' }));
 vi.mock('react', () => ({ useCallback: (callback: unknown) => callback }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'submission-one' }));
 vi.mock('../../modules/vimicate-diagnostics', () => ({ latestFatalDiagnostic: () => null, recentViewportDiagnostics: () => ['12:00:00.000 viewport.dataset ds=abcd'] }));
@@ -95,7 +97,7 @@ describe('submission prompt retention', () => {
     expect(test.setDetail).toHaveBeenCalledWith(':diagnostics takes no arguments.');
     await expect(test.submit(':diagnostics')).resolves.toBe(true);
     expect(test.client.send).not.toHaveBeenCalled();
-    expect(test.rows.some((row) => row.role === 'command' && row.text.startsWith(':diagnostics — no retained fatal breadcrumb\nrecent viewport (oldest to newest)\n12:00:00.000 viewport.dataset ds=abcd\ntranscript rows (oldest to newest)\n'))).toBe(true);
+    expect(test.rows.some((row) => row.role === 'command' && row.text.startsWith(':diagnostics — no retained fatal breadcrumb\nlast recorded JS fatal only; native crashes and OS terminations are not captured\nrunning build 0.1.1(7), update 01a18d31\nrecent viewport since this launch (UTC, oldest to newest)\n12:00:00.000 viewport.dataset ds=abcd\nruntime events (persisted across launches, SGT, oldest to newest)\n(none)\ntranscript rows (oldest to newest)\n'))).toBe(true);
   });
 
   it('explicitly steers active ordinary input without replacing or aborting its run', async () => {

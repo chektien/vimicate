@@ -6,6 +6,7 @@ export type GatewayRefreshIntent = {
   refreshRegistry: boolean;
   refreshHistory: boolean;
   refreshDuringRun?: boolean;
+  throttleDuringRun?: boolean;
 };
 
 /**
@@ -25,17 +26,31 @@ export function refreshIntentForGatewayEvent(frame: GatewayFrame, selectedSessio
   const concernsSelectedSession = Boolean(eventSessionKey && eventSessionKey === selectedSessionKey);
 
   if (event === 'session.message') {
+    const message = recordValue(payload.message);
+    const remoteInput = message.role === 'user';
+    const delivery = recordValue(message.openclawAsyncDelivery);
+    // Plain assistant progress already has an exact live row (projectGatewayEvent)
+    // and the run end reconciles canonical history. Only question cards and
+    // non-assistant deliveries still need a canonical read while running.
+    const questions = Array.isArray(delivery.questions) && delivery.questions.length > 0;
+    const asyncDelivery = Boolean(delivery.itemId) && (message.role !== 'assistant' || questions);
     return { detail: concernsSelectedSession ? event : '', refreshSessions: false, refreshRegistry: false, refreshHistory: concernsSelectedSession,
-      ...(concernsSelectedSession && (recordValue(payload.message).role === 'user' || recordValue(recordValue(payload.message).openclawAsyncDelivery).itemId) ? { refreshDuringRun: true } : {}) };
+      ...(concernsSelectedSession && (remoteInput || asyncDelivery) ? { refreshDuringRun: true } : {}),
+      ...(concernsSelectedSession && asyncDelivery && !remoteInput ? { throttleDuringRun: true } : {}) };
   }
 
   if (event === 'sessions.changed') {
     const phase = stringValue(payload.phase);
-    const messageOnly = phase === 'message' && concernsSelectedSession;
+    // Gateway preserves catalogChanged through coalesced generic updates.
+    // Generation/catalog mutations also invalidate the host registry projection.
+    const catalogChanged = payload.catalogChanged === true || phase === 'model'
+      || ['create', 'new', 'reset', 'delete', 'groups', 'project', 'sharing', 'profile-identity',
+        'fork', 'rewind', 'branch-switch', 'recovery', 'archive', 'unarchive', 'cleanup'].includes(stringValue(payload.reason));
+    const messageOnly = phase === 'message' && concernsSelectedSession && !catalogChanged;
     return {
       detail: concernsSelectedSession || !eventSessionKey ? (phase ? `${event}:${phase}` : event) : '',
       refreshSessions: !messageOnly,
-      refreshRegistry: !messageOnly,
+      refreshRegistry: catalogChanged,
       refreshHistory: concernsSelectedSession,
     };
   }

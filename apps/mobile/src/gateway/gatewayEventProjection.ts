@@ -9,6 +9,7 @@ import { runLifecycleMessageID } from './runCompletionMessage';
 import { projectAssistantProtocolContent } from './assistantProtocolProjection';
 import { isAssistantProjectionDiagnostic } from './gatewayDiagnosticProjection';
 import { reconcileApprovalAbsence } from './approvalFinalization';
+import { narrationOwnershipConflicts } from './narrationTextConvergence';
 import { convergedLiveMessage } from './liveMessageConvergence';
 import { absorbedLiveMessageMatches, convergedTranscriptRepresentation } from './transcriptIdentityWall';
 import { canonicalIndexForFirstLiveFinal } from './liveAssistantHistoryPlacement';
@@ -236,7 +237,13 @@ function upsertLiveMessageRaw(messages: WorkspaceMessage[], message: WorkspaceMe
       : candidate.id === message.id && candidate.sessionKey === message.sessionKey && candidate.runId === message.runId
         && candidate.role === 'assistant' && candidate.source === 'live' ? [] : [candidate]);
   }
-  const index = messages.findIndex((candidate) => candidate.id === message.id);
+  if (message.role === 'narration' && messages.some(candidate => candidate.role === 'narration'
+    && candidate.id === message.id && candidate.sessionKey === message.sessionKey
+    && narrationOwnershipConflicts(candidate, message))) return messages;
+  const matching = messages.flatMap((candidate, index) => candidate.id === message.id
+    && !(candidate.role === 'narration' && message.role === 'narration' && narrationOwnershipConflicts(candidate, message)) ? [index] : []);
+  if (message.role === 'narration' && matching.length > 1) return messages;
+  const index = matching[0] ?? -1;
   if (index < 0) return insertNewLiveMessage(messages, message);
   const previous = messages[index]!;
   // A late start/update must not undo a witnessed successful result. It may

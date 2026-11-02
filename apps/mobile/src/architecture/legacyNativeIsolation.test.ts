@@ -249,7 +249,8 @@ describe('RN architecture isolation invariants', () => {
     expect(history).toContain("reviewEntryIntent.current = 'deliberate'");
     expect(view).toContain("restored.reviewEntryIntent === 'deliberate'");
     expect(persistence).toContain("reviewEntryIntent: 'fallback'");
-    expect(workspace).toContain('await loadHistory(sessionKey, historyPresentation)');
+    // Thread entry passes its restored presentation and may reuse an unchanged tail.
+    expect(workspace).toContain('await loadHistory(sessionKey, historyPresentation, false, true)');
     expect(workspace).not.toContain("await loadHistory(sessionKey, 'reveal-current')");
   });
 

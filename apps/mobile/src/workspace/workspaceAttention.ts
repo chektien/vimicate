@@ -1,4 +1,4 @@
-import { sessionActivityTimestamp } from './sessionActivityTimestamp';
+import { explicitSessionActivityTimestamp, sessionActivityTimestamp } from './sessionActivityTimestamp';
 import type { GatewayFrame } from '../gateway/gatewayEvents';
 
 const MAX_IDENTITIES = 2_048;
@@ -7,6 +7,7 @@ export type WorkspaceAttentionSignal = { sessionKey: string; identity: string; o
 type SessionCensusPhase = 'active' | 'terminal' | 'other';
 type SessionCensusSnapshot = {
   activityAt: number;
+  activityIsProven?: boolean;
   phase: SessionCensusPhase;
   runId: string;
   sessionId: string;
@@ -28,8 +29,8 @@ export function workspaceAttentionSignal(frame: GatewayFrame, now = Date.now()):
   const runId = text(payload.runId) || text(data.runId);
   const explicitID = text(payload.deliveryId) || text(payload.id) || text(payload.jobRunId) || runId;
   const occurredAt = timestamp(data.endedAt ?? data.endedAtMs ?? payload.timestamp ?? payload.updatedAt ?? payload.completedAt ?? payload.endedAt) ?? now;
-  const fallbackID = `${occurredAt}\u0000${stableHash(printable(payload.message ?? payload.result ?? data))}`;
-  const identity = `${scheduledCompletion ? 'delivery.complete' : 'session.complete'}\u0000${sessionKey}\u0000${explicitID || fallbackID}`;
+  const occurrenceID = explicitID || `${occurredAt}\u0000${stableHash(printable(payload.message ?? payload.result ?? data))}`;
+  const identity = `${scheduledCompletion ? 'delivery.complete' : 'session.complete'}\u0000${sessionKey}\u0000${occurrenceID}`;
   return { sessionKey, identity, occurredAt };
 }
 
@@ -139,6 +140,8 @@ export class WorkspaceAttentionLedger {
     return { changed, signals };
   }
 
+  censusActivityIsProven(sessionKey: string) { return this.sessionCensus.get(sessionKey)?.activityIsProven === true; }
+
   serialized() {
     return JSON.stringify({
       activityClockVersion: 1,
@@ -165,9 +168,10 @@ export function acceptWorkspaceAttention(
   ledger: WorkspaceAttentionLedger,
   signal: WorkspaceAttentionSignal,
   selectedSessionKey: string,
+  options?: { recencyOnly?: boolean },
 ) {
   if (!ledger.accept(signal.identity)) return { accepted: false, unread: false };
-  const unread = signal.sessionKey !== selectedSessionKey;
+  const unread = !options?.recencyOnly && signal.sessionKey !== selectedSessionKey;
   if (unread) ledger.markUnread(signal.sessionKey);
   return { accepted: true, unread };
 }
@@ -177,6 +181,7 @@ export function acceptSessionCensusAttention(
   payload: Record<string, unknown>,
   selectedSessionKey: string,
   onAccepted: (sessionKey: string, occurredAt: number, unread: boolean) => void,
+  onCompatibilityAccepted = onAccepted,
 ) {
   const reconciliation = ledger.reconcileSessionCensus(payload);
   let accepted = false;
@@ -184,7 +189,8 @@ export function acceptSessionCensusAttention(
     const acceptance = acceptWorkspaceAttention(ledger, signal, selectedSessionKey);
     if (!acceptance.accepted) continue;
     accepted = true;
-    onAccepted(signal.sessionKey, signal.occurredAt, acceptance.unread);
+    const publish = ledger.censusActivityIsProven(signal.sessionKey) ? onAccepted : onCompatibilityAccepted;
+    publish(signal.sessionKey, signal.occurredAt, acceptance.unread);
   }
   return reconciliation.changed || accepted;
 }
@@ -212,5 +218,5 @@ function censusSnapshot(session: Record<string, unknown>): SessionCensusSnapshot
   const activityAt = terminalTimestamp
     ?? timestamp(sessionActivityTimestamp(session))
     ?? 0;
-  return { activityAt, phase: active ? 'active' : terminal ? 'terminal' : 'other', runId, sessionId };
+  return { activityAt, activityIsProven: activityAt > 0 && ((terminalTimestamp ?? 0) > 0 || (explicitSessionActivityTimestamp(session) ?? 0) > 0), phase: active ? 'active' : terminal ? 'terminal' : 'other', runId, sessionId };
 }

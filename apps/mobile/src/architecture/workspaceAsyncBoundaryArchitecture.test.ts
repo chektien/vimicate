@@ -200,7 +200,7 @@ describe('workspace fire-and-forget ownership architecture', () => {
     const workspace = source('src/gateway/useGatewayWorkspace.ts');
     const loadSessions = source('src/gateway/useGatewaySessionRefresh.ts');
 
-    expect(loadSessions).toContain('acceptSessionCensusAttention(attentionLedger.current, payload, selectedRef.current, recordLocalInteraction)');
+    expect(loadSessions).toContain('acceptSessionCensusAttention(attentionLedger.current, payload, selectedRef.current, recordLocalInteraction,');
     expect(loadSessions.indexOf('acceptSessionCensusAttention(')).toBeLessThan(loadSessions.indexOf('const sessionProjection = projectsFromPayload(payload)'));
   });
 

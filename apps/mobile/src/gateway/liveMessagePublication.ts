@@ -1,4 +1,5 @@
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
+import { identifyNarrationMessageOwners, narrationMessageIdentity, rejectConflictingNarrationIDs } from './narrationTextConvergence';
 import { convergedLiveMessage } from './liveMessageConvergence';
 import { upsertLiveMessage } from './gatewayEventProjection';
 import { latestPresentationWindow, MAX_VISIBLE_HISTORY_ROWS } from './historyWindow';
@@ -68,7 +69,7 @@ export class LiveMessagePublicationBuffer {
     return first;
   }
   drain() {
-    const pending = [...this.messages.values()];
+    const pending = coalescePendingNarration([...this.messages.values()]);
     this.messages.clear();
     this.pendingIdentitiesBySession.clear();
     return pending;
@@ -83,7 +84,7 @@ export class LiveMessagePublicationBuffer {
       this.messages.delete(identity);
     }
     this.pendingIdentitiesBySession.delete(sessionKey);
-    return pending;
+    return coalescePendingNarration(pending);
   }
   clear() { this.messages.clear(); this.pendingIdentitiesBySession.clear(); this.seen.clear(); }
   get size() { return this.messages.size; }
@@ -188,5 +189,18 @@ function countNewlinesUpTo(value: string, limit: number) {
 }
 
 function bufferedMessageIdentity(message: WorkspaceMessage) {
-  return `${message.sessionKey ?? ''}\u0000${message.id}`;
+  return message.role === 'narration' ? narrationMessageIdentity(message) : `${message.sessionKey ?? ''}\u0000${message.id}`;
+}
+
+function coalescePendingNarration(messages: WorkspaceMessage[]) {
+  const result: WorkspaceMessage[] = [];
+  const positions = new Map<string, number>();
+  for (const message of identifyNarrationMessageOwners(rejectConflictingNarrationIDs(messages))) {
+    if (message.role !== 'narration') { result.push(message); continue; }
+    const identity = narrationMessageIdentity(message);
+    const position = positions.get(identity);
+    if (position === undefined) { positions.set(identity, result.length); result.push(message); }
+    else result[position] = convergedLiveMessage(result[position]!, message);
+  }
+  return result;
 }

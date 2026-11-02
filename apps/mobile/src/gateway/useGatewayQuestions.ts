@@ -9,12 +9,15 @@ import { questionNeedsOtherSurface, type QuestionRecord } from '../questions/que
 import type { HardwareKeyEvent } from '../../modules/vimicate-editor';
 import { questionScopeNotice } from './questionScopeNotice';
 import { normalizedHardwareKey } from '../keyboard/hardwareKey';
-export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatus, authority: MutableRefObject<HistoryPublicationAuthority>, messages: WorkspaceMessage[], sessionKey: string, projects: WorkspaceProject[], selectedKey: string) {
+import { brokerPendingQuestionCounts, projectsWithPendingQuestions } from '../questions/pendingQuestionPresentation';
+type PendingResolution = { activity: number; connection: number; epoch: number; sessionKey: string; createdAtMs: number; cancel: boolean };
+export type QuestionActivity = (record: QuestionRecord, phase: 'requested' | 'answered') => void;
+export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatus, authority: MutableRefObject<HistoryPublicationAuthority>, messages: WorkspaceMessage[], sessionKey: string, projects: WorkspaceProject[], onActivity?: QuestionActivity) {
   const alive = useRef(true); useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const owner = useMemo(() => new GatewayQuestionOwner(), []);
   const [revision, setRevision] = useState(0); const [notice, setNotice] = useState(''); const [scopeNotice, setScopeNotice] = useState('');
   const [drafts, setDrafts] = useState<Record<string, QuestionDraft>>({}); const draftsRef = useRef(drafts); draftsRef.current = drafts;
-  const [busy, setBusy] = useState<string[]>([]); const busyRef = useRef(new Set<string>());
+  const [busy, setBusy] = useState<string[]>([]); const busyRef = useRef(new Map<string, PendingResolution>());
   const [errors, setErrors] = useState<Record<string, string>>({}); const [textEditing, setTextEditing] = useState<string | null>(null); const [otherFocus, setOtherFocus] = useState<{ id: string; question: number; revision: number } | null>(null);
   const consumeOtherFocus = useCallback((record: QuestionRecord, revision: number) => setOtherFocus(current => current?.id === record.id && current.revision === revision ? null : current), []);
   const [interaction, setInteraction] = useState<string | null>(null); const interactionRef = useRef(interaction);
@@ -40,9 +43,20 @@ export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatu
     return () => clearInterval(timer);
   }, [authority, hydrate, owner, publish, status]);
   const event = useCallback((frame: { event?: unknown; payload?: unknown }) => {
-    if (!owner.event(frame)) return false;
+    if (!alive.current || !authority.current.isActive || client.status !== 'connected') return false;
+    // Hydration is intentionally activity-neutral. Only accepted live changes
+    // notify the workspace, using the registry's validated scope, never selection.
+    if (!owner.event(frame, (record, previous) => {
+      if (frame.event === 'question.requested' && !previous && record.status === 'pending') onActivity?.(record, 'requested');
+      else if (frame.event === 'question.resolved' && previous?.status === 'pending' && record.status === 'answered') {
+        // Untimestamped remote resolutions may be replayed. Receipt time is
+        // activity only while confirming this scene/connection's local answer.
+        const pending = busyRef.current.get(record.id);
+        if (pending && !pending.cancel && pending.sessionKey === record.sessionKey && pending.createdAtMs === record.createdAtMs && authority.current.owns(pending.activity) && client.connectionRevision === pending.connection && owner.epoch === pending.epoch) onActivity?.(record, 'answered');
+      }
+    })) return false;
     owner.expire(Date.now()); publish(); return true;
-  }, [owner, publish]);
+  }, [authority, client, onActivity, owner, publish]);
   const clear = useCallback(() => { interactionRef.current = null; setInteraction(null); owner.clear(); setNotice(''); setScopeNotice(''); busyRef.current.clear(); setBusy([]); setOtherFocus(null); setTextEditing(null); setDrafts({}); draftsRef.current = {}; setErrors({}); publish(); }, [owner, publish]);
   const draft = useCallback((record: QuestionRecord) => draftsRef.current[record.id] ?? emptyQuestionDraft(), []);
   const update = useCallback((record: QuestionRecord, next: QuestionDraft) => {
@@ -53,18 +67,22 @@ export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatu
     if (!current || current.status !== 'pending' || current.expiresAtMs <= Date.now() || questionNeedsOtherSurface(current) || busyRef.current.has(record.id) || client.status !== 'connected' || !authority.current.isActive) return;
     const answers = questionDraftAnswers(current, draft(current));
     if (!cancel && !answers) { setErrors(e => ({ ...e, [record.id]: 'Answer every question before submitting.' })); return; }
-    const epoch = owner.epoch; const connection = client.connectionRevision; const activity = authority.current.capture(); busyRef.current.add(record.id); setBusy([...busyRef.current]);
+    const epoch = owner.epoch; const connection = client.connectionRevision; const activity = authority.current.capture(); busyRef.current.set(record.id, { activity, connection, epoch, sessionKey: current.sessionKey, createdAtMs: current.createdAtMs, cancel }); setBusy([...busyRef.current.keys()]);
     try {
       const result = await client.request('question.resolve', { id: record.id, ...(cancel ? { cancel: true } : { answers }), resolvedBy: 'Vimicate' });
       if (!alive.current || !authority.current.owns(activity) || client.connectionRevision !== connection || owner.epoch !== epoch) return;
       if (!result || typeof result !== 'object') throw new Error('Invalid question.resolve response');
       if (!owner.event({ event: 'question.resolved', payload: { ...result, id: record.id } })) throw new Error('Invalid question.resolve response');
+      const confirmed = owner.get(record.id, record.sessionKey);
+      // The live resolution can beat this acknowledgement. Workspace identities
+      // deduplicate both confirmations, including after persisted restore.
+      if (!cancel && confirmed?.status === 'answered' && confirmed.createdAtMs === current.createdAtMs) onActivity?.(confirmed, 'answered');
       publish();
       await hydrate();
     } catch (error) {
       if (alive.current && authority.current.owns(activity) && client.connectionRevision === connection && owner.epoch === epoch) { setErrors(e => ({ ...e, [record.id]: `Answer not confirmed · ${error instanceof Error ? error.message : 'Gateway refused answer'}` })); await hydrate(); }
-    } finally { if (owner.epoch === epoch) { busyRef.current.delete(record.id); if (alive.current) setBusy([...busyRef.current]); } }
-  }, [authority, client, draft, hydrate, owner, publish]);
+    } finally { if (owner.epoch === epoch) { busyRef.current.delete(record.id); if (alive.current) setBusy([...busyRef.current.keys()]); } }
+  }, [authority, client, draft, hydrate, onActivity, owner, publish]);
   const handleKey = useCallback((record: QuestionRecord, input: HardwareKeyEvent, entry?: QuestionEntry): QuestionKeyResult => {
     if (record.status !== 'pending' || record.expiresAtMs <= Date.now() || busyRef.current.has(record.id) || questionNeedsOtherSurface(record) || input.command || input.control || input.option) return false;
     const key = normalizedHardwareKey(input);
@@ -81,7 +99,7 @@ export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatu
   }, [draft, interact, resolve, update]);
   useEffect(() => { const ids = owner.ids(); setDrafts(current => Object.keys(current).every(id => ids.has(id)) ? current : Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id)))); setErrors(current => Object.keys(current).every(id => ids.has(id)) ? current : Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id)))); }, [owner, revision]);
   const rows = useMemo(() => questionMessages(messages, owner.forSession(sessionKey)), [messages, owner, revision, sessionKey]);
-  const projectedProjects = useMemo(() => { const pending = owner.pendingSessions(); return pending.size ? projects.map(project => pending.has(project.sessionKey) ? { ...project, unread: project.sessionKey !== selectedKey || Boolean(project.unread), runPhase: 'waiting' as const } : project) : projects; }, [owner, projects, revision, selectedKey]);
+  const projectedProjects = useMemo(() => projectsWithPendingQuestions(projects, brokerPendingQuestionCounts(owner.snapshot())), [owner, projects, revision]);
   return { messages: rows, projects: projectedProjects, pendingSessions: owner.pendingSessions(), notice: status === 'connected' ? scopeNotice || notice : '', event, hydrate, clear, ui: {
     drafts, busy, errors, draft, resolve, handleKey, consumeOtherFocus, textEditing, editing, otherFocus, interaction, interact, leave, returnRevision, targetRevision,
     choose: (record: QuestionRecord, question: number, option: number) => { interact(record.id); update(record, focusQuestionSubmit(record, chooseQuestionOption(record, draft(record), option, question))); },

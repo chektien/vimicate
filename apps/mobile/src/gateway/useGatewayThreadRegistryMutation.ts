@@ -33,7 +33,7 @@ export function useGatewayThreadRegistryMutation(options: Options) {
     const accepted = immediateThreadRegistryMutationProjection(projectsRef.current, registrySnapshot.current, payload, selectedRef.current, preferredKey);
     registrySnapshot.current = accepted.registrySnapshot;
     const withAttention = accepted.projects.map((project) => attentionLedger.current.isUnread(project.sessionKey) ? { ...project, unread: true } : project);
-    const next = projectsWithRunPhases(activityLedger.current.reconcile(applyStarOverrides(withAttention, starOverrides.current)), runRegistry.current);
+    const next = projectsWithRunPhases(activityLedger.current.reconcile(applyStarOverrides(withAttention, starOverrides.current), 'presentation'), runRegistry.current);
     const selectedProject = next.find((project) => project.sessionKey === accepted.selectedKey);
     projectsRef.current = next; setProjects(next); setProjectsReady(true);
     resetHistory(selectedProject, accepted.registrySnapshot);

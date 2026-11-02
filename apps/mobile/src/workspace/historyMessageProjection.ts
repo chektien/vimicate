@@ -17,6 +17,7 @@ import { semanticWorkspaceRole, workspaceRole } from './workspaceRole';
 import { internalSystemRole, isClaudeCliCommentary, nativeTranscriptMetadata, nativeTranscriptMedia, transcriptSessionIdentity } from './transcriptMetadata';
 import type { WorkspaceAttachment, WorkspaceMessage } from './workspaceTypes';
 import { arrayAt, stringAt, numberAt, isRecord } from './workspacePayloadFields';
+import { withoutClaudeStagedImageReferences } from './claudeStagedImageReferences';
 
 export function messagesFromPayload(payload: Record<string, unknown>, workspacePath = ''): WorkspaceMessage[] {
   const pendingRows = queuedInputRows(payload);
@@ -25,8 +26,9 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
   const sessionKey = stringAt(payload, ['sessionKey', 'stableSessionKey', 'key']);
   const transcriptSessionId = transcriptSessionIdentity(payload.sessionId);
   const callActivities = toolCallActivityIndex(rows); const joinedPrompts = new Map<WorkspaceMessage, string[]>(); const asyncPrompts = rows.flatMap(row => isRecord(row) ? asyncQuestionMetadata(row).asyncQuestion ?? [] : []).slice(-128);
-  const projected = rows.flatMap<WorkspaceMessage>((raw) => {
-    if (!isRecord(raw)) return [];
+  const projected = rows.flatMap<WorkspaceMessage>((wire) => {
+    if (!isRecord(wire)) return [];
+    const raw = withoutClaudeStagedImageReferences(wire);
     const fallback = isRecord(raw.openclawStreamFallback) ? raw.openclawStreamFallback : {};
     const narrationItemId = raw.role === 'assistant' && fallback.source === 'segment'
       && typeof fallback.itemId === 'string' && fallback.itemId.length > 0 && fallback.itemId.length <= 256 ? fallback.itemId : undefined;

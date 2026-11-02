@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { pendingApprovalMessages, projectGatewayEvent, projectRegisteredGatewayEvent, reconcilePendingApprovalMessages, upsertLiveMessage } from './gatewayEventProjection';
 import { transcriptMessageIsFoldedByDefault } from '../transcript/transcriptRowBudget';
+import { buildTranscriptRenderRows } from '../transcript/transcriptRenderRows';
+import { LiveMessagePublicationBuffer, flushBufferedLiveMessages } from './liveMessagePublication';
 import { mergeSharedNarration } from './sharedNarration';
 
 describe('structured gateway event projection', () => {
@@ -285,5 +287,33 @@ describe('structured gateway event projection', () => {
   it('marks an approval absent from the recovered registry as settled', () => {
     const current = [projectGatewayEvent({ event: 'exec.approval.requested', payload: { id: 'gone', request: { sessionKey: 'one', command: 'pwd' } } }, 'one')!.message];
     expect(reconcilePendingApprovalMessages(current, [], 'one')[0]).toMatchObject({ text: 'approval resolved on another surface · refreshing run outcome', state: 'complete', approval: { resolved: true, outcome: 'resolved-externally', allowedDecisions: [] } });
+  });
+});
+
+it.each([false, true])('rejects colliding projected run/item transport IDs before rendering, order %s', reverse => {
+  const events = [
+    { event: 'agent', payload: { sessionKey: 's', runId: 'a-b', stream: 'item', data: { kind: 'preamble', itemId: 'c', progressText: 'First run commentary' } } },
+    { event: 'agent', payload: { sessionKey: 's', runId: 'a', stream: 'item', data: { kind: 'preamble', itemId: 'b-c', progressText: 'Second run commentary' } } },
+  ];
+  const frames = (reverse ? events.toReversed() : events).map(event => projectGatewayEvent(event, 's')!.message);
+  expect(frames[0]?.id).toBe(frames[1]?.id);
+  const first = [frames[0]!];
+  expect(upsertLiveMessage(first, frames[1]!)).toEqual(first);
+  const pending = new LiveMessagePublicationBuffer();
+  for (const frame of frames) pending.enqueue(frame);
+  let published: WorkspaceMessage[] = [];
+  flushBufferedLiveMessages(pending, (_key, action) => { published = action(published); });
+  expect(published).toEqual(first);
+  const keys = buildTranscriptRenderRows(published).map(row => row.key);
+  expect(new Set(keys).size).toBe(keys.length);
+});
+
+describe('plain async progress delivery', () => {
+  it('publishes a live row with the canonical history identity, so the run-end history replaces rather than duplicates it', () => {
+    const message = { id: 'msg-progress-1', role: 'assistant', content: [{ type: 'text', text: 'Checking the logs now.' }], openclawAsyncDelivery: { itemId: 'progress-1' } };
+    const live = projectGatewayEvent({ type: 'event', event: 'session.message', payload: { sessionKey: 'one', message } }, 'one');
+    expect(live?.message).toMatchObject({ id: 'msg-progress-1', role: 'assistant', text: 'Checking the logs now.', asyncMessage: true });
+    const rows = upsertLiveMessage([], live!.message);
+    expect(upsertLiveMessage(rows, { ...live!.message })).toHaveLength(1);
   });
 });

@@ -2,6 +2,7 @@ import { narrationInsideHistoryWindow, sharedNarrationWindowCache } from './shar
 import { type WorkspaceMessage, type WorkspaceProject } from '../workspace/workspaceTypes';
 import { authoritativeHistoryChronology } from '../workspace/historyMessageProjection';
 import { coalesceTranscriptIdentities } from './transcriptIdentityWall';
+import { narrationOwnershipConflicts } from './narrationTextConvergence';
 import { gatewaySessionGeneration } from './registrySessionIdentity';
 
 export const SHARED_NARRATION_CONTRACT = 'shared-narration-v1';
@@ -57,6 +58,7 @@ async function loadSnapshot(
   let totalRecords = -1;
   const messages: WorkspaceMessage[] = [];
   const seen = new Set<string>();
+  const seenMessageIDs = new Set<string>();
 
   for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
     if (signal?.aborted) throw new Error('Shared narration hydration retired.');
@@ -86,7 +88,9 @@ async function loadSnapshot(
       const parsed = parseRecord(raw, state.sessionKey);
       const identity = `${parsed.runId}\u0000${parsed.itemId}`;
       if (seen.has(identity)) throw new Error('Shared narration repeated a record identity.');
+      if (seenMessageIDs.has(parsed.message.id)) throw new Error('Shared narration collided on a transport message identity.');
       seen.add(identity);
+      seenMessageIDs.add(parsed.message.id);
       messages.push({ ...parsed.message, transcriptSessionId: state.sessionId, narrationItemId: parsed.itemId });
     }
     const expectedNext = cursor + records.length;
@@ -115,11 +119,19 @@ async function loadSnapshot(
 export function mergeSharedNarration(messages: WorkspaceMessage[], narration: WorkspaceMessage[]) {
   narration = narrationInsideHistoryWindow(narration, messages);
   messages = sharedNarrationWindowCache(messages, messages);
-  const known = new Map(narration.map(row => [row.id, row]));
+  const known = new Map<string, WorkspaceMessage[]>();
+  const items = new Map<string, WorkspaceMessage[]>();
+  const itemKey = (row: WorkspaceMessage) => JSON.stringify([row.sessionKey, row.transcriptSessionId, row.narrationItemId]);
+  for (const row of narration) {
+    known.set(row.id, [...(known.get(row.id) ?? []), row]);
+    if (row.transcriptSessionId && row.narrationItemId) items.set(itemKey(row), [...(items.get(itemKey(row)) ?? []), row]);
+  }
   const nativeMatches = nativeNarrationMatches(messages, narration);
   const identified = messages.map(row => {
-    const shared = known.get(row.id) ?? nativeMatches.get(row.id);
-    if (!shared || shared.sessionKey !== row.sessionKey || !shared.transcriptSessionId || !shared.narrationItemId) return row;
+    const owners = known.get(row.id) ?? (row.role === 'narration' && row.transcriptSessionId && row.narrationItemId ? items.get(itemKey(row)) : undefined) ?? [];
+    const candidates = owners.filter(shared => !narrationOwnershipConflicts(row, shared));
+    const shared = candidates.length === 1 ? candidates[0] : candidates.length ? undefined : nativeMatches.get(row.id);
+    if (!shared || narrationOwnershipConflicts(row, shared) || !shared.transcriptSessionId || !shared.narrationItemId) return row;
     if (row.role !== 'narration' && row.role !== 'assistant') return row;
     return {
       ...row,

@@ -42,7 +42,7 @@ vi.mock('./OpenClawClient', () => ({ OpenClawClient: class {
   }
   async listCommands() { return { commands: [] }; } async listModels() { return { models: [] }; }
   async listApprovals() { return { approvals: [] }; } async providerUsage() { return {}; }
-  async followSession() {} history(key: string) { return probe.history(key); }
+  sessionEventRevision() { return '0:0'; } async followSession() {} history(key: string) { return probe.history(key); }
   decorateMessages(messages: WorkspaceMessage[]) { return messages; }
 } }));
 // Observe the real history owner's parked cache without changing its behavior.

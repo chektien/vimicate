@@ -9,6 +9,7 @@ import { sessionOwnsDetailPublication } from './sessionPublicationOwnership';
 import { guardedBackgroundTaskDetail, launchGuardedBackgroundTask } from '../async/guardedBackgroundTask';
 import { pollForFinalAnswer } from './finalAnswerRecoveryPolling';
 import type { HistoryPublicationAuthority } from './historyPublicationAuthority';
+import type { ThreadEntryHistoryPresentation } from './sessionHistoryView';
 
 type FinalAnswerRecoveryDependencies = {
   client: OpenClawClient;
@@ -17,7 +18,7 @@ type FinalAnswerRecoveryDependencies = {
   pendingFinalAnswers: { current: PendingFinalAnswerRegistry };
   recoveryTasks: { current: SessionRunMonitorOwners };
   hasPublishedFinalForRun: (sessionKey: string, runId: string) => boolean;
-  loadHistory: (sessionKey: string) => Promise<WorkspaceMessage[] | undefined>;
+  loadHistory: (sessionKey: string, presentation?: ThreadEntryHistoryPresentation, requireFreshSnapshot?: boolean, reuseUnchanged?: boolean) => Promise<WorkspaceMessage[] | undefined>;
   updateSessionMessages: (sessionKey: string, action: SetStateAction<WorkspaceMessage[]>) => void;
   persistPendingFinalAnswers: () => void;
   persistRuns: () => void;
@@ -46,11 +47,13 @@ export function useGatewayFinalAnswerRecovery(dependencies: FinalAnswerRecoveryD
           && selectedRef.current === sessionKey
           && pendingRuns().length > 0;
         await pollForFinalAnswer({
-          fastDelaysMs: FINAL_ANSWER_RECOVERY_DELAYS_MS,
+          // Obligations whose fast path already ran on an earlier launch check
+          // once promptly, then join the steady cadence instead of repeating it.
+          fastDelaysMs: pendingRuns().every(pending => pending.exhausted) ? FINAL_ANSWER_RECOVERY_DELAYS_MS.slice(0, 1) : FINAL_ANSWER_RECOVERY_DELAYS_MS,
           steadyDelayMs: FINAL_ANSWER_STEADY_RECOVERY_DELAY_MS,
           wait: (milliseconds) => recoveryTasks.current.wait(recoveryKey, owner, milliseconds),
           shouldContinue: stillOwnsRecovery,
-          load: async () => (await loadHistory(sessionKey)) ?? [],
+          load: async ({ steady }) => (await loadHistory(sessionKey, 'preserve-review', false, steady)) ?? [],
           isFinal: (latest) => {
             for (const pending of pendingRuns()) {
               const pendingRunId = pending.runId;

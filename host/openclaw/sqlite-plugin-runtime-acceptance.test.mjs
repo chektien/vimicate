@@ -10,6 +10,7 @@ import { buildSqlitePlugin } from './build-sqlite-plugin.mjs';
 
 const target = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
 const fixtures = {
+  '2026.10.8': ['registry-vAFp5m5F.mjs', 'runtime-BXQF4n0S.mjs', 'session-accessor-ebdiOYjA.mjs'],
   '2026.10.7': ['registry-BwDJiK-z.mjs', 'runtime-CCZWjmme.mjs', 'session-accessor-DHlzhHwY.mjs'],
   '2026.10.2': ['registry-854ZO8XT.mjs', 'runtime-B_YqhyYs.mjs', 'session-accessor-Ba0RADzo.mjs'],
   '2026.10.5': ['registry-HOGUZGcB.mjs', 'runtime-DTYJlWfc.mjs', 'session-accessor-ripvAz_n.mjs'],
@@ -45,8 +46,8 @@ if (process.env.VIMICATE_API_ACCEPTANCE_CHILD !== '1') {
   const fixture = fixtures[version];
   const { t: createPluginRegistry } = await load(fixture[0]);
   const { C: setActivePluginRegistry, r: clearActivePluginRegistry } = await load(fixture[1]);
-  const events = await load(['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) ? (version === '2026.10.7' ? 'agent-events-DwWyqfWg.mjs' : version === '2026.10.6' ? 'agent-events-CJDT60f4.mjs' : 'agent-events-CCeMHYh0.mjs') : 'agent-events-GvNTkbe3.mjs');
-  const emitAgentEvent = events[['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) ? 'a' : 'i'];
+  const events = await load(['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'agent-events-B_uc1nn7.mjs' : version === '2026.10.7' ? 'agent-events-DwWyqfWg.mjs' : version === '2026.10.6' ? 'agent-events-CJDT60f4.mjs' : 'agent-events-CCeMHYh0.mjs') : 'agent-events-GvNTkbe3.mjs');
+  const emitAgentEvent = events[['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? 'a' : 'i'];
   assert.equal(createPluginRegistry.name, 'createPluginRegistry');
   assert.equal(emitAgentEvent.name, 'emitAgentEvent');
   const native = await load(fixture[2]);
@@ -76,11 +77,11 @@ if (process.env.VIMICATE_API_ACCEPTANCE_CHILD !== '1') {
   const api = host.createApi(record, { config: {}, pluginConfig });
   const { default: packaged } = await import(pathToFileURL(path.join(record.rootDir, 'index.mjs')));
   packaged.register(api);
-  if (['2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7'].includes(version)) {
+  if (['2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version)) {
     const { loadSessionRunTruthRuntime } = await import(pathToFileURL(path.join(record.rootDir, 'session-run-truth.mjs')));
     const runtime = await loadSessionRunTruthRuntime(target);
-    assert.equal(runtime.describe, (await load(['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) ? (version === '2026.10.7' ? 'sessions-read-BXwTspcX.mjs' : version === '2026.10.6' ? 'sessions-read-CLHMalI8.mjs' : 'sessions-read-DNOkgOd5.mjs') : 'sessions-read-DziXtPpO.mjs')).t['sessions.describe']);
-    assert.equal(runtime.registry, (await load(['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) ? (version === '2026.10.7' ? 'reply-run-registry.registry-CLWEwkqe.mjs' : version === '2026.10.6' ? 'reply-run-registry.registry-BzgREenr.mjs' : 'reply-run-registry.registry-BswPq0Xd.mjs') : 'reply-run-registry.registry-5e3UVXZS.mjs')).g);
+    assert.equal(runtime.describe, (await load(['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'sessions-read-DaqLIW6z.mjs' : version === '2026.10.7' ? 'sessions-read-BXwTspcX.mjs' : version === '2026.10.6' ? 'sessions-read-CLHMalI8.mjs' : 'sessions-read-DNOkgOd5.mjs') : 'sessions-read-DziXtPpO.mjs')).t['sessions.describe']);
+    assert.equal(runtime.registry, (await load(['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'reply-run-registry.registry-P4L3EVyw.mjs' : version === '2026.10.7' ? 'reply-run-registry.registry-CLWEwkqe.mjs' : version === '2026.10.6' ? 'reply-run-registry.registry-BzgREenr.mjs' : 'reply-run-registry.registry-BswPq0Xd.mjs') : 'reply-run-registry.registry-5e3UVXZS.mjs')).g);
   }
   const descriptors = host.registry.gatewayMethodDescriptors;
   assert.equal(descriptors.length, 14);

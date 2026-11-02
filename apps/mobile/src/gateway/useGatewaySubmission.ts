@@ -29,9 +29,7 @@ import { resolveModelChoice } from './modelMatching';
 import { modelCatalogEntriesFromPayload, modelCatalogText } from './modelCommandProjection';
 import { sessionOwnsDetailPublication } from './sessionPublicationOwnership';
 import { bindOptimisticPromptToRun } from './submissionRunBinding';
-import { latestFatalDiagnostic, recentViewportDiagnostics } from '../../modules/vimicate-diagnostics';
-import { latestFatalDiagnosticText } from '../diagnostics/latestFatalDiagnostic';
-import { transcriptRowDiagnosticsText } from '../diagnostics/transcriptRowDiagnostics';
+import { diagnosticsCommandReport } from '../diagnostics/diagnosticsCommandReport';
 import type { HistoryPublicationAuthority } from './historyPublicationAuthority';
 import type { SessionMessagePublicationIntent } from './historyReviewPublication';
 import { launchGuardedBackgroundTask } from '../async/guardedBackgroundTask';
@@ -146,7 +144,7 @@ export function useGatewaySubmission(options: Options) {
         appendIfSelected(commandListText(commandCatalog(commands)));
       } else if (typedCommand === ':diagnostics') {
         if (commandArguments) throw new Error(':diagnostics takes no arguments.');
-        appendIfSelected(`${latestFatalDiagnosticText(latestFatalDiagnostic(), recentViewportDiagnostics())}\n${transcriptRowDiagnosticsText(messages, sessionKey)}`);
+        appendIfSelected(await diagnosticsCommandReport(messages, sessionKey));
       } else if (modelIntent?.type === 'catalog') {
         appendIfSelected(modelCatalogText(await awaitOwned(client.listModels())));
       } else if (modelIntent?.type === 'switch') {

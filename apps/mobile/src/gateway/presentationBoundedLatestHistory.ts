@@ -4,11 +4,12 @@ import { completedLatestHistoryPage } from './completedLatestHistoryPage';
 import { MAX_VISIBLE_HISTORY_ROWS, transcriptPresentationRowCost } from './historyWindow';
 import { withHistoryRunCompletions } from './historyRunCompletion';
 import { mergeSharedNarration } from './sharedNarration';
+import type { RunPromptLookback } from './runPromptLookback';
 
 /** Reject oversized candidates before consuming their raw-record cursor. */
 export async function presentationBoundedLatestHistory(
   client: OpenClawClient, sessionKey: string, firstPayload: Record<string, unknown>,
-  workspacePath: string, owns: () => boolean, narration: WorkspaceMessage[],
+  workspacePath: string, owns: () => boolean, narration: WorkspaceMessage[], lookback?: RunPromptLookback,
 ) {
   let payload = firstPayload;
   // The caller's first request is 80. At most seven candidate sizes; one raw
@@ -17,7 +18,7 @@ export async function presentationBoundedLatestHistory(
     if (!owns()) return null;
     if (limit !== 80) payload = await client.history(sessionKey, limit, 0);
     if (!owns()) return null;
-    const completed = await completedLatestHistoryPage(client, sessionKey, payload, workspacePath, owns);
+    const completed = await completedLatestHistoryPage(client, sessionKey, payload, workspacePath, owns, lookback);
     if (!completed) return null;
     const messages = mergeSharedNarration(completed.messages, narration);
     if (limit === 1 || withHistoryRunCompletions(messages).reduce((cost, message) => cost + transcriptPresentationRowCost(message), 0) <= MAX_VISIBLE_HISTORY_ROWS) return { ...completed, messages };

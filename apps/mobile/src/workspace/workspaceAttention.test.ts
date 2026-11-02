@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { acceptSessionCensusAttention, acceptWorkspaceAttention, WorkspaceAttentionLedger, workspaceAttentionSignal } from './workspaceAttention';
 
 describe('workspace attention publication', () => {
@@ -129,4 +129,30 @@ describe('workspace attention publication', () => {
     expect(ledger.isUnread('emails')).toBe(true);
     expect(ledger.isUnread('notes')).toBe(false);
   });
+});
+
+
+it.each(['id', 'runId', 'deliveryId', 'jobRunId'])('does not serialize terminal payloads with an explicit %s', field => {
+  const toJSON = vi.fn(() => 'large media content');
+  expect(workspaceAttentionSignal({ event: 'chat', payload: {
+    sessionKey: 'offscreen', state: 'final', [field]: 'explicit', message: { toJSON },
+  } }, 42)?.identity).toBe('session.complete\u0000offscreen\u0000explicit');
+  expect(toJSON).not.toHaveBeenCalled();
+});
+
+
+it('separates fallback-only census attention from proven activity without losing unread', () => {
+  const ledger = new WorkspaceAttentionLedger(); const proven = vi.fn(); const compatibility = vi.fn();
+  acceptSessionCensusAttention(ledger, { sessions: [{ key: 'b', hasActiveRun: false, lastActivityAt: 100 }] }, 'a', proven, compatibility);
+  acceptSessionCensusAttention(ledger, { sessions: [{ key: 'b', hasActiveRun: false, updatedAt: 900 }] }, 'a', proven, compatibility);
+  expect(proven).not.toHaveBeenCalled(); expect(compatibility).toHaveBeenCalledWith('b', 900000, true);
+  expect(ledger.isUnread('b')).toBe(true);
+});
+
+
+it('does not call a synthetic zero-terminal receipt time proven when another activity field is positive', () => {
+  const ledger = new WorkspaceAttentionLedger(); const proven = vi.fn(); const compatibility = vi.fn();
+  acceptSessionCensusAttention(ledger, { sessions: [{ key: 'b', hasActiveRun: false }] }, 'a', proven, compatibility);
+  acceptSessionCensusAttention(ledger, { sessions: [{ key: 'b', hasActiveRun: false, runId: 'new-owner', completedAt: 0, lastActivityAt: 500 }] }, 'a', proven, compatibility);
+  expect(proven).not.toHaveBeenCalled(); expect(compatibility).toHaveBeenCalledOnce();
 });

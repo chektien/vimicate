@@ -112,3 +112,70 @@ it.each(['assistant', 'tool', undefined])('does not grant input refresh authorit
   batch.add(refreshIntentForGatewayEvent({ event: 'session.message', payload: { sessionKey: 'one', message: { role } } }, 'one'), 'one', false);
   expect(batch.take('one', true).refreshHistory).toBe(false);
 });
+
+it('coalesces active-run census and async question delivery on one non-extending two-second deadline', () => {
+  vi.useFakeTimers();
+  const batch = new GatewayRefreshBatch(); const flush = vi.fn(() => batch.take('one', true));
+  const census = refreshIntentForGatewayEvent({ event: 'sessions.changed', payload: { sessionKey: 'one', reason: 'activity-summary' } }, 'one');
+  const progress = refreshIntentForGatewayEvent({ event: 'session.message', payload: { sessionKey: 'one', message: { role: 'assistant', openclawAsyncDelivery: { itemId: 'progress', questions: [{ id: 'q' }] } } } }, 'one');
+  try {
+    batch.schedule(census, 'one', false, flush);
+    for (let i = 0; i < 3; i++) { vi.advanceTimersByTime(500); batch.schedule(progress, 'one', false, flush); }
+    expect(flush).not.toHaveBeenCalled(); vi.advanceTimersByTime(500);
+    expect(flush).toHaveBeenCalledOnce();
+    expect(flush.mock.results[0]?.value).toMatchObject({ refreshSessions: true, refreshRegistry: false, refreshHistory: true, requiredHistorySessionKey: 'one' });
+    vi.advanceTimersByTime(2000); expect(flush).toHaveBeenCalledOnce();
+  } finally { batch.clear(); vi.useRealTimers(); }
+});
+
+it('promotes a pending throttled census to the terminal fast path without dropping it', () => {
+  vi.useFakeTimers(); const batch = new GatewayRefreshBatch(); let active = true;
+  const flush = vi.fn(() => batch.take('one', active));
+  try {
+    batch.schedule(refreshIntentForGatewayEvent({ event: 'sessions.changed', payload: { reason: 'update' } }, 'one'), 'one', false, flush);
+    vi.advanceTimersByTime(500); expect(flush).not.toHaveBeenCalled(); active = false;
+    batch.schedule(refreshIntentForGatewayEvent(frame('one', true), 'one'), 'one', true, flush);
+    vi.advanceTimersByTime(120); expect(flush).toHaveBeenCalledOnce();
+    expect(flush.mock.results[0]?.value).toMatchObject({ refreshSessions: true, refreshRegistry: true, refreshHistory: true });
+    vi.advanceTimersByTime(2000); expect(flush).toHaveBeenCalledOnce();
+  } finally { batch.clear(); vi.useRealTimers(); }
+});
+
+it('keeps remote user input on the fast path during an active run', () => {
+  vi.useFakeTimers(); const batch = new GatewayRefreshBatch(); const flush = vi.fn(() => batch.take('one', true));
+  try {
+    batch.schedule(refreshIntentForGatewayEvent({ event: 'session.message', payload: { sessionKey: 'one', message: { role: 'user' } } }, 'one'), 'one', false, flush);
+    vi.advanceTimersByTime(120); expect(flush).toHaveBeenCalledOnce(); expect(flush.mock.results[0]?.value.refreshHistory).toBe(true);
+  } finally { batch.clear(); vi.useRealTimers(); }
+});
+
+it('flushes pending work on run end even when the terminal event has no selected history intent', () => {
+  vi.useFakeTimers(); const batch = new GatewayRefreshBatch(); const flush = vi.fn(() => batch.take('one', false));
+  try {
+    batch.schedule(refreshIntentForGatewayEvent(frame('one'), 'one'), 'one', false, flush);
+    vi.advanceTimersByTime(500); expect(flush).not.toHaveBeenCalled();
+    batch.schedule(refreshIntentForGatewayEvent(frame('other', true), 'one'), 'one', true, flush);
+    vi.advanceTimersByTime(120); expect(flush).toHaveBeenCalledOnce(); expect(flush.mock.results[0]?.value.refreshHistory).toBe(true);
+  } finally { batch.clear(); vi.useRealTimers(); }
+});
+
+it('holds other-session census for the five-second window even when the selected thread is idle', () => {
+  vi.useFakeTimers(); const batch = new GatewayRefreshBatch(); const flush = vi.fn(() => batch.take('one', false));
+  try {
+    for (let i = 0; i < 16; i++) { batch.schedule(refreshIntentForGatewayEvent({ event: 'sessions.changed', payload: { sessionKey: 'other', reason: 'activity-summary' } }, 'one'), 'one', false, flush); vi.advanceTimersByTime(300); }
+    expect(flush).not.toHaveBeenCalled(); vi.advanceTimersByTime(200);
+    expect(flush).toHaveBeenCalledOnce(); expect(flush.mock.results[0]?.value).toMatchObject({ refreshSessions: true, refreshRegistry: false });
+  } finally { batch.clear(); vi.useRealTimers(); }
+});
+
+it('lets due selected history shorten a pending census window, but not history a running thread will skip', () => {
+  vi.useFakeTimers(); const batch = new GatewayRefreshBatch(); const flush = vi.fn(() => batch.take('one', false));
+  const census = refreshIntentForGatewayEvent({ event: 'sessions.changed', payload: { sessionKey: 'other', reason: 'activity-summary' } }, 'one');
+  const message = refreshIntentForGatewayEvent({ event: 'session.message', payload: { sessionKey: 'one', message: { role: 'assistant' } } }, 'one');
+  try {
+    batch.schedule(census, 'one', false, flush, true); batch.schedule(message, 'one', false, flush, true);
+    vi.advanceTimersByTime(4900); expect(flush).not.toHaveBeenCalled(); vi.advanceTimersByTime(100); expect(flush).toHaveBeenCalledOnce();
+    batch.schedule(census, 'one', false, flush, false); batch.schedule(message, 'one', false, flush, false);
+    vi.advanceTimersByTime(2000); expect(flush).toHaveBeenCalledTimes(2);
+  } finally { batch.clear(); vi.useRealTimers(); }
+});

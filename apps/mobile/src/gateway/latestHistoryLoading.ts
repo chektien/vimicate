@@ -7,6 +7,8 @@ import type { HistoryArchiveRecovery } from './historyArchiveRecovery';
 import type { HistoryRefreshDeferral } from './historyRefreshDeferral';
 import type { OlderHistoryRequestAuthority } from './historyRequestAuthority';
 import type { SessionHistoryCache } from './sessionHistoryCache';
+import type { CanonicalHistoryFreshness } from './canonicalHistoryFreshness';
+import { RunPromptLookback } from './runPromptLookback';
 import { canPageOlder, returnToLatestHistory, type HistoryFailure, type HistoryWindowMode, type ReviewEntryIntent, type ThreadEntryHistoryPresentation } from './sessionHistoryView';
 import { latestHistoryRefreshAction } from './historyReviewPublication';
 import { presentationBoundedLatestHistory } from './presentationBoundedLatestHistory';
@@ -18,6 +20,7 @@ type MessageAction = WorkspaceMessage[] | ((current: WorkspaceMessage[]) => Work
 /** Dependencies reference the existing history owner; no independent state or timers. */
 export type LatestHistoryActionsContext = {
   client: OpenClawClient;
+  historyFreshness?: CanonicalHistoryFreshness | undefined;
   selectedRef: Cell<string>;
   publicationAuthority: Cell<HistoryPublicationAuthority | null>;
   latestRequestRevision: Cell<number>;
@@ -47,6 +50,7 @@ export type LatestHistoryActionsContext = {
 export function createLatestHistoryActions(context: LatestHistoryActionsContext) {
   const {
     client,
+    historyFreshness,
     selectedRef,
     publicationAuthority,
     latestRequestRevision,
@@ -81,6 +85,7 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
   // caller that polls until it sees a final never saw one. A caller that does
   // not change the presentation now joins the request already in flight.
   const inFlightLatest = new Map<string, { request: Promise<WorkspaceMessage[] | undefined>; owns: () => boolean }>();
+  const runPromptLookback = new RunPromptLookback();
 
   function resetLatestPagination(latest: HistoryCursor) {
     cursor.current = latest;
@@ -89,7 +94,20 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
     setCanLoadOlder(canPageOlder(cursor.current, archive.current));
   }
 
-  function loadHistory(sessionKey: string, presentation: ThreadEntryHistoryPresentation = 'preserve-review', requireFreshSnapshot = false): Promise<WorkspaceMessage[] | undefined> {
+  // Thread re-entry and reconnect hydration only: reuse the retained latest
+  // tail while nothing has touched the session since its last canonical read.
+  function reuseUnchangedLatest(sessionKey: string) {
+    if (!historyFreshness || client.status !== 'connected' || selectedRef.current !== sessionKey) return null;
+    if (windowMode.current !== 'latest' || olderRequest.current.isActive() || inFlightLatest.has(sessionKey)) return null;
+    const tail = latestTailCache.current.restore(sessionKey);
+    if (!tail?.length || !historyFreshness.isFresh(sessionKey)) return null;
+    // Live delivery for the selected thread still needs its subscription.
+    return client.followSession(sessionKey).then(() => tail);
+  }
+
+  function loadHistory(sessionKey: string, presentation: ThreadEntryHistoryPresentation = 'preserve-review', requireFreshSnapshot = false, reuseUnchanged = false): Promise<WorkspaceMessage[] | undefined> {
+    const reused = reuseUnchanged && !requireFreshSnapshot ? reuseUnchangedLatest(sessionKey) : null;
+    if (reused) return reused;
     const joined = presentation === 'preserve-review' ? inFlightLatest.get(sessionKey) : undefined;
     // A remote input can arrive after an existing request captured its snapshot.
     // Keep ordinary coalescing, but reread after that request for explicit input
@@ -97,7 +115,9 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
     if (joined?.owns()) return requireFreshSnapshot
       ? joined.request.then(() => joined.owns() ? loadHistory(sessionKey) : undefined)
       : joined.request;
+    const freshnessToken = historyFreshness?.token(sessionKey);
     const request = loadLatestHistory(sessionKey, presentation);
+    if (freshnessToken) request.then(result => { if (result !== undefined) historyFreshness!.record(sessionKey, freshnessToken); }, () => undefined);
     // Census/read-ack refreshes may arrive during thread entry. They can join
     // its reveal request, but must not supersede it with preserve-review and
     // leave the old transcript mounted until a subsequent selection.
@@ -149,7 +169,7 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
         hydrateSharedNarration(sessionKey, ownsLatest),
       ]);
       if (!payload || !narration || !ownsLatest()) return;
-      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration);
+      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration, runPromptLookback);
       if (!bounded) return;
       const retained = latestTailCache.current.restore(sessionKey) ?? historyCache.current.restore(sessionKey) ?? [];
       const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest, presentation !== 'reveal-current');
@@ -240,7 +260,7 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
       const narrationRequest = hydrateSharedNarration(sessionKey, ownsLatest);
       const payload = await client.history(sessionKey, 80, 0); if (!ownsLatest()) return;
       const narration = await narrationRequest; if (!narration || !ownsLatest()) return;
-      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration); if (!bounded) return;
+      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration, runPromptLookback); if (!bounded) return;
       const retained = latestTailCache.current.restore(sessionKey) ?? historyCache.current.restore(sessionKey) ?? [];
       const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest); if (!completed) return;
       const mountedReview = historyCache.current.restore(sessionKey) ?? [];

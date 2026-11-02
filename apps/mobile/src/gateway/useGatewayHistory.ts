@@ -1,3 +1,4 @@
+import type { CanonicalHistoryFreshness } from './canonicalHistoryFreshness';
 import { useTranscriptPersistence } from './useTranscriptPersistence';
 import { createNewerHistoryAction } from './newerHistoryLoading';
 import { useHistoryPublicationReceipt } from './historyPublicationReceipt';
@@ -30,7 +31,7 @@ import { DeferredPromptRefusals, RefusalFilteredHistoryCache } from './deferredP
 
 const EMPTY_LATEST_MESSAGES: WorkspaceMessage[] = [];
 
-export function useGatewayHistory(client: OpenClawClient, selectedRef: { current: string }, onDetail: Dispatch<SetStateAction<string>>, initialSessionKey = '', initiallyActive = true) {
+export function useGatewayHistory(client: OpenClawClient, selectedRef: { current: string }, onDetail: Dispatch<SetStateAction<string>>, initialSessionKey = '', initiallyActive = true, historyFreshness?: CanonicalHistoryFreshness) {
   const cursor = useRef<HistoryCursor | null>(null);
   const archive = useRef<ArchivedHistoryState | null>(null);
   const sessionGeneration = useRef<GatewaySessionGeneration | null>(null);
@@ -384,6 +385,7 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
 
   const historyActionsContext = {
     client,
+    historyFreshness,
     selectedRef,
     publicationAuthority,
     latestRequestRevision,

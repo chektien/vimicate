@@ -113,7 +113,7 @@ vi.mock('../gateway/OpenClawClient', () => ({ OpenClawClient: class {
   async listModels() { return { models: [] }; }
   async listApprovals() { return { approvals: [] }; }
   async providerUsage() { return {}; }
-  async followSession() {}
+  sessionEventRevision() { return '0:0'; } async followSession() {}
   async send(sessionKey: string, body: string, attachments: import('../prompt/promptAttachments').GatewayPromptAttachment[] = []) { probe.transmittedAttachments.push(attachments); probe.sends.push({ sessionKey, body }); return { runId: `sent-${probe.sends.length}` }; }
   async history(key: string, limit: number, offset: number) { if (probe.historyReply) return probe.historyReply(key, limit, offset); return { sessionKey: 'agent:test:main', messages: [{ id: 'initial', role: 'assistant', content: 'Ready.' }] }; }
   decorateMessages(messages: WorkspaceMessage[]) { return messages; }

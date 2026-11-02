@@ -1,3 +1,6 @@
+import { SessionCensus } from './sessionCensus';
+import { SessionEventRevisions } from './sessionEventRevisions';
+import { recordRuntimeEvent } from '../diagnostics/runtimeEventLedger';
 import { SessionSubscriptionOwner } from './sessionSubscriptionOwner';
 import { questionScopeNotice } from './questionScopeNotice';
 import { serializedGatewayFrame } from './gatewayOutboundFrame';
@@ -43,6 +46,9 @@ export class OpenClawClient {
   private socket: WebSocket | null = null;
   private pending = new Map<string, Pending>();
   private refusalEchoes = new GatewayInputRefusalEcho();
+  private sessionCensus = new SessionCensus();
+  // Survives reconnects; census activity covers events missed while disconnected.
+  private eventRevisions = new SessionEventRevisions();
   private generation = 0;
   private profile: GatewayProfile | null = null;
   private connectWaiter: ConnectWaiter | null = null;
@@ -106,8 +112,13 @@ export class OpenClawClient {
         (error) => this.reportEventFailure(error, 'event.handler-failed'),
       );
     };
-    socket.onerror = () => { if (generation === this.generation) { recordGatewayDiagnostic('connect.failed WebSocket transport error'); this.setStatus('error', 'WebSocket transport error'); } };
-    socket.onclose = () => { if (generation === this.generation && this.status !== 'idle' && this.status !== 'error') { recordGatewayDiagnostic('connect.closed'); this.setStatus('disconnected', 'socket closed'); } };
+    socket.onerror = () => { if (generation === this.generation) { recordGatewayDiagnostic('connect.failed WebSocket transport error'); recordRuntimeEvent('socket-error', `while ${this.status}`); this.setStatus('error', 'WebSocket transport error'); } };
+    socket.onclose = (event) => {
+      if (generation !== this.generation) return;
+      // Close code separates network loss (1006) from server or proxy closes.
+      recordRuntimeEvent('socket-closed', `code=${event?.code ?? '?'} clean=${event?.wasClean ?? '?'} while ${this.status}${event?.reason ? ` reason=${event.reason}` : ''}`);
+      if (this.status !== 'idle' && this.status !== 'error') { recordGatewayDiagnostic('connect.closed'); this.setStatus('disconnected', 'socket closed'); }
+    };
     try { await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (generation === this.generation) this.setStatus('error', 'Gateway challenge timed out');
@@ -122,6 +133,7 @@ export class OpenClawClient {
     }
   }
   disconnect() {
+    this.sessionCensus.clear();
     this.refusalEchoes.clear();
     this.generation += 1; this.socket?.close(); this.socket = null;
     this.sessionSubscription.clear();
@@ -144,7 +156,7 @@ export class OpenClawClient {
     }
     return result;
   }
-  listSessions() { return this.request<Record<string, unknown>>('sessions.list', { limit: 1000 }); }
+  listSessions(refreshDetails = false) { return this.sessionCensus.read(params => this.request('sessions.list', params), refreshDetails); }
   readSessionRunTruth(sessionKey: string) { return this.request<Record<string, unknown>>('vimicate.runs.read', { sessionKey }); }
   async readRegistry() { const payload = await this.request<Record<string, unknown>>('vimicate.registry.read', {}, 20000); recordGatewayDiagnostic('registry.read-ok'); return payload; }
   listCommands() { return this.request<Record<string, unknown>>('commands.list'); }
@@ -211,6 +223,8 @@ export class OpenClawClient {
   waitForRun(runId: string, timeoutMs = 30000) { return this.request<AgentWaitResult>('agent.wait', { runId, timeoutMs }, timeoutMs + 5000); }
 
   followSession(sessionKey: string) { return this.sessionSubscription.follow(sessionKey); }
+  sessionEventRevision(sessionKey: string) { return this.eventRevisions.revision(sessionKey); }
+  get catalogEventRevision() { return this.eventRevisions.catalogRevision; }
 
   private async handleFrame(raw: string, generation: number) {
     let frame: Frame; try { frame = JSON.parse(raw) as Frame; } catch { this.onEvent({ type: 'invalid', size: raw.length }); return; }
@@ -258,6 +272,7 @@ export class OpenClawClient {
       if (frame.ok === true) entry.resolve(frame.payload); else entry.reject(gatewayResponseFailure(frame.error));
       return;
     }
+    this.eventRevisions.note(frame);
     if (this.refusalEchoes.matches(frame)) return;
     dispatchGatewayEventSafely(frame, this.onEvent, (error) => {
       this.reportEventFailure(error, 'event.projection-failed');

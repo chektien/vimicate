@@ -42,7 +42,7 @@ vi.mock('./OpenClawClient', () => ({ OpenClawClient: class {
   }
   async listCommands() { return { commands: [] }; } async listModels() { return { models: [] }; }
   async listApprovals() { return { approvals: [] }; } async providerUsage() { return {}; }
-  async followSession() {} history(key: string) { return probe.history(key); }
+  sessionEventRevision() { return '0:0'; } async followSession() {} history(key: string) { return probe.history(key); }
   decorateMessages(messages: WorkspaceMessage[]) { return messages; }
 } }));
 // Transport/storage are synthetic. React and the production workspace/history and
@@ -120,6 +120,9 @@ it.each(['census', 'registry', 'truth', 'history'].flatMap(stage => [false, true
   const originalPayload = await original('a');
   owner.mockImplementation(() => new Promise((done, fail) => { resolve = done; reject = fail; }));
   const beforeRequests = owner.mock.calls.length;
+  // Unchanged threads now reuse their tail. Model activity while away so the
+  // foreground census must reread history.
+  if (stage === 'history') probe.rows[0]!.lastActivityAt = now - 50;
   await scene('inactive'); await scene('background'); await scene('active');
   expect(owner.mock.calls.length).toBeGreaterThan(beforeRequests);
   expect(resolve).toBeTypeOf('function');

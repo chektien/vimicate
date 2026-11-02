@@ -115,3 +115,57 @@ it('keeps the 1.182 second unowned native preamble fallback', () => {
   const prompt: WorkspaceMessage = { ...native, id: 'prompt', role: 'user', text: 'request', timestamp: '1788265859000' };
   expect(mergeSharedNarration([prompt, native], [shared]).slice(1)).toEqual([expect.objectContaining({ role: 'narration', runId: 'r1', narrationItemId: 'n' })]);
 });
+
+it('retains cumulative live narration bytes while adopting lagging durable authority', () => {
+  const live: WorkspaceMessage = { id: 'live-item-r1-pre', role: 'narration', text: 'Yes. All three threads are complete.',
+    source: 'live', state: 'streaming', sessionKey, runId: 'r1' };
+  const durable: WorkspaceMessage = { ...live, text: 'Yes. All three threads', source: 'history',
+    state: 'complete', transcriptSessionId: sessionId, narrationItemId: 'pre', timestamp: '300000' };
+  expect(mergeSharedNarration([live], [durable])).toEqual([expect.objectContaining({
+    text: live.text, source: 'history', state: 'complete', timestamp: '300000',
+    transcriptSessionId: sessionId, narrationItemId: 'pre',
+  })]);
+});
+
+it.each([{ runId: 'r2' }, { sessionKey: 'other' }, { transcriptSessionId: 'other-generation' }, { narrationItemId: 'other-item' }])(
+  'rejects conflicting same-route raw narration IDs without borrowing text %j', conflict => {
+    const durable: WorkspaceMessage = { id: 'live-item-r1-pre', role: 'narration', text: 'Yes. All three threads',
+      source: 'history', sessionKey, runId: 'r1', transcriptSessionId: sessionId, narrationItemId: 'pre', timestamp: '300000' };
+    const other: WorkspaceMessage = { ...durable, text: 'Yes. All three threads are complete.', source: 'live', ...conflict };
+    const rows = mergeSharedNarration([other], [durable]);
+    expect(rows).toEqual('sessionKey' in conflict ? [other, durable] : [other]);
+  },
+);
+
+it('keeps a reused narration item name in another run separate', () => {
+  const first: WorkspaceMessage = { id: 'live-item-r1-pre', role: 'narration', text: 'First run.', source: 'history',
+    sessionKey, runId: 'r1', transcriptSessionId: sessionId, narrationItemId: 'pre', timestamp: '300000' };
+  const second: WorkspaceMessage = { ...first, id: 'live-item-r2-pre', runId: 'r2', text: 'Second run.', timestamp: '400000' };
+  expect(mergeSharedNarration([first], [second])).toEqual([first, second]);
+});
+
+it('accepts a non-prefix durable narration correction without retaining obsolete bytes', () => {
+  const live: WorkspaceMessage = { id: 'live-item-r1-pre', role: 'narration', text: 'An obsolete long narration.',
+    source: 'live', sessionKey, runId: 'r1' };
+  const durable: WorkspaceMessage = { ...live, text: 'Correction.', source: 'history',
+    transcriptSessionId: sessionId, narrationItemId: 'pre' };
+  expect(mergeSharedNarration([live], [durable])[0]?.text).toBe('Correction.');
+});
+
+it('retains the first unscoped fact when durable generations collide on its raw ID', () => {
+  const live: WorkspaceMessage = { id: 'live-item-r1-pre', role: 'narration', text: 'Shared prefix',
+    source: 'live', sessionKey, runId: 'r1' };
+  const first: WorkspaceMessage = { ...live, source: 'history', transcriptSessionId: 'generation-1', narrationItemId: 'pre' };
+  const second: WorkspaceMessage = { ...first, transcriptSessionId: 'generation-2' };
+  const rows = mergeSharedNarration([live], [first, second]);
+  expect(rows).toEqual([live]);
+});
+
+it.each([false, true])('rejects the complete durable snapshot when valid run/item tuples collide, order %s', async reverse => {
+  const records = [narrationRecord('a-b', 'c', 'first', 100, 1), narrationRecord('a', 'b-c', 'second', 200, 3)];
+  const request = vi.fn(async () => ({ contract: 'shared-narration-v1', stableSessionKey: sessionKey,
+    sessionId, snapshotToken: token, cursor: 0, hasMore: false, totalRecords: 2,
+    records: reverse ? records.toReversed() : records }));
+  await expect(loadSharedNarration({ sharedNarrationRequest: request }, { sessionKey, sessionId }))
+    .rejects.toThrow('collided on a transport message identity');
+});

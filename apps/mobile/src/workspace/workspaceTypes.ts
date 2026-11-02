@@ -1,6 +1,6 @@
 import type { QuestionRecord } from '../questions/questionTypes';
 import type { TranscriptMessageMetadata } from './transcriptMetadata';
-import { sessionActivityTimestamp } from './sessionActivityTimestamp';
+import { explicitSessionActivityTimestamp, sessionActivityTimestamp } from './sessionActivityTimestamp';
 import { isHiddenWorkspaceSession } from './workspaceSessionVisibility';
 import { arrayAt, stringAt, numberAt, isRecord } from './workspacePayloadFields';
 export { semanticWorkspaceRole, workspaceRole } from './workspaceRole';
@@ -22,6 +22,8 @@ export type WorkspaceProject = {
   rootSessionKey?: string;
   projectName?: string;
   unread?: boolean;
+  /** Derived broker-question presentation, never persisted or run authority. */
+  pendingQuestions?: { own: number; total: number; threads: number };
   markedUnreadAt?: number;
   modelProvider?: string;
   model?: string;
@@ -85,7 +87,7 @@ export function projectsFromPayload(payload: Record<string, unknown>): Workspace
   return projectThreadProjection(sessionEntriesFromPayload(payload));
 }
 
-export function sessionEntriesFromPayload(payload: Record<string, unknown>): WorkspaceProject[] {
+export function sessionEntriesFromPayload(payload: Record<string, unknown>, activityClock: 'compatible' | 'explicit' = 'compatible'): WorkspaceProject[] {
   const rows = arrayAt(payload, ['sessions', 'items', 'results']);
   const defaults = isRecord(payload.defaults) ? payload.defaults : {};
   const defaultRuntime = isRecord(defaults.agentRuntime) ? defaults.agentRuntime : {};
@@ -103,7 +105,7 @@ export function sessionEntriesFromPayload(payload: Record<string, unknown>): Wor
     const path = stringAt(raw, ['cwd', 'path', 'spawnedCwd', 'spawnedWorkspaceDir']) || stringAt(metadata, ['cwd', 'repoPath']) || inferredProjectPath(sessionKey, label);
     const stateValue = stringAt(raw, ['state', 'status']);
     const group = stringAt(raw, ['group', 'groupTitle']) || stringAt(metadata, ['group', 'groupTitle']);
-    const updatedAt = sessionActivityTimestamp(raw);
+    const updatedAt = activityClock === 'explicit' ? explicitSessionActivityTimestamp(raw) : sessionActivityTimestamp(raw);
     const parentSessionKey = stringAt(raw, ['parentSessionKey']) || stringAt(metadata, ['parentSessionKey']);
     const runtime = isRecord(raw.agentRuntime) ? raw.agentRuntime : defaultRuntime;
     const modelProvider = stringAt(raw, ['modelProvider']) || stringAt(defaults, ['modelProvider']);
@@ -125,7 +127,7 @@ export function sessionEntriesFromPayload(payload: Record<string, unknown>): Wor
       threadCount: numberAt(raw, ['threadCount', 'childrenCount']) || 1,
       state: raw.hasActiveRun === true || stateValue.includes('run') || stateValue.includes('stream') || stateValue.includes('queue') ? 'running' : stateValue.includes('error') || stateValue.includes('fail') ? 'error' : 'idle',
       ...(group ? { group } : {}),
-      ...(updatedAt ? { updatedAt } : {}),
+      ...(updatedAt !== undefined && (updatedAt > 0 || activityClock === 'explicit') ? { updatedAt } : {}),
       ...(parentSessionKey ? { parentSessionKey } : {}),
       ...(raw.unread === true ? { unread: true } : {}),
       ...(typeof raw.markedUnreadAt === 'number' && Number.isFinite(raw.markedUnreadAt) && raw.markedUnreadAt >= 0 ? { markedUnreadAt: raw.markedUnreadAt } : {}),

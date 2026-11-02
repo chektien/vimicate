@@ -28,3 +28,15 @@ describe('project run presentation', () => {
     expect(projectRunGlyph('completed')).toBeNull();
   });
 });
+
+it('retains identical project publication during repeated census run-truth reconciliation', () => {
+  const registry = new SessionRunRegistry();
+  const current = [{ ...project, state: 'idle' as const }];
+  expect(projectsWithRunPhases(current, registry)).toBe(current);
+  registry.registerRun('one', 'r1');
+  const active = projectsWithRunPhases(current, registry);
+  expect(active).not.toBe(current); expect(active[0]?.state).toBe('running');
+  expect(projectsWithRunPhases(active, registry)).toBe(active);
+  registry.observePhase('one', 'completed', 'r1');
+  expect(projectsWithRunPhases(active, registry)).not.toBe(active);
+});

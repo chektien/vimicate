@@ -32,6 +32,7 @@ export class GatewayQuestionOwner {
   private records = new Map<string, { record: QuestionRecord; revision: number }>();
   revision = 0; epoch = 0;
   ids() { return new Set(this.records.keys()); }
+  snapshot() { return [...this.records.values()].map(value => value.record); }
   clear() { this.records.clear(); this.epoch++; this.revision++; }
   forSession(sessionKey: string) { return [...this.records.values()].map(v => v.record).filter(q => q.sessionKey === sessionKey); }
   pendingSessions() { return new Set([...this.records.values()].filter(v => v.record.status === 'pending').map(v => v.record.sessionKey)); }
@@ -43,17 +44,18 @@ export class GatewayQuestionOwner {
       if (oldest) this.records.delete(oldest); else break;
     }
   }
-  event(frame: { event?: unknown; payload?: unknown }) {
+  event(frame: { event?: unknown; payload?: unknown }, accepted?: (record: QuestionRecord, previous?: QuestionRecord) => void) {
     if (frame.event === 'question.requested') {
       const record = questionRecordFromPayload(frame.payload); if (!record) return false;
       const previous = this.records.get(record.id)?.record;
       if (previous && (previous.sessionKey !== record.sessionKey || previous.status !== 'pending')) return false;
-      this.put(record); return true;
+      this.put(record); accepted?.(record, previous); return true;
     }
     if (frame.event !== 'question.resolved') return false;
     const result = resolvedSchema.safeParse(frame.payload); if (!result.success) return false;
     const previous = this.records.get(result.data.id)?.record; if (!previous) return false;
-    this.put({ ...previous, ...result.data, ...(result.data.status === 'answered' && questionNeedsOtherSurface(previous) ? { answers: { answers: {} } } : {}) }); return true;
+    const record = { ...previous, ...result.data, ...(result.data.status === 'answered' && questionNeedsOtherSurface(previous) ? { answers: { answers: {} } } : {}) };
+    this.put(record); accepted?.(record, previous); return true;
   }
   hydrate(payload: unknown, startedRevision: number) {
     const parsed = z.object({ questions: z.array(z.unknown()).max(1024) }).safeParse(payload);

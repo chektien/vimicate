@@ -10,6 +10,7 @@ import { projectHierarchyMeta, projectParentLabel } from './projectHierarchyPres
 import { PROJECT_CARD_LEFT_INSET, PROJECT_RAIL_LIST_LEFT_INSET, projectCardRightInset } from '../layout/projectRailGeometry';
 import { PROJECT_RAIL_HEADER_ICON_SIZES, projectSortIconColor } from './projectRailHeaderPresentation';
 import { useActiveInterval } from '../lifecycle/useActiveInterval';
+import { pendingQuestionLabel } from '../questions/pendingQuestionPresentation';
 
 type ProjectRailProps = {
   projects: WorkspaceProject[];
@@ -79,12 +80,13 @@ export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focus
           const active = project.sessionKey === activeKey;
           const cursor = focused && project.sessionKey === focusedKey;
           const parentLabel = projectParentLabel(project, projects);
+          const questionLabel = pendingQuestionLabel(project);
           const card = (
             <View style={[styles.row, sortMode === 'manual' && project.kind === 'thread' && styles.threadRow, active && styles.rowActive, cursor && styles.rowCursor]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                accessibilityLabel={`${project.name}, ${parentLabel ? `thread in ${parentLabel}` : 'project'}, ${projectRunLabel(project.runPhase)}`}
+                accessibilityLabel={`${project.name}, ${parentLabel ? `thread in ${parentLabel}` : 'project'}, ${projectRunLabel(project.runPhase)}${questionLabel ? `, ${questionLabel}` : ''}`}
                 onPress={() => onSelect(project.sessionKey)}
                 style={[styles.rowSelect, { paddingRight: projectCardRightInset(project.kind === 'thread') }, sortMode === 'manual' && project.kind === 'thread' && styles.threadRowSelect]}
               >
@@ -94,6 +96,7 @@ export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focus
                   <View style={styles.nameLine}>
                     <Text numberOfLines={1} style={[styles.name, workspaceFontMetrics(11, fontScale), project.kind === 'thread' && styles.threadName, cursor && styles.cursorText]}>{project.name.toLowerCase()}</Text>
                     <ProjectRunDot project={project} />
+                    {questionLabel ? <Text accessible={false} style={[styles.questionGlyph, workspaceFontMetrics(type.sizeSm, fontScale), cursor && styles.cursorText]}>{'↩\uFE0E'}</Text> : null}
                   </View>
                   {project.path && !project.path.endsWith(project.name) && sortMode === 'manual' ? <Text numberOfLines={1} style={[styles.detail, workspaceFontMetrics(8, fontScale), cursor && styles.cursorMuted]}>{project.path}</Text> : null}
                   <View style={styles.metaLine}>
@@ -150,6 +153,7 @@ function groupPillStyle(group: string, tints: ReadonlyMap<string, string>) {
 }
 
 const styles = StyleSheet.create({
+  questionGlyph: { flexShrink: 0, marginLeft: 4, color: colors.purple, fontFamily: type.mono, fontWeight: '800', textAlign: 'center' },
   root: { flex: 1, width: '100%', minHeight: 0, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, minWidth: 0 }, rootFocused: { borderWidth: 2, borderColor: colors.activeAccent },
   rootCompact: { width: '100%', height: '100%' },
   header: { minHeight: 42, paddingLeft: 6, paddingRight: 7, flexDirection: 'row', alignItems: 'center', gap: 3 },

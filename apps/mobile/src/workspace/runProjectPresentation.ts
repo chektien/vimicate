@@ -2,11 +2,16 @@ import type { SessionRunPhase, SessionRunRegistry } from '../gateway/sessionRunR
 import type { WorkspaceProject } from './workspaceTypes';
 
 export function projectsWithRunPhases(projects: WorkspaceProject[], registry: SessionRunRegistry) {
-  return projects.map((project) => {
+  let changed = false;
+  const next = projects.map((project) => {
     const runPhase = registry.phaseFor(project.sessionKey);
+    const state = projectState(runPhase);
+    if (project.runPhase === runPhase && project.state === state) return project;
+    changed = true;
     const { runPhase: _previousPhase, ...stableProject } = project;
-    return { ...stableProject, state: projectState(runPhase), ...(runPhase ? { runPhase } : {}) };
+    return { ...stableProject, state, ...(runPhase ? { runPhase } : {}) };
   });
+  return changed ? next : projects;
 }
 
 export function projectRunLabel(phase: SessionRunPhase | undefined) {

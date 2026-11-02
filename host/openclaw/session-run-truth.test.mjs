@@ -58,6 +58,12 @@ test('unsupported or modified runtime fails before private import', async t => {
   await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'openclaw', version: '2026.10.6' }));
   await fs.writeFile(path.join(root, 'dist/sessions-read-CLHMalI8.mjs'), 'throw new Error("must not import");');
   await assert.rejects(loadSessionRunTruthRuntime(root), /integrity mismatch/);
+  for (const [version, filename] of [['2026.10.7', 'sessions-read-BXwTspcX.mjs'],
+    ['2026.10.8', 'sessions-read-DaqLIW6z.mjs']]) {
+    await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'openclaw', version }));
+    await fs.writeFile(path.join(root, 'dist', filename), 'throw new Error("must not import");');
+    await assert.rejects(loadSessionRunTruthRuntime(root), /integrity mismatch/);
+  }
 });
 test('registers one read-only method and returns unavailable on unsupported host', async () => {
   let handler;

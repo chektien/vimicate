@@ -7,7 +7,8 @@ type FinalAnswerPollingOptions<T> = {
   steadyDelayMs: number;
   wait: (delayMs: number) => Promise<void>;
   shouldContinue: () => boolean;
-  load: () => Promise<T | undefined>;
+  /** `steady` loads may reuse unchanged history; fast-path loads always read. */
+  load: (attempt: { steady: boolean }) => Promise<T | undefined>;
   isFinal: (value: T) => boolean;
   onFastPathExhausted: () => void;
   onLoadFailure?: (error: unknown) => void;
@@ -32,7 +33,7 @@ export async function pollForFinalAnswer<T>(options: FinalAnswerPollingOptions<T
     if (!options.shouldContinue()) return { status: 'cancelled' };
 
     let value: T | undefined;
-    try { value = await options.load(); }
+    try { value = await options.load({ steady: fastPathExhausted }); }
     catch (error) { options.onLoadFailure?.(error); }
     if (!options.shouldContinue()) return { status: 'cancelled' };
     if (value !== undefined && options.isFinal(value)) return { status: 'found', value };

@@ -43,3 +43,38 @@ describe('durable live-detail convergence', () => {
     });
   });
 });
+
+const narration = (text: string): WorkspaceMessage => ({
+  id: 'live-item-r1-pre', role: 'narration', text, runId: 'r1',
+  sessionKey: 'agent/item/preamble', source: 'live', state: 'streaming',
+});
+
+it.each(['live', 'history'] as const)('retains cumulative narration bytes when a late live prefix follows %s', source => {
+  const longer = { ...narration('Yes. All three threads are complete.'), source, timestamp: '300000',
+    transcriptSessionId: 'generation-1', narrationItemId: 'pre' };
+  expect(convergedLiveMessage(longer, narration('Yes. All three threads'))).toMatchObject({
+    text: longer.text, source, timestamp: longer.timestamp, state: 'streaming',
+    transcriptSessionId: 'generation-1', narrationItemId: 'pre',
+  });
+});
+
+it.each([{ runId: 'r2' }, { sessionKey: 'other' }, { transcriptSessionId: 'generation-2' }, { narrationItemId: 'other' }])(
+  'does not borrow cumulative narration bytes across conflicting ownership %j', conflict => {
+    const previous = { ...narration('Yes. All three threads are complete.'), transcriptSessionId: 'generation-1', narrationItemId: 'pre' };
+    const incoming = { ...narration('Yes.'), ...conflict };
+    expect(convergedLiveMessage(previous, incoming).text).toBe(incoming.text);
+  },
+);
+
+it('accepts a non-prefix narration correction rather than selecting by length', () => {
+  expect(convergedLiveMessage(narration('long preliminary statement'), narration('Corrected.')).text).toBe('Corrected.');
+});
+
+it('retains durable narration first-time authority when a delayed live prefix has a later timestamp', () => {
+  const durable = { ...narration('Yes. All three threads are complete.'), source: 'history' as const,
+    transcriptSessionId: 'g', narrationItemId: 'pre', timestamp: '100' };
+  const live = { ...narration('Yes. All three threads'), timestamp: '200' };
+  expect(convergedLiveMessage(durable, live)).toMatchObject({
+    text: durable.text, source: 'history', timestamp: '100', state: 'streaming',
+  });
+});

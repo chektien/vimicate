@@ -1,6 +1,6 @@
 import { useSelectedRunPublication } from './useSelectedRunPublication';
 import { useStoppedRunNotices } from './useStoppedRunNotices';
- import { useGatewayQuestions } from './useGatewayQuestions'; import { useGatewayFileLocations } from './useGatewayFileLocations';
+ import { useGatewayQuestions, type QuestionActivity } from './useGatewayQuestions'; import { useGatewayFileLocations } from './useGatewayFileLocations';
 import { reconcileVisibleRunCompletion } from './runCompletionPublication'; import { ChatStreamAccumulator } from './chatStreamAccumulator';
 import * as SecureStore from 'expo-secure-store';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,6 +12,8 @@ import { OpenClawClient, type GatewayStatus } from './OpenClawClient';
 import { pendingApprovalMessages, projectRegisteredGatewayEvent, upsertLiveMessage } from './gatewayEventProjection';
 import { gatewayFrameSessionKey, refreshIntentForGatewayEvent } from './gatewayEvents';
 import { GatewayRefreshBatch } from './gatewayRefreshBatch';
+import { SceneSocketGrace } from './sceneSocketGrace';
+import { CanonicalHistoryFreshness, canonicalHistoryToken } from './canonicalHistoryFreshness';
 import { type GatewayCommand } from './gatewayCommands'; import type { ModelChoice } from './modelMatching';
 import { GatewayReconnectLadder, shouldReconnect } from './reconnectPolicy';
 import { bindRunLifecycleSignal, noteTrackedLiveFrame, ownedRunLifecycleSignal, runLifecycleSignalForGatewayFrame } from './runLifecycleProjection';
@@ -31,7 +33,7 @@ import { settleRunToolMessages } from './runToolSettlement';
 import { delegatedFailureQualification } from './delegatedRunTruth';
 import { answeredFailureAsCompletion } from './answeredRunFailure';
 import { WorkspaceActivityLedger } from '../workspace/workspaceActivityLedger';
-import { acceptWorkspaceAttention, WorkspaceAttentionLedger, workspaceAttentionSignal } from '../workspace/workspaceAttention';
+import { acceptWorkspaceAttention, WorkspaceAttentionLedger, workspaceAttentionSignal, type WorkspaceAttentionSignal } from '../workspace/workspaceAttention';
 import { approvalReconciliationAction, approvalReconciliationCandidates, incompleteApprovalRunMessage, reconcileApprovalAbsence, runHasExpiredApproval } from './approvalFinalization';
 import { PendingFinalAnswerRegistry } from './pendingFinalAnswerRegistry';
 import { useGatewayApprovalDecision } from './useGatewayApprovalDecision';
@@ -61,7 +63,7 @@ import { useGatewayThreadRegistryMutation } from './useGatewayThreadRegistryMuta
 import { useGatewayWorkspaceUnmount } from './useGatewayWorkspaceUnmount'; function persistWorkspaceSelection(sessionKey: string, projectID: string) { launchGuardedBackgroundTask(() => saveValue(SELECTED_SESSION_KEY, serializedPersistedWorkspaceSelection(sessionKey, projectID))); }
 export function useGatewayWorkspace({ restorePersisted = true }: { restorePersisted?: boolean } = {}) {
   const client = useMemo(() => new OpenClawClient(), []);
-  const refreshBatch = useRef(new GatewayRefreshBatch());
+  const refreshBatch = useRef(new GatewayRefreshBatch()); const sceneSocket = useRef(new SceneSocketGrace());
   const livePublicationTimers = useRef(new LiveMessagePublicationTimers());
   const narrationRefreshTimers = useRef(new LiveMessagePublicationTimers());
   const pendingLiveMessages = useRef(new LiveMessagePublicationBuffer());
@@ -90,22 +92,38 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
   const providerUsage = useProviderUsage(client, profile, status, scenePublicationAuthority); const [detail, setDetail] = useState('offline');
   const [projects, setProjects] = useState<WorkspaceProject[]>(offlineProjects); const [projectsReady, setProjectsReady] = useState(false);
   const projectsRef = useRef(projects); projectsRef.current = projects;
+  const historyFreshness = useRef(new CanonicalHistoryFreshness());
+  historyFreshness.current.tokenFor = key => canonicalHistoryToken(client.sessionEventRevision(key), projectsRef.current.find(project => project.sessionKey === key), registrySnapshot.current);
   const [selectedKey, setSelectedKey] = useState(offlineProjects[0]?.sessionKey ?? '');
   const [commands, setCommands] = useState<GatewayCommand[]>([]); const [modelChoices, setModelChoices] = useState<ModelChoice[]>([]);
   const [sending, setSending] = useState(false); const chatStreams = useRef(new ChatStreamAccumulator()); useEffect(() => { if (status !== 'connected') chatStreams.current.clear(); }, [status]); // no stale deltaText baseline after a drop
-  const { hasNewerHistory, messages: rawMessages, latestMessages: rawLatestMessages, messageSessionKey, updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication } = useGatewayHistory(client, selectedRef, setDetail, selectedKey, appActive.current);
+  const { hasNewerHistory, messages: rawMessages, latestMessages: rawLatestMessages, messageSessionKey, updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication } = useGatewayHistory(client, selectedRef, setDetail, selectedKey, appActive.current, historyFreshness.current);
   const messages = useStoppedRunNotices(rawMessages, runRegistry.current); const latestMessages = useStoppedRunNotices(rawLatestMessages, runRegistry.current);
-  const questions = useGatewayQuestions(client, status, scenePublicationAuthority, messages, messageSessionKey, projects, selectedKey); const messagesRef = useRef(messages); messagesRef.current = messages;
+  const recordLocalInteraction = useCallback((sessionKey: string, timestamp = Date.now(), unread = false, source: 'activity' | 'compatibility' = 'activity') => {
+    const activityAt = source === 'compatibility' ? activityLedger.current.recordCompatibility(sessionKey, timestamp) : activityLedger.current.record(sessionKey, timestamp); if (activityAt === undefined) return;
+    setProjects((current) => current.map((project) => {
+      if (project.sessionKey !== sessionKey) return project;
+      const { updatedAt: _previousClock, ...stableProject } = project;
+      return { ...stableProject, ...(activityAt ? { updatedAt: activityAt } : {}), ...(unread ? { unread: true } : {}) };
+    }));
+    launchGuardedBackgroundTask(() => saveValue(WORKSPACE_ACTIVITY_KEY, activityLedger.current.serialized()));
+  }, []);
+  const recordAttention = useCallback((signal: WorkspaceAttentionSignal, options?: { recencyOnly?: boolean }) => {
+    const acceptance = acceptWorkspaceAttention(attentionLedger.current, signal, selectedRef.current, options);
+    if (!acceptance.accepted) return;
+    recordLocalInteraction(signal.sessionKey, signal.occurredAt, acceptance.unread);
+    launchGuardedBackgroundTask(() => saveValue(WORKSPACE_ATTENTION_KEY, attentionLedger.current.serialized()));
+  }, [recordLocalInteraction]);
+  const recordQuestionActivity = useCallback<QuestionActivity>((record, phase) => recordAttention({
+    sessionKey: record.sessionKey, identity: `question.${phase}\u0000${record.sessionKey}\u0000${record.id}\u0000${record.createdAtMs}`,
+    occurredAt: phase === 'requested' ? record.createdAtMs : Date.now(),
+  }, { recencyOnly: true }), [recordAttention]);
+  const questions = useGatewayQuestions(client, status, scenePublicationAuthority, messages, messageSessionKey, projects, recordQuestionActivity); const messagesRef = useRef(messages); messagesRef.current = messages;
   const hasPublishedFinalForRun = useCallback((sessionKey: string, runId: string) => (messageSessionKey === sessionKey && hasRenderedAssistantFinalForRun(messagesRef.current, runId)) || hasRenderedAssistantFinalForRun(sessionMessages(sessionKey), runId), [messageSessionKey, sessionMessages]);
   const publishSelectedRun = useSelectedRunPublication(runRegistry, selectedRef, setSending, setProjects);
   const { asyncSubmit, asyncQuestions, queuedPrompts } = useGatewayConversationInputs(client, status, profile?.endpoint ?? '', scenePublicationAuthority, runRegistry, selectedKey, projects, messages, latestMessages, publishSelectedRun);
   const persistRuns = useCallback(() => { launchGuardedBackgroundTask(() => saveValue(ACTIVE_RUNS_KEY, JSON.stringify(runRegistry.current.snapshot()))); }, []);
   const persistPendingFinalAnswers = useCallback(() => { launchGuardedBackgroundTask(() => saveValue(PENDING_FINAL_ANSWERS_KEY, pendingFinalAnswers.current.serialized())); }, []);
-  const recordLocalInteraction = useCallback((sessionKey: string, timestamp = Date.now(), unread = false) => {
-    activityLedger.current.record(sessionKey, timestamp);
-    setProjects((current) => current.map((project) => project.sessionKey === sessionKey ? { ...project, updatedAt: Math.max(project.updatedAt ?? 0, timestamp), ...(unread ? { unread: true } : {}) } : project));
-    launchGuardedBackgroundTask(() => saveValue(WORKSPACE_ACTIVITY_KEY, activityLedger.current.serialized()));
-  }, []);
   useTranscriptRunTruth({ messageSessionKey, visibleMessages: messages, runRegistry, sessionMessages, persistRuns, publishSelectedRun });
   const settleVisibleCompletion = useCallback((sessionKey: string, runId: string, awaitingFinal = false) => {
     if (!sessionKey || selectedRef.current !== sessionKey) return;
@@ -161,6 +179,16 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
     try { await task; }
     finally { if (connectionTask.current === task) connectionTask.current = null; }
   }, [client, loadCommands, loadPendingApprovals, loadSessions, recoverActiveRuns, recoverPendingFinalAnswers]);
+  // Socket kept through a transient inactive scene: events were dropped, so
+  // catch up without reconnecting. Unchanged selected history is reused.
+  const resumeKeptConnection = useCallback(async (catalogChanged: boolean) => {
+    if (!scenePublicationAuthority.current.isActive) return;
+    const activityRevision = scenePublicationAuthority.current.capture();
+    await loadSessions(catalogChanged, '', false, true);
+    if (!scenePublicationAuthority.current.owns(activityRevision)) return;
+    await loadPendingApprovals();
+    if (scenePublicationAuthority.current.owns(activityRevision)) { recoverActiveRuns(); recoverPendingFinalAnswers(); }
+  }, [loadPendingApprovals, loadSessions, recoverActiveRuns, recoverPendingFinalAnswers]);
 
   const canPublishScene = useCallback(() => gatewayAllowsLivePublication(appActive.current, suspendedByBackground.current), []);
   const resumePersistedWorkspace = useGatewayPersistedStartup({ enabled: restorePersisted, canPublish: canPublishScene, runRegistry, starOverrides, activityLedger, attentionLedger, pendingFinalAnswers, setProjects, selectedRef, selectedProjectIDRef, setSelectedKey, profileRef, reconnectEnabled, setProfile, setDetail, establishConnection });
@@ -233,11 +261,7 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
         return;
       }
       const attention = workspaceAttentionSignal(frame);
-      const attentionAcceptance = attention ? acceptWorkspaceAttention(attentionLedger.current, attention, selectedRef.current) : null;
-      if (attention && attentionAcceptance?.accepted) {
-        recordLocalInteraction(attention.sessionKey, attention.occurredAt, attentionAcceptance.unread);
-        launchGuardedBackgroundTask(() => saveValue(WORKSPACE_ATTENTION_KEY, attentionLedger.current.serialized()));
-      }
+      if (attention) recordAttention(attention);
       const rawLifecycle = noteTrackedLiveFrame(runRegistry.current, runLifecycleSignalForGatewayFrame(frame));
       const lifecycleMessages = rawLifecycle ? rawLifecycle.sessionKey === selectedRef.current ? messagesRef.current : sessionMessages(rawLifecycle.sessionKey) : [];
       const delegatedFailure = rawLifecycle ? delegatedFailureQualification(rawLifecycle, lifecycleMessages) : null;
@@ -305,12 +329,12 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
       }
       const intent = refreshIntentForGatewayEvent(frame, selectedRef.current);
       if (intent.detail && (!projectedMessage || terminal || lifecycleChanged || requiresImmediateLivePublication(projectedMessage))) setDetail(intent.detail);
-      refreshBatch.current.schedule(intent, selectedRef.current, terminalLifecycle, () => {
+      refreshBatch.current.schedule(intent, selectedRef.current, terminalLifecycle && lifecycle?.sessionKey === selectedRef.current, () => {
         const key = selectedRef.current;
         const plan = refreshBatch.current.take(key, Boolean(runRegistry.current.runFor(key)));
         if (plan.refreshHistory) void loadHistory(key, 'preserve-review', plan.requiredHistorySessionKey === key);
         if (plan.refreshSessions) void loadSessions(plan.refreshRegistry, '', false, plan.refreshHistory ? '' : plan.requiredHistorySessionKey);
-      });
+      }, Boolean(runRegistry.current.runFor(selectedRef.current)));
     };
     const appStateSubscription = AppState.addEventListener('change', (next) => {
       appActive.current = next === 'active';
@@ -326,22 +350,24 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
         refreshBatch.current.clear();
         suspendLiveMessagePublication(livePublicationTimers.current, narrationRefreshTimers.current, pendingLiveMessages.current);
         connectionTask.current = null;
-        client.disconnect();
+        sceneSocket.current.suspend(next, client, () => client.disconnect());
       } else if (action === 'resume') {
         suspendedByBackground.current = false;
         scenePublicationAuthority.current.resume();
         resumeHistoryPublication();
         mediaScenePublicationAuthority.resume();
         resumePersistedWorkspace();
-        const target = profileRef.current;
-        if (target && reconnectEnabled.current) void establishConnection(target).catch(() => undefined);
-      } else if (appActive.current) scheduleReconnect(true);
+        const target = profileRef.current; const kept = sceneSocket.current.resume(client);
+        if (kept.kept) void resumeKeptConnection(kept.catalogChanged).catch(() => undefined);
+        else if (target && reconnectEnabled.current) void establishConnection(target).catch(() => undefined);
+      } else if (next === 'background') sceneSocket.current.release();
+      else if (appActive.current) scheduleReconnect(true);
       else clearReconnectTimer();
     });
     return () => {
-      appStateSubscription.remove();
+      appStateSubscription.remove(); sceneSocket.current.release();
     };
-  }, [client, establishConnection, loadHistory, loadSessions, retireSessionRefresh, persistPendingFinalAnswers, persistRuns, publishSelectedRun, recordLocalInteraction, refreshSharedNarration, resumeHistoryPublication, resumePersistedWorkspace, sessionMessages, settleVisibleCompletion, startFinalAnswerRecovery, suspendHistoryPublication, updateSessionMessages]);
+  }, [client, establishConnection, resumeKeptConnection, loadHistory, loadSessions, retireSessionRefresh, persistPendingFinalAnswers, persistRuns, publishSelectedRun, recordAttention, refreshSharedNarration, resumeHistoryPublication, resumePersistedWorkspace, sessionMessages, settleVisibleCompletion, startFinalAnswerRecovery, suspendHistoryPublication, updateSessionMessages]);
   useGatewayWorkspaceUnmount({ client, scenePublicationAuthority, reconnectEnabled, registryRetryOwner, refreshBatch, reconnectTimer, livePublicationTimers, narrationRefreshTimers, pendingLiveMessages, suspendHistoryPublication });
   const pair = useCallback(async (raw: string) => {
     const parsed = parseSetupCode(raw);
@@ -397,7 +423,7 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
         if (scenePublicationAuthority.current.owns(activityRevision) && client.connectionRevision === connectionRevision && sessionOwnsDetailPublication(sessionKey, selectedRef.current)) setDetail(error instanceof Error ? error.message : 'run state refresh failed');
       });
       if (shouldReset) void (async () => {
-        await loadHistory(sessionKey, historyPresentation);
+        await loadHistory(sessionKey, historyPresentation, false, true);
         if (!scenePublicationAuthority.current.owns(activityRevision) || selectedRef.current !== sessionKey) return;
         await loadPendingApprovals(sessionKey);
         if (scenePublicationAuthority.current.owns(activityRevision) && selectedRef.current === sessionKey) recoverPendingFinalAnswers();

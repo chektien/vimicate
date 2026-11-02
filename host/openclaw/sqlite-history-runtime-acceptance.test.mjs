@@ -3,17 +3,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { Worker, isMainThread } from 'node:worker_threads';
+import { Worker, isMainThread, parentPort } from 'node:worker_threads';
 
 import test from 'node:test';
 import os from 'node:os';
-import { promisify } from 'node:util';
-import { execFile } from 'node:child_process';
+import { fork } from 'node:child_process';
 import { buildSqlitePlugin } from './build-sqlite-plugin.mjs';
+import { awaitArchiveFixture } from './test-support/archive-fixture-lifecycle.mjs';
 
-const exec = promisify(execFile);
 const target = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
 const fixtures = {
+  '2026.10.8': { accessor: 'session-accessor-ebdiOYjA.mjs', loader: 'plugin-setup-module-CDxHOMjX.mjs', entrypoints: 'runtime-process-entrypoints-De68tE_W.mjs' },
   '2026.10.7': { accessor: 'session-accessor-DHlzhHwY.mjs', loader: 'plugin-setup-module-DkTSoH8N.mjs', entrypoints: 'runtime-process-entrypoints-De68tE_W.mjs' },
   '2026.9.8': { accessor: 'session-accessor-CbRJM5Iy.mjs', loader: 'plugin-setup-module-CbcpILjg.mjs', entrypoints: 'runtime-process-entrypoints-CbWx0yUe.mjs' },
   '2026.10.5': { accessor: 'session-accessor-ripvAz_n.mjs', loader: 'plugin-setup-module-ivVK8RSf.mjs', entrypoints: 'runtime-process-entrypoints-De68tE_W.mjs' },
@@ -38,7 +38,7 @@ if (!isChild) {
       await fs.writeFile(path.join(plugin, 'probe.mjs'),
         `import { randomUUID } from 'node:crypto'; export const captureIdentity = randomUUID();\nexport { n as entries } from ${JSON.stringify(pathToFileURL(path.join(target,
           `dist/${fixture.entrypoints}`)).href)};\n`);
-      const modes = ['2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7'].includes(metadata.version) ? ['native', 'capture', 'worker-capture'] : ['native', 'capture'];
+      const modes = ['2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(metadata.version) ? ['native', 'capture', 'worker-capture'] : ['native', 'capture'];
       for (const mode of modes) {
         const captured = mode !== 'native';
         const stateDir = path.join(root, `${mode}-state`);
@@ -46,35 +46,26 @@ if (!isChild) {
         const env = { ...process.env, VIMICATE_NATIVE_ACCEPTANCE_CHILD: '1',
           VIMICATE_NATIVE_ACCEPTANCE_STATE: stateDir,
           HISTORY_CAPTURE_PLUGIN_ROOT: captured ? plugin : '' };
-        let stdout;
+        let result;
         if (mode === 'worker-capture') {
           // 10.4 retains native ESM captures only inside plugin workers. A
           // main-thread capture alone does not exercise that upgrade boundary.
           const worker = new Worker(new URL(import.meta.url), { env,
             workerData: { sourceCaptureDirectory: root }, stdout: true, stderr: true });
-          let output = '', errors = '';
-          worker.stdout.on('data', data => { output += data; });
-          worker.stderr.on('data', data => { errors += data; });
-          await new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-              void worker.terminate(); reject(new Error('captured plugin worker timed out'));
-            }, 90000);
-            worker.once('error', error => { clearTimeout(timer); reject(error); });
-            worker.once('exit', code => {
-              clearTimeout(timer);
-              if (code) reject(new Error(`captured plugin worker exited ${code}: ${errors}`));
-              else resolve();
-            });
-          });
-          stdout = output;
+          result = await awaitArchiveFixture(worker, { label: mode, startupMs: 180_000,
+            closedEvent: 'exit', stop: () => worker.terminate() });
         } else {
-          ({ stdout } = await exec(process.execPath, [fileURLToPath(import.meta.url)], {
-            timeout: ['2026.10.2', '2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7'].includes(metadata.version) && captured ? 90000 : 30000, env,
-          }));
+          const child = fork(fileURLToPath(import.meta.url), [], { env,
+            execArgv: [], stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+          result = await awaitArchiveFixture(child, { label: mode,
+            startupMs: captured ? 180_000 : 30_000,
+            closedEvent: 'close', stop: () => child.kill('SIGKILL') });
         }
+        const { stdout, stderr, initializationMs, operationMs } = result;
+        if (process.env.VIMICATE_NATIVE_ACCEPTANCE_TRACE === '1' && stderr) console.error(stderr);
         const reports = stdout.split('\n').filter(line => line.startsWith('{'));
         assert.equal(reports.length, 1);
-        const result = JSON.parse(reports[0]);
+        result = JSON.parse(reports[0]);
         assert.deepEqual(result.pages.map(page => page.offset), [0, 2, 4, 6, 8]);
         assert.equal(result.pages.at(-1).hasMore, false);
         assert.equal(result.messageCount, 9);
@@ -85,10 +76,12 @@ if (!isChild) {
         assert.equal(result.retainedCaptureReload, mode === 'worker-capture');
         assert.equal(result.decodedBytesChecked, true);
         assert.equal(result.malformedStorageRejected, true);
-        console.log(JSON.stringify({ packageVersion: metadata.version, mode, ...result }));
+        console.log(JSON.stringify({ packageVersion: metadata.version, mode, initializationMs, operationMs, ...result }));
       }
     });
 } else {
+  const trace = label => { if (process.env.VIMICATE_NATIVE_ACCEPTANCE_TRACE === '1') console.error(Date.now(), label); };
+  trace('child-start');
   const packageRoot = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
   const version = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8')).version;
   const fixture = fixtures[version];
@@ -97,6 +90,7 @@ if (!isChild) {
   process.env.OPENCLAW_CONFIG_PATH = path.join(fixtureRoot, 'openclaw.json');
   await fs.writeFile(process.env.OPENCLAW_CONFIG_PATH, '{}');
   const native = await import(pathToFileURL(path.join(packageRoot, `dist/${fixture.accessor}`)));
+  trace('native-imported');
   const scope = { agentId: 'main', sessionKey: 'agent:main:fixture',
     sessionId: '00000000-0000-4000-a000-000000000127',
     storePath: path.join(fixtureRoot, 'agents/main/sessions/sessions.json'), env: process.env };
@@ -104,7 +98,7 @@ if (!isChild) {
   for (let i = 0; i < 9; i++) {
     const result = native.appendTranscriptMessageSync(scope, { eventId: `fixture-${i}`, now: 1700000000000+i,
       message: { role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: `fixture ${i} 🦉 中文` + (i === 3 ? " repeated".repeat(10000) : "") }],
-        ...(['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) && i === 8 ? { __openclaw: { replyToId: 'fixture-0' } } : {}),
+        ...(['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) && i === 8 ? { __openclaw: { replyToId: 'fixture-0' } } : {}),
         ...(i % 2 ? { stopReason: 'stop', api: 'openai-responses', provider: 'openai', model: 'fixture' } : {}) } });
     assert.equal(result.ok, true);
   }
@@ -125,17 +119,22 @@ if (!isChild) {
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   db.close();
   const before = await fs.readFile(filename);
+  trace('fixture-created');
   const { loadSqliteHistoryRuntime } = await import('./sqlite-history-runtime.mjs');
   const runtime = await loadSqliteHistoryRuntime(packageRoot);
+  trace('runtime-loaded');
   let loadSqliteHistoryReader, capturedInstance;
   if (process.env.HISTORY_CAPTURE_PLUGIN_ROOT) {
     const { n: PluginInstance, r: bindPluginInstanceModuleLoader } = await import(pathToFileURL(path.join(packageRoot, `dist/${fixture.loader}`)));
     const instance = new PluginInstance('vimicate-history-family');
+  trace('plugin-instance');
     capturedInstance = instance;
     const root = process.env.HISTORY_CAPTURE_PLUGIN_ROOT;
     const source = path.join(root, 'sqlite-history-reader.mjs');
     bindPluginInstanceModuleLoader({ instance, source, rootDir: root, origin: 'global' });
+  trace('plugin-bound');
     const loaded = instance.loadModule(source);
+  trace('captured-module-loaded');
     ({ loadSqliteHistoryReader } = loaded);
     if (!isMainThread) {
       const replacement = new PluginInstance('vimicate-history-family');
@@ -154,6 +153,10 @@ if (!isChild) {
     ({ loadSqliteHistoryReader } = await import('./sqlite-history-reader.mjs'));
   }
   const reader = await loadSqliteHistoryReader({ packageRoot, stateDir: fixtureRoot });
+  trace('reader-loaded');
+  const readiness = { type: 'archive-reader-ready' };
+  if (parentPort) parentPort.postMessage(readiness);
+  else if (process.send) process.send(readiness);
   let offset = 0;
   const pages = [], ids = [];
   for (let guard = 0; guard < 20; guard++) {
@@ -167,7 +170,7 @@ if (!isChild) {
         maxSingleMessageBytes: 128*1024 }).messages, 512*1024).items);
     const directIds = canonical.map(m=>m.__openclaw?.id);
     assert.deepEqual(page.messages, canonical);
-    if (['2026.10.5', '2026.10.6', '2026.10.7'].includes(version) && offset === 0) {
+    if (['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) && offset === 0) {
       const quoted = page.messages.find(message => message.__openclaw?.id === 'fixture-8').__openclaw.replyToMessage;
       assert.equal(quoted.ok, true);
       assert.equal(quoted.message.__openclaw.id, 'fixture-0');
@@ -203,6 +206,7 @@ if (!isChild) {
     sessionId: scope.sessionId, offset: 4, limit: 2 }), /payload|length|storage/i);
   console.log(JSON.stringify({ decodedBytesChecked: true, malformedStorageRejected: true, pages, messageCount: ids.length, mixedStorage: true, archivedGeneration: true, unchangedDatabase: true, captured: Boolean(process.env.HISTORY_CAPTURE_PLUGIN_ROOT), retainedCaptureReload: !isMainThread }));
   reader.dispose();
+  trace('reader-disposed');
   if (capturedInstance) assert.deepEqual((await capturedInstance.dispose()).errors, []);
   process.exit(0);
 }

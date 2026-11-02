@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { flushBufferedLiveMessages, LIVE_MESSAGE_PUBLICATION_INTERVAL_MS, liveMessagePublicationDelayMs, liveMessagePublicationMode, LiveMessagePublicationBuffer, LiveMessagePublicationTimers, requiresImmediateLivePublication, RICH_LIVE_MESSAGE_PUBLICATION_INTERVAL_MS, suspendLiveMessagePublication } from './liveMessagePublication';
+import { coalesceTranscriptIdentities } from './transcriptIdentityWall';
+import { upsertLiveMessage } from './gatewayEventProjection';
+import { mergeSharedNarration } from './sharedNarration';
 import { MAX_VISIBLE_HISTORY_ROWS } from './historyWindow';
 
 const row = (id: string, text: string, role: WorkspaceMessage['role'] = 'assistant'): WorkspaceMessage => ({ id, text, role, state: 'streaming' });
@@ -239,4 +242,72 @@ it('retains the longer pending snapshot before its first publication', () => {
   buffer.enqueue({ ...longer, text: 'Long' });
   expect(buffer.drainSession('s')).toEqual([longer]);
   expect(buffer.size).toBe(0);
+});
+
+it('does not replay a queued narration prefix after complete durable hydration', () => {
+  const prefix: WorkspaceMessage = { id: 'live-item-r1-pre', role: 'narration',
+    text: 'Yes. All three threads', runId: 'r1', sessionKey: 'agent/item/preamble', source: 'live', state: 'streaming' };
+  const durable: WorkspaceMessage = { ...prefix, text: 'Yes. All three threads are complete.',
+    source: 'history', timestamp: '300000', transcriptSessionId: 'generation-1', narrationItemId: 'pre' };
+  const pending = new LiveMessagePublicationBuffer();
+  pending.enqueue(prefix);
+  let visible = mergeSharedNarration([], [durable]);
+  const stages = [visible[0]?.text];
+  flushBufferedLiveMessages(pending, (key, action) => {
+    expect(key).toBe(prefix.sessionKey);
+    visible = action(visible);
+    stages.push(visible[0]?.text);
+  });
+  visible = mergeSharedNarration(visible, [durable]);
+  stages.push(visible[0]?.text);
+  expect(stages).toEqual([durable.text, durable.text, durable.text]);
+  expect(visible).toHaveLength(1);
+  expect(visible[0]).toMatchObject({ source: 'history', timestamp: '300000', narrationItemId: 'pre' });
+});
+
+it('retains the longer pending narration snapshot before first publication', () => {
+  const pending = new LiveMessagePublicationBuffer();
+  const longer: WorkspaceMessage = { id: 'live-item-r1-pre', sessionKey: 's', runId: 'r1',
+    role: 'narration', source: 'live', state: 'streaming', text: 'A complete commentary sentence.' };
+  pending.enqueue(longer);
+  pending.enqueue({ ...longer, text: 'A complete' });
+  expect(pending.drainSession('s')).toEqual([longer]);
+});
+
+it.each([{ runId: 'r2' }, { sessionKey: 'other' }, { transcriptSessionId: 'other-generation' }, { narrationItemId: 'other-item' }])(
+  'does not coalesce pending or published narration across conflicting ownership %j', conflict => {
+    const first: WorkspaceMessage = { id: 'live-item-r1-pre', role: 'narration', text: 'First commentary.',
+      source: 'live', sessionKey: 's', runId: 'r1', transcriptSessionId: 'generation', narrationItemId: 'pre' };
+    const second: WorkspaceMessage = { ...first, text: 'Second commentary.', ...conflict };
+    const pending = new LiveMessagePublicationBuffer();
+    pending.enqueue(first);
+    pending.enqueue(second);
+    const sessions = new Map<string, WorkspaceMessage[]>();
+    flushBufferedLiveMessages(pending, (key, action) => sessions.set(key, action(sessions.get(key) ?? [])));
+    expect([...sessions.values()].flat()).toEqual('sessionKey' in conflict ? [first, second] : [first]);
+  },
+);
+
+it.each([false, true])('coalesces a uniquely enriched same-ID live alias in either order %s', reverse => {
+  const live: WorkspaceMessage = { id: 'opaque-id', role: 'narration', source: 'live',
+    sessionKey: 's', runId: 'r', text: 'A complete commentary sentence.', state: 'streaming' };
+  const enriched: WorkspaceMessage = { ...live, transcriptSessionId: 'g', narrationItemId: 'pre', text: 'A complete' };
+  const frames = reverse ? [enriched, live] : [live, enriched];
+  const pending = new LiveMessagePublicationBuffer();
+  for (const frame of frames) pending.enqueue(frame);
+  expect(reverse ? pending.drainSession('s') : pending.drain()).toEqual([expect.objectContaining({
+    text: live.text, transcriptSessionId: 'g', narrationItemId: 'pre',
+  })]);
+  expect(coalesceTranscriptIdentities(frames)).toEqual([expect.objectContaining({
+    text: live.text, transcriptSessionId: 'g', narrationItemId: 'pre',
+  })]);
+});
+
+it('rejects an ambiguous unscoped replay without mutating either existing generation', () => {
+  const live: WorkspaceMessage = { id: 'live-item-r-pre', role: 'narration', source: 'live',
+    sessionKey: 's', runId: 'r', text: 'corrected' };
+  const first: WorkspaceMessage = { ...live, source: 'history', transcriptSessionId: 'g1', narrationItemId: 'pre', text: 'first' };
+  const second: WorkspaceMessage = { ...first, transcriptSessionId: 'g2', text: 'second' };
+  const previous = [first, second];
+  expect(upsertLiveMessage(previous, live)).toEqual(previous);
 });

@@ -4,9 +4,15 @@
  */
 export function sessionActivityTimestamp(row: Record<string, unknown>): number | undefined {
   const metadata = record(row.metadata);
-  const activity = [row.lastInteractionAt, row.lastActivityAt, metadata.lastInteractionAt, metadata.lastActivityAt].filter(validTimestamp);
-  if (activity.length) return Math.max(...activity);
+  const activity = explicitSessionActivityTimestamp(row);
+  if (activity !== undefined) return activity;
   return [row.updatedAt, row.updatedAtMs, metadata.updatedAt, metadata.updatedAtMs].find(validTimestamp);
+}
+
+export function explicitSessionActivityTimestamp(row: Record<string, unknown>): number | undefined {
+  const metadata = record(row.metadata);
+  const activity = [row.lastInteractionAt, row.lastActivityAt, metadata.lastInteractionAt, metadata.lastActivityAt].filter(validTimestamp);
+  return activity.length ? Math.max(...activity) : undefined;
 }
 
 function validTimestamp(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) && value >= 0; }

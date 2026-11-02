@@ -62,7 +62,7 @@ export function useGatewayPersistedStartup(dependencies: Dependencies) {
     activityLedger.current.restore(restoredActivity);
     attentionLedger.current.restore(restoredAttention);
     pendingFinalAnswers.current.restore(restoredPendingFinalAnswers);
-    setProjects((projects) => activityLedger.current.reconcile(applyStarOverrides(projects.map((project) => attentionLedger.current.isUnread(project.sessionKey) ? { ...project, unread: true } : project), starOverrides.current)));
+    setProjects((projects) => activityLedger.current.reconcile(applyStarOverrides(projects.map((project) => attentionLedger.current.isUnread(project.sessionKey) ? { ...project, unread: true } : project), starOverrides.current), 'presentation'));
     const selection = parsedPersistedWorkspaceSelection(restoredSelection);
     if (selection.sessionKey) {
       selectedRef.current = selection.sessionKey;

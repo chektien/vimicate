@@ -4,6 +4,7 @@ import { saveValue } from '../storage/workspaceStore';
 import { reconcileRegistryPayload } from '../workspace/registryProjection';
 import { applyStarOverrides, type StarOverrides } from '../workspace/workspacePresentation';
 import { projectsFromPayload, sessionEntriesFromPayload, type WorkspaceProject } from '../workspace/workspaceTypes';
+import { sameProjectPublication } from '../workspace/projectPublicationEquality';
 import { projectsWithRunPhases } from '../workspace/runProjectPresentation';
 import { acceptSessionCensusAttention, type WorkspaceAttentionLedger } from '../workspace/workspaceAttention';
 import type { WorkspaceActivityLedger } from '../workspace/workspaceActivityLedger';
@@ -42,7 +43,7 @@ type Options = Pick<History, 'configureArchive' | 'resetHistory' | 'ownsSession'
   setProjectsReady: Dispatch<SetStateAction<boolean>>;
   setSelectedKey: Dispatch<SetStateAction<string>>;
   setDetail: Dispatch<SetStateAction<string>>;
-  recordLocalInteraction: (key: string, timestamp?: number, unread?: boolean) => void;
+  recordLocalInteraction: (key: string, timestamp?: number, unread?: boolean, source?: 'compatibility') => void;
   persistRuns: () => void;
   persistWorkspaceSelection: (key: string, projectID: string) => void;
   publishSelectedRun: (key?: string) => void;
@@ -69,9 +70,11 @@ export function useGatewaySessionRefresh(options: Options) {
       if (!ownsPublication()) return;
       const censusRequests = captureSessionCensusRequests(runRegistry.current);
       try {
-        const payload = await client.listSessions();
+        const payload = await client.listSessions(refreshRegistry);
         if (!ownsPublication()) return;
-        if (acceptSessionCensusAttention(attentionLedger.current, payload, selectedRef.current, recordLocalInteraction)) launchGuardedBackgroundTask(() => saveValue(WORKSPACE_ATTENTION_KEY, attentionLedger.current.serialized()));
+        activityLedger.current.reconcile(sessionEntriesFromPayload(payload, 'explicit'), 'server');
+        activityLedger.current.reconcile(sessionEntriesFromPayload(payload), 'compatibility');
+        if (acceptSessionCensusAttention(attentionLedger.current, payload, selectedRef.current, recordLocalInteraction, (key, timestamp, unread) => recordLocalInteraction(key, timestamp, unread, 'compatibility'))) launchGuardedBackgroundTask(() => saveValue(WORKSPACE_ATTENTION_KEY, attentionLedger.current.serialized()));
         const registryLifecycleChanged = applySessionRegistryCensus(runRegistry.current, payload, censusRequests, (sessionKey, runId) => {
           updateSessionMessages(sessionKey, current => reconcileAuthoritativeActiveRunLifecycle(current, sessionKey, runId));
         });
@@ -106,12 +109,14 @@ export function useGatewaySessionRefresh(options: Options) {
         const sessionProjection = projectsFromPayload(payload);
         const registryProjection = reconcileRegistryPayload(sessionProjection, registryAuthority.snapshot, sessionEntriesFromPayload(payload));
         const withAttention = registryProjection.map((project) => attentionLedger.current.isUnread(project.sessionKey) ? { ...project, unread: true } : project);
-        const next = projectsWithRunPhases(activityLedger.current.reconcile(applyStarOverrides(withAttention, starOverrides.current)), runRegistry.current); setProjectsReady(true);
+        const next = projectsWithRunPhases(activityLedger.current.reconcile(applyStarOverrides(withAttention, starOverrides.current), 'presentation'), runRegistry.current); setProjectsReady(true);
         if (next.length) {
           const currentProjectID = selectedProjectIDRef.current || projectsRef.current.find((project) => project.sessionKey === selectedRef.current)?.id || '';
           // Subscription frames can arrive before React commits this registry.
-          projectsRef.current = next;
-          setProjects(next);
+          if (!sameProjectPublication(projectsRef.current, next)) {
+            projectsRef.current = next;
+            setProjects(next);
+          }
           const preferredKey = selectedRef.current === intent.selectionKey ? intent.preferredKey : '';
           const key = sessionSelectionAfterRefresh(next, selectedRef.current, preferredKey, currentProjectID);
           const selectedProject = next.find((project) => project.sessionKey === key);
@@ -136,7 +141,7 @@ export function useGatewaySessionRefresh(options: Options) {
               generationChanged,
               Boolean(runRegistry.current.runFor(key)),
               visibleSessionMessages(key), intent.hydrateSelected || requiredHistory,
-            )) await loadHistory(key, 'preserve-review', requiredHistory);
+            )) await loadHistory(key, 'preserve-review', requiredHistory, !requiredHistory && !generationChanged);
           }
         }
       } catch (error) {

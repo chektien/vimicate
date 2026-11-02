@@ -6,18 +6,47 @@ import { useGatewayQuestions } from './useGatewayQuestions';
 import { HistoryPublicationAuthority } from './historyPublicationAuthority';
 import type { OpenClawClient } from './OpenClawClient';
 import type { QuestionRecord } from '../questions/questionTypes';
-import type { WorkspaceMessage } from '../workspace/workspaceTypes';
+import type { WorkspaceMessage, WorkspaceProject } from '../workspace/workspaceTypes';
 const record: QuestionRecord = { id: 'qa', sessionKey: 'qa', createdAtMs: 1, expiresAtMs: Date.now() + 90000, status: 'pending', questions: [{ questionId: 'pick', isOther: true, header: 'Pick', question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }] };
 const noMessages: never[] = []; const noProjects: never[] = [];
-function testOwner(request: ReturnType<typeof vi.fn>, messages: WorkspaceMessage[] = noMessages) {
+function testOwner(request: ReturnType<typeof vi.fn>, messages: WorkspaceMessage[] = noMessages, projects: WorkspaceProject[] = noProjects) {
   let currentMessages = messages;
+  let currentProjects = projects; let selectedKey = 'qa';
   const client = { status: 'connected', connectionRevision: 1, hasOperatorScope: () => true, request } as unknown as OpenClawClient;
   const authority = { current: new HistoryPublicationAuthority(true) };
   let value!: ReturnType<typeof useGatewayQuestions>;
   const root = createRoot(document.createElement('div'));
-  function Component() { value = useGatewayQuestions(client, client.status, authority, currentMessages, 'qa', noProjects, 'qa'); return null; }
-  return { client, authority, root, setMessages: (next: WorkspaceMessage[]) => { currentMessages = next; }, render: () => act(async () => root.render(<Component />)), value: () => value };
+  function Component() { value = useGatewayQuestions(client, client.status, authority, currentMessages, selectedKey, currentProjects); return null; }
+  return { client, authority, root, setMessages: (next: WorkspaceMessage[]) => { currentMessages = next; }, setProjects: (next: WorkspaceProject[]) => { currentProjects = next; }, select: (key: string) => { selectedKey = key; }, render: () => act(async () => root.render(<Component />)), value: () => value };
 }
+
+it('rolls up broker questions through answer failure, run changes, selection and reconnect reconciliation', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const base: WorkspaceProject = { id: 'root', sessionKey: 'root', name: 'root', path: '', branch: '', starred: true, threadCount: 2, state: 'idle', kind: 'project' };
+  const child: WorkspaceProject = { ...base, id: 'qa', sessionKey: 'qa', name: 'qa', kind: 'thread', rootSessionKey: 'root', runPhase: 'running', unread: false };
+  const second = { ...record, id: 'second' };
+  let pending = [record, second];
+  const request = vi.fn(async (method: string) => { if (method === 'question.list') return { questions: pending }; throw new Error('offline answer'); });
+  const test = testOwner(request, [], [base, child]);
+  const count = () => test.value().projects[0]?.pendingQuestions?.total ?? 0;
+  try {
+    test.select('root'); await test.render(); expect(count()).toBe(2);
+    expect(test.value().projects[1]).toMatchObject({ runPhase: 'running', unread: false });
+    await act(async () => { test.value().ui.choose(record, 0, 0); });
+    await act(async () => { await test.value().ui.resolve(record); });
+    expect(test.value().ui.errors[record.id]).toContain('Answer not confirmed'); expect(count()).toBe(2);
+    test.setProjects([base, { ...child, runPhase: 'failed' }]); test.select('qa'); await test.render();
+    expect(test.value().projects[1]).toMatchObject({ runPhase: 'failed', unread: false }); expect(count()).toBe(2);
+    await act(async () => test.value().event({ event: 'question.resolved', payload: { id: record.id, status: 'answered', answers: { answers: { pick: ['A'] } } } }));
+    expect(count()).toBe(1);
+    pending = []; test.client.status = 'disconnected'; await test.render();
+    (test.client as unknown as { connectionRevision: number }).connectionRevision++; test.client.status = 'connected'; await test.render();
+    expect(count()).toBe(0); expect(test.value().projects[1]?.runPhase).toBe('failed');
+    await act(async () => test.value().event({ event: 'question.requested', payload: second }));
+    expect(count()).toBe(0); // A resolved record cannot reopen from a replay.
+    await act(async () => test.value().clear()); expect(count()).toBe(0);
+  } finally { await act(async () => test.root.unmount()); }
+});
 it('requires Enter to interact and keeps navigation and Escape answer-neutral', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const test = testOwner(vi.fn(async () => ({ questions: [record] }))); await test.render();

@@ -1,4 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+vi.mock('react', () => ({ useCallback: (callback: unknown) => callback }));
+vi.mock('../storage/workspaceStore', () => ({ saveValue: async () => {} }));
+import { useGatewayThreadRegistryMutation } from './useGatewayThreadRegistryMutation';
+import { WorkspaceActivityLedger } from '../workspace/workspaceActivityLedger';
+import { WorkspaceAttentionLedger } from '../workspace/workspaceAttention';
+import { SessionRunRegistry } from './sessionRunRegistry';
 import type { WorkspaceProject } from '../workspace/workspaceTypes';
 import { immediateThreadRegistryMutationProjection } from './threadRegistryMutationProjection';
 
@@ -38,4 +44,19 @@ describe('immediate thread-registry mutation projection', () => {
     expect(result.projects.map((project) => project.sessionKey)).toEqual(['root']);
     expect(result.selectedKey).toBe('root');
   });
+});
+
+
+it('keeps inherited legacy activity untrusted through an actual registry mutation and persistence', () => {
+  const ledger = new WorkspaceActivityLedger(); ledger.restore(JSON.stringify([['child', 900]]));
+  const projectsRef = { current: ledger.reconcile([root, child]) };
+  const accept = useGatewayThreadRegistryMutation({
+    projectsRef, registrySnapshot: { current: acceptedRegistry }, selectedRef: { current: 'child' }, selectedProjectIDRef: { current: 'child-id' },
+    activityLedger: { current: ledger }, attentionLedger: { current: new WorkspaceAttentionLedger() }, starOverrides: { current: {} }, runRegistry: { current: new SessionRunRegistry() },
+    setProjects: vi.fn(), setProjectsReady: vi.fn(), setSelectedKey: vi.fn(), resetHistory: vi.fn(), publishSelectedRun: vi.fn(),
+  });
+  accept(registry([active('child-id', 'child', 'draft', 0)]), 'child');
+  expect(projectsRef.current.find(row => row.sessionKey === 'child')?.updatedAt).toBe(900);
+  const restored = new WorkspaceActivityLedger(); restored.restore(ledger.serialized());
+  expect(restored.record('child', 700)).toBe(700);
 });
