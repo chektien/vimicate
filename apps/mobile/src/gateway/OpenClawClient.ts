@@ -224,7 +224,6 @@ export class OpenClawClient {
 
   followSession(sessionKey: string) { return this.sessionSubscription.follow(sessionKey); }
   sessionEventRevision(sessionKey: string) { return this.eventRevisions.revision(sessionKey); }
-  get catalogEventRevision() { return this.eventRevisions.catalogRevision; }
 
   private async handleFrame(raw: string, generation: number) {
     let frame: Frame; try { frame = JSON.parse(raw) as Frame; } catch { this.onEvent({ type: 'invalid', size: raw.length }); return; }

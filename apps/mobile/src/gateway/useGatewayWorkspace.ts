@@ -7,7 +7,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import { AppState } from 'react-native';
 import { saveValue, setWorkspacePersistenceActive } from '../storage/workspaceStore';
 import { applyStarOverrides, updatedStarOverrides, type StarOverrides } from '../workspace/workspacePresentation';
-import { offlineProjects, startupMessages, type WorkspaceProject } from '../workspace/workspaceTypes';
+import { offlineProjects, startupMessages, type WorkspaceMessage, type WorkspaceProject } from '../workspace/workspaceTypes';
 import { OpenClawClient, type GatewayStatus } from './OpenClawClient';
 import { pendingApprovalMessages, projectRegisteredGatewayEvent, upsertLiveMessage } from './gatewayEventProjection';
 import { gatewayFrameSessionKey, refreshIntentForGatewayEvent } from './gatewayEvents';
@@ -97,7 +97,8 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
   const [selectedKey, setSelectedKey] = useState(offlineProjects[0]?.sessionKey ?? '');
   const [commands, setCommands] = useState<GatewayCommand[]>([]); const [modelChoices, setModelChoices] = useState<ModelChoice[]>([]);
   const [sending, setSending] = useState(false); const chatStreams = useRef(new ChatStreamAccumulator()); useEffect(() => { if (status !== 'connected') chatStreams.current.clear(); }, [status]); // no stale deltaText baseline after a drop
-  const { hasNewerHistory, messages: rawMessages, latestMessages: rawLatestMessages, messageSessionKey, updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication } = useGatewayHistory(client, selectedRef, setDetail, selectedKey, appActive.current, historyFreshness.current);
+  const observeApprovals = useCallback((key: string, rows: WorkspaceMessage[]) => { runRegistry.current.approvals.observe(key, rows); }, []);
+  const { subscribeLatestHistory, hasNewerHistory, messages: rawMessages, latestMessages: rawLatestMessages, messageSessionKey, updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication } = useGatewayHistory(client, selectedRef, setDetail, selectedKey, appActive.current, historyFreshness.current, observeApprovals);
   const messages = useStoppedRunNotices(rawMessages, runRegistry.current); const latestMessages = useStoppedRunNotices(rawLatestMessages, runRegistry.current);
   const recordLocalInteraction = useCallback((sessionKey: string, timestamp = Date.now(), unread = false, source: 'activity' | 'compatibility' = 'activity') => {
     const activityAt = source === 'compatibility' ? activityLedger.current.recordCompatibility(sessionKey, timestamp) : activityLedger.current.record(sessionKey, timestamp); if (activityAt === undefined) return;
@@ -121,6 +122,13 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
   const questions = useGatewayQuestions(client, status, scenePublicationAuthority, messages, messageSessionKey, projects, recordQuestionActivity); const messagesRef = useRef(messages); messagesRef.current = messages;
   const hasPublishedFinalForRun = useCallback((sessionKey: string, runId: string) => (messageSessionKey === sessionKey && hasRenderedAssistantFinalForRun(messagesRef.current, runId)) || hasRenderedAssistantFinalForRun(sessionMessages(sessionKey), runId), [messageSessionKey, sessionMessages]);
   const publishSelectedRun = useSelectedRunPublication(runRegistry, selectedRef, setSending, setProjects);
+  useEffect(() => {
+    let revision = runRegistry.current.approvals.revision;
+    return subscribeLatestHistory(() => {
+      const next = runRegistry.current.approvals.revision;
+      if (next !== revision) { revision = next; publishSelectedRun(); }
+    });
+  }, [publishSelectedRun, subscribeLatestHistory]);
   const { asyncSubmit, asyncQuestions, queuedPrompts } = useGatewayConversationInputs(client, status, profile?.endpoint ?? '', scenePublicationAuthority, runRegistry, selectedKey, projects, messages, latestMessages, publishSelectedRun);
   const persistRuns = useCallback(() => { launchGuardedBackgroundTask(() => saveValue(ACTIVE_RUNS_KEY, JSON.stringify(runRegistry.current.snapshot()))); }, []);
   const persistPendingFinalAnswers = useCallback(() => { launchGuardedBackgroundTask(() => saveValue(PENDING_FINAL_ANSWERS_KEY, pendingFinalAnswers.current.serialized())); }, []);
@@ -144,12 +152,17 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
   const loadPendingApprovals = useCallback(async (sessionKey = selectedRef.current) => {
     if (client.status !== 'connected' || !sessionKey || !scenePublicationAuthority.current.isActive) return;
     const activityRevision = scenePublicationAuthority.current.capture();
-    const reconciliationCandidates = approvalReconciliationCandidates(messagesRef.current, sessionKey);
+    const reconciliationCandidates = [...new Set([...approvalReconciliationCandidates(messagesRef.current, sessionKey), ...runRegistry.current.approvals.pendingIds(sessionKey)])];
     try {
       const [exec, plugin] = await Promise.all([client.listApprovals('exec'), client.listApprovals('plugin')]);
       if (!scenePublicationAuthority.current.owns(activityRevision) || selectedRef.current !== sessionKey) return;
       const pending = [...pendingApprovalMessages(exec, 'exec', sessionKey), ...pendingApprovalMessages(plugin, 'plugin', sessionKey)];
       const reconciliationNow = Date.now();
+      // Only IDs pending when this list began can be resolved by its absence.
+      // A cropped row still owns its approval until this explicit evidence.
+      runRegistry.current.approvals.observe(sessionKey, pending);
+      runRegistry.current.approvals.resolveAbsent(sessionKey, reconciliationCandidates, pending.flatMap(row => row.approval ? [row.approval.id] : []));
+      publishSelectedRun(sessionKey);
       const candidateIds = new Set(reconciliationCandidates);
       const reconciliation = reconcileApprovalAbsence(messagesRef.current, pending, sessionKey, reconciliationNow, candidateIds);
       updateSessionMessages(sessionKey, approvalReconciliationAction(pending, sessionKey, reconciliationCandidates, reconciliationNow));
@@ -179,16 +192,28 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
     try { await task; }
     finally { if (connectionTask.current === task) connectionTask.current = null; }
   }, [client, loadCommands, loadPendingApprovals, loadSessions, recoverActiveRuns, recoverPendingFinalAnswers]);
-  // Socket kept through a transient inactive scene: events were dropped, so
-  // catch up without reconnecting. Unchanged selected history is reused.
-  const resumeKeptConnection = useCallback(async (catalogChanged: boolean) => {
+  // Socket kept through a transient inactive scene: events, including
+  // questions and catalog changes, were dropped. Prove the socket is alive,
+  // then catch up all dropped state without reconnecting; a dead socket reconnects.
+  // A ref keeps the lifecycle effect from re-subscribing on every question render.
+  const hydrateQuestions = useRef(questions.hydrate); hydrateQuestions.current = questions.hydrate;
+  const resumeKeptConnection = useCallback(async () => {
     if (!scenePublicationAuthority.current.isActive) return;
-    const activityRevision = scenePublicationAuthority.current.capture();
-    await loadSessions(catalogChanged, '', false, true);
+    const activityRevision = scenePublicationAuthority.current.capture(); const connection = client.connectionRevision;
+    try { await client.request('health', undefined, 5000); }
+    catch {
+      if (!scenePublicationAuthority.current.owns(activityRevision) || client.connectionRevision !== connection) return;
+      connectionTask.current = null; client.disconnect();
+      const target = profileRef.current;
+      if (target && reconnectEnabled.current) await establishConnection(target);
+      return;
+    }
     if (!scenePublicationAuthority.current.owns(activityRevision)) return;
-    await loadPendingApprovals();
+    await loadSessions(true, '', false, true);
+    if (!scenePublicationAuthority.current.owns(activityRevision)) return;
+    await Promise.all([loadPendingApprovals(), hydrateQuestions.current()]);
     if (scenePublicationAuthority.current.owns(activityRevision)) { recoverActiveRuns(); recoverPendingFinalAnswers(); }
-  }, [loadPendingApprovals, loadSessions, recoverActiveRuns, recoverPendingFinalAnswers]);
+  }, [client, establishConnection, loadPendingApprovals, loadSessions, recoverActiveRuns, recoverPendingFinalAnswers]);
 
   const canPublishScene = useCallback(() => gatewayAllowsLivePublication(appActive.current, suspendedByBackground.current), []);
   const resumePersistedWorkspace = useGatewayPersistedStartup({ enabled: restorePersisted, canPublish: canPublishScene, runRegistry, starOverrides, activityLedger, attentionLedger, pendingFinalAnswers, setProjects, selectedRef, selectedProjectIDRef, setSelectedKey, profileRef, reconnectEnabled, setProfile, setDetail, establishConnection });
@@ -358,7 +383,7 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
         mediaScenePublicationAuthority.resume();
         resumePersistedWorkspace();
         const target = profileRef.current; const kept = sceneSocket.current.resume(client);
-        if (kept.kept) void resumeKeptConnection(kept.catalogChanged).catch(() => undefined);
+        if (kept) void resumeKeptConnection().catch(() => undefined);
         else if (target && reconnectEnabled.current) void establishConnection(target).catch(() => undefined);
       } else if (next === 'background') sceneSocket.current.release();
       else if (appActive.current) scheduleReconnect(true);

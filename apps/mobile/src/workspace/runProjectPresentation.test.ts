@@ -22,9 +22,9 @@ describe('project run presentation', () => {
 
   it('does not leave a success glyph on a completed project', () => {
     expect(projectRunGlyph('running')).toMatchObject({ symbol: '●', label: 'running' });
-    expect(projectRunGlyph('waiting')).toMatchObject({ symbol: '◆', label: 'waiting' });
-    expect(projectRunGlyph('failed')).toMatchObject({ symbol: '●', label: 'crashed' });
-    expect(projectRunGlyph('uncertain')).toMatchObject({ symbol: '?', label: 'uncertain' });
+    expect(projectRunGlyph('waiting')).toMatchObject({ symbol: '●', label: 'running' });
+    expect(projectRunGlyph('failed')).toMatchObject({ symbol: '●', label: 'failed' });
+    expect(projectRunGlyph('uncertain')).toMatchObject({ symbol: '?', label: 'connection uncertain' });
     expect(projectRunGlyph('completed')).toBeNull();
   });
 });
@@ -39,4 +39,19 @@ it('retains identical project publication during repeated census run-truth recon
   expect(projectsWithRunPhases(active, registry)).toBe(active);
   registry.observePhase('one', 'completed', 'r1');
   expect(projectsWithRunPhases(active, registry)).not.toBe(active);
+});
+
+it('reserves the diamond for explicit approval and announces unread completion', () => {
+  expect(projectRunGlyph('needs-user')).toMatchObject({ symbol: '◆', label: 'needs approval' });
+  expect(projectRunLabel('needs-user')).toBe('needs approval');
+  expect(projectRunLabel('waiting')).toBe('running');
+});
+
+it('shows a real failure or connection uncertainty immediately despite a pending approval', () => {
+  for (const phase of ['failed', 'uncertain'] as const) {
+    const registry = new SessionRunRegistry(); registry.registerRun('one', 'run');
+    registry.approvals.observe('one', [{ id: 'approval', role: 'approval', sessionKey: 'one', text: 'allow?', approval: { id: 'a', kind: 'exec', resolved: false, allowedDecisions: ['allow-once'] } }]);
+    registry.observePhase('one', phase, 'run');
+    expect(projectsWithRunPhases([project], registry)[0]?.runPhase).toBe(phase);
+  }
 });

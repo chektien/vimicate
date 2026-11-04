@@ -1,12 +1,21 @@
+import { SessionApprovalAttention } from './sessionApprovalAttention';
 import { BoundedSessionCache } from '../workspace/boundedSessionCache';
 
-export type SessionRunPhase = 'submitting' | 'accepted' | 'running' | 'waiting' | 'completed' | 'failed' | 'uncertain';
+export type SessionRunPhase = 'submitting' | 'accepted' | 'running' | 'waiting' | 'needs-user' | 'completed' | 'failed' | 'uncertain';
 export type RunTimingObservation = { startedAtMs?: number; endedAtMs?: number; durationMs?: number; observedAtMs?: number };
 export type SessionRunTiming = { runId: string; startedAtMs: number; endedAtMs?: number; durationMs?: number };
 const MAX_PENDING_STOPS_PER_RUN = 4;
 const MAX_CONFIRMED_STOPS_PER_SESSION = 32;
 
 export class SessionRunRegistry {
+  readonly approvals = new SessionApprovalAttention(64, sessionKey => {
+    // A known approval may be answered through list recovery or the modern
+    // session stream, without a legacy approval.resolved lifecycle frame.
+    // Release only its approval phase, never add/remove active run ownership.
+    if (this.phases.get(sessionKey) !== 'needs-user') return;
+    if (this.active.has(sessionKey)) this.phases.set(sessionKey, 'running');
+    else this.phases.delete(sessionKey);
+  });
   private active = new Map<string, string>();
   private submitting = new Set<string>();
   private phases = new Map<string, SessionRunPhase>();
@@ -82,6 +91,12 @@ export class SessionRunRegistry {
     return this.ownsRun(sessionKey, expectedRunId) && this.observePhase(sessionKey, 'uncertain', expectedRunId);
   }
   phaseFor(sessionKey: string) { return this.phases.get(sessionKey); }
+  /** Approval attention is presentation, never terminal/run ownership truth. */
+  presentationPhaseFor(sessionKey: string): SessionRunPhase | undefined {
+    const phase = this.phases.get(sessionKey);
+    if (phase === 'failed' || phase === 'uncertain') return phase;
+    return this.approvals.needsUser(sessionKey) ? 'needs-user' : phase;
+  }
   isBusy(sessionKey: string) { return this.submitting.has(sessionKey) || this.active.has(sessionKey); }
   timingFor(sessionKey: string, runId = '') {
     const timing = this.timings.get(sessionKey);
@@ -111,7 +126,7 @@ export class SessionRunRegistry {
       // Some Gateway progress frames are session-scoped and omit runId. A
       // later live running/waiting frame is stronger evidence than an older
       // local recovery failure; allow it to clear the false terminal state.
-      if (phase !== 'completed' && (runId || (phase !== 'running' && phase !== 'waiting'))) return false;
+      if (phase !== 'completed' && (runId || (phase !== 'running' && phase !== 'waiting' && phase !== 'needs-user'))) return false;
     }
     const sameRun = !runId || currentRun === runId || observedRun === runId;
     if (currentPhase === phase && sameRun && !timingObservationChanges(this.timings.get(sessionKey), timing)) return false;
@@ -138,13 +153,13 @@ export class SessionRunRegistry {
   trackedSessionKeys() { return [...new Set([...this.active.keys(), ...this.phases.keys()])]; }
   snapshot() { return Object.fromEntries(this.active); }
   restore(raw: string | null) {
-    this.active.clear(); this.submitting.clear(); this.phases.clear(); this.phaseRuns.clear(); this.timings.clear(); this.terminalSessions.clear(); this.liveFrameRevisions.clear(); this.confirmedStops.clear(); this.pendingStops.clear(); if (!raw) return;
+    this.approvals.clear(); this.active.clear(); this.submitting.clear(); this.phases.clear(); this.phaseRuns.clear(); this.timings.clear(); this.terminalSessions.clear(); this.liveFrameRevisions.clear(); this.confirmedStops.clear(); this.pendingStops.clear(); if (!raw) return;
     try {
       const parsed: unknown = JSON.parse(raw); if (!isRecord(parsed)) return;
       for (const [sessionKey, runId] of Object.entries(parsed)) if (sessionKey && typeof runId === 'string' && runId.length > 0 && runId.length <= 256) { this.active.set(sessionKey, runId); this.phases.set(sessionKey, 'uncertain'); this.phaseRuns.set(sessionKey, runId); this.timings.set(sessionKey, { runId, startedAtMs: Date.now() }); }
     } catch { /* Invalid local recovery state is ignored. */ }
   }
-  clear() { this.active.clear(); this.submitting.clear(); this.phases.clear(); this.phaseRuns.clear(); this.timings.clear(); this.terminalSessions.clear(); this.liveFrameRevisions.clear(); this.confirmedStops.clear(); this.pendingStops.clear(); }
+  clear() { this.approvals.clear(); this.active.clear(); this.submitting.clear(); this.phases.clear(); this.phaseRuns.clear(); this.timings.clear(); this.terminalSessions.clear(); this.liveFrameRevisions.clear(); this.confirmedStops.clear(); this.pendingStops.clear(); }
 
   private rememberTerminal(sessionKey: string) {
     const evictedSessionKey = this.terminalSessions.store(sessionKey, true);

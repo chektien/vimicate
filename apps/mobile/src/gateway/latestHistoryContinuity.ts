@@ -79,7 +79,7 @@ function nativeContinuityEdge(retained: WorkspaceMessage[], latest: WorkspaceMes
   const first = latest.find(message => message.source === 'history' && message.sessionKey === sessionKey
     && message.transcriptSessionId && message.displayPosition);
   if (!first?.transcriptSessionId || !first.displayPosition) return null;
-  const retainedRawSeq = retained.reduce((maximum, message) => message.source === 'history'
+  const retainedRawSeq = retained.reduce((maximum, message) => (message.source === 'history' || message.source === 'live')
     && message.sessionKey === sessionKey
     && message.transcriptSessionId === first.transcriptSessionId
     && message.displayPosition?.source === first.displayPosition!.source

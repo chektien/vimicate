@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@shopify/flash-list@2.3.2': c05a8be63bb52878e614f513004792e40d96f38ade94f9b09f2b4e690cb15e64
+  '@shopify/flash-list@2.3.2': 49fbe764447410efbf36a68f4b1ca664c52d6fea18550e2082036dda3a3eb7fc
 
 importers:
 
@@ -13,7 +13,7 @@ importers:
     dependencies:
       '@shopify/flash-list':
         specifier: 2.3.2
-        version: 2.3.2(patch_hash=c05a8be63bb52878e614f513004792e40d96f38ade94f9b09f2b4e690cb15e64)(@babel/runtime@7.29.7)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
+        version: 2.3.2(patch_hash=49fbe764447410efbf36a68f4b1ca664c52d6fea18550e2082036dda3a3eb7fc)(@babel/runtime@7.29.7)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
       base64-js:
         specifier: ^1.5.1
         version: 1.5.1
@@ -3711,7 +3711,7 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@shopify/flash-list@2.3.2(patch_hash=c05a8be63bb52878e614f513004792e40d96f38ade94f9b09f2b4e690cb15e64)(@babel/runtime@7.29.7)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)':
+  '@shopify/flash-list@2.3.2(patch_hash=49fbe764447410efbf36a68f4b1ca664c52d6fea18550e2082036dda3a3eb7fc)(@babel/runtime@7.29.7)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)':
     dependencies:
       '@babel/runtime': 7.29.7
       react: 19.2.3

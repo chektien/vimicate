@@ -53,7 +53,8 @@ export function useGatewayFinalAnswerRecovery(dependencies: FinalAnswerRecoveryD
           steadyDelayMs: FINAL_ANSWER_STEADY_RECOVERY_DELAY_MS,
           wait: (milliseconds) => recoveryTasks.current.wait(recoveryKey, owner, milliseconds),
           shouldContinue: stillOwnsRecovery,
-          load: async ({ steady }) => (await loadHistory(sessionKey, 'preserve-review', false, steady)) ?? [],
+          // An unresolved final may land without any event, so every poll reads the source.
+          load: async () => (await loadHistory(sessionKey)) ?? [],
           isFinal: (latest) => {
             for (const pending of pendingRuns()) {
               const pendingRunId = pending.runId;

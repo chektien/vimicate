@@ -79,12 +79,18 @@ export function isClaudeCliCommentary(raw: Record<string, unknown>) {
 }
 
 /**
- * Harness-generated input stored in the user slot, such as Claude Code's
- * context-compaction summary (`provenance.kind: internal_system`). It is not
- * authored by the user, so it renders as a folded system notice.
+ * Harness input can occupy either conversation slot after native import.
+ * Explicit internal provenance, not the transport role or prose, determines
+ * its status presentation. Keep authored lookalikes as conversation.
  */
 export function internalSystemRole(raw: Record<string, unknown>) {
-  return raw.role === 'user' && record(raw.provenance).kind === 'internal_system' ? 'system' as const : null;
+  return (raw.role === 'user' || raw.role === 'assistant') && record(raw.provenance).kind === 'internal_system' ? 'system' as const : null;
+}
+
+/** The scheduler's full brief stays inspectable under one neutral headline. */
+export function internalSystemText(raw: Record<string, unknown>, text: string) {
+  return internalSystemRole(raw) && record(raw.provenance).sourceTool === 'cron'
+    ? `Scheduled run\n${text}` : text;
 }
 
 export function nativeTranscriptMetadata(raw: Record<string, unknown>) {

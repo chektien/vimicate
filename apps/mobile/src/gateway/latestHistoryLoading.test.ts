@@ -54,6 +54,31 @@ function setup(mode: 'latest' | 'older' = 'latest') {
 }
 
 describe('latest history loading publication', () => {
+  it('does not let a discarded publication suppress the next continuity bridge', async () => {
+    const { context, state, history } = setup();
+    const page = (seqs: number[], offset: number) => ({
+      sessionKey, sessionId: '00000000-0000-4000-8000-000000000117', hasMore: true, nextOffset: offset, totalMessages: 1000,
+      messages: seqs.map(seq => ({ role: 'user', content: `row ${seq}`,
+        __openclaw: { id: `row-${seq}`, transcriptPosition: { source: 'sqlite', rawSeq: seq } } })),
+    });
+    state.messages = messagesFromPayload(page([747], 80));
+    context.historyCache.current.store(sessionKey, state.messages);
+    context.latestTailCache.current.store(sessionKey, state.messages);
+    history.mockReset().mockImplementation(async (_key, _limit, offset) => offset === 0
+      ? page([804, 819, 826], 80) : page([747, 748, 786, 790, 792], 160));
+    const apply = context.setHistoryMessages;
+    const queued: Array<() => void> = [];
+    context.setHistoryMessages = (...args) => { queued.push(() => apply(...args)); };
+    const actions = createLatestHistoryActions(context);
+    await actions.loadHistory(sessionKey, 'reveal-current');
+    context.historySelectionRevision.current += 1;
+    queued.shift()!();
+    expect(state.messages.map(row => row.displayPosition?.rawSeq)).toEqual([747]);
+    await actions.loadHistory(sessionKey);
+    queued.shift()!();
+    expect(history.mock.calls.map(call => call[2])).toEqual([0, 0, 80]);
+    expect(state.messages.map(row => row.displayPosition?.rawSeq)).toContain(748);
+  });
   it('keeps both history and narration snapshots behind live subscription admission', async () => {
     const { context, history, actions } = setup();
     let subscribed!: () => void;

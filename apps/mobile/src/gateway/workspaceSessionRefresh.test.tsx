@@ -9,7 +9,7 @@ const probe = vi.hoisted(() => ({
   loadSessions: null as null | ReturnType<typeof import('./useGatewaySessionRefresh').useGatewaySessionRefresh>['loadSessions'],
   projectsPublished: vi.fn(), projectsRef: null as null | { current: unknown },
   census: vi.fn<(refreshDetails?: boolean) => Promise<Record<string, unknown>>>(), registry: vi.fn<() => Promise<Record<string, unknown>>>(),
-  truth: vi.fn<(key: string) => Promise<Record<string, unknown>>>(), patches: vi.fn(), patchGate: null as null | Promise<void>, history: vi.fn<(key: string) => Promise<Record<string, unknown>>>(), rows: [] as Record<string, unknown>[], revisions: {} as Record<string, number>,
+  truth: vi.fn<(key: string) => Promise<Record<string, unknown>>>(), patches: vi.fn(), patchGate: null as null | Promise<void>, history: vi.fn<(key: string) => Promise<Record<string, unknown>>>(), rows: [] as Record<string, unknown>[], revisions: {} as Record<string, number>, requests: [] as string[], healthFails: false, questionScope: false,
 }));
 vi.mock('react-native', () => ({ AppState: { currentState: 'active', addEventListener: (_: string, listener: (state: string) => void) => {
   probe.listeners.add(listener); return { remove: () => probe.listeners.delete(listener) };
@@ -29,10 +29,12 @@ vi.mock('./OpenClawClient', () => ({ OpenClawClient: class {
   constructor() { probe.client = this; }
   async connect() { this.connectionRevision++; this.status = 'connected'; this.onStatus('connected'); }
   disconnect() { this.connectionRevision++; this.status = 'idle'; this.onStatus('idle'); }
-  hasOperatorScope() { return false; }
+  hasOperatorScope(scope: string) { return probe.questionScope && scope === 'operator.questions'; }
   listSessions(refreshDetails = false) { return probe.census(refreshDetails); } readRegistry() { return probe.registry(); }
   readSessionRunTruth(key: string) { return probe.truth(key); }
   async request(method: string, params: Record<string, unknown>) {
+    probe.requests.push(method);
+    if (method === 'health' && probe.healthFails) throw new Error('request timed out');
     if (method !== 'sessions.patch') return {};
     probe.patches(params);
     if (probe.patchGate) await probe.patchGate;
@@ -68,7 +70,7 @@ beforeEach(async () => {
   probe.rows = ['a', 'b'].map(key => ({ key, sessionId: key === 'a' ? '00000000-0000-4000-8000-000000000001' : '00000000-0000-4000-8000-000000000002', unread: false, hasActiveRun: false, lastActivityAt: 100 }));
   probe.census.mockReset().mockImplementation(async () => snapshot()); probe.registry.mockReset().mockImplementation(async () => registry());
   probe.truth.mockReset().mockImplementation(async key => ({ session: probe.rows.find(row => row.key === key) }));
-  probe.revisions = {}; probe.patches.mockClear(); probe.patchGate = null; probe.history.mockReset().mockImplementation(async key => ({ sessionKey: key, sessionId: probe.rows.find(row => row.key === key)?.sessionId, messages: [{ id: `${key}-answer`, role: 'assistant', content: 'Ready' }] }));
+  probe.revisions = {}; probe.requests = []; probe.healthFails = false; probe.questionScope = false; probe.patches.mockClear(); probe.patchGate = null; probe.history.mockReset().mockImplementation(async key => ({ sessionKey: key, sessionId: probe.rows.find(row => row.key === key)?.sessionId, messages: [{ id: `${key}-answer`, role: 'assistant', content: 'Ready' }] }));
   function Component() { gateway = useGatewayWorkspace({ restorePersisted: false }); return null; }
   root = createRoot(document.createElement('div'));
   await act(async () => root.render(<Component />));
@@ -414,13 +416,14 @@ it('does not reread unchanged idle selected history on routine census', async ()
 
 it('keeps the socket through a transient inactive scene and catches up without reconnecting', async () => {
   const scene = async (state: string) => act(async () => { for (const listener of [...probe.listeners]) listener(state); await drain(); });
-  const revision = probe.client!.connectionRevision;
+  const revision = probe.client!.connectionRevision; probe.questionScope = true;
   await scene('inactive'); await scene('active');
   await act(async () => { await vi.advanceTimersByTimeAsync(10); await drain(); });
   expect(probe.client!.connectionRevision).toBe(revision);
   expect(probe.client!.status).toBe('connected');
-  expect(probe.registry).not.toHaveBeenCalled();
-  expect(probe.census).toHaveBeenCalledWith(false);
+  // Liveness proven, then dropped catalog and question state is rehydrated.
+  expect(probe.requests).toEqual(expect.arrayContaining(['health', 'question.list']));
+  expect(probe.registry).toHaveBeenCalledOnce();
   expect(probe.history).not.toHaveBeenCalled();
   probe.census.mockClear();
   await scene('inactive'); await scene('background');
@@ -428,4 +431,14 @@ it('keeps the socket through a transient inactive scene and catches up without r
   await scene('active');
   expect(probe.client!.connectionRevision).toBeGreaterThan(revision);
   expect(probe.registry).toHaveBeenCalled();
+});
+
+it('reconnects when the socket kept through an inactive scene is silently dead', async () => {
+  const scene = async (state: string) => act(async () => { for (const listener of [...probe.listeners]) listener(state); await drain(); });
+  const revision = probe.client!.connectionRevision;
+  probe.healthFails = true;
+  await scene('inactive'); await scene('active');
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); await drain(); });
+  expect(probe.client!.connectionRevision).toBeGreaterThan(revision);
+  expect(probe.client!.status).toBe('connected');
 });

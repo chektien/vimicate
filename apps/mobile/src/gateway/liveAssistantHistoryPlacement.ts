@@ -1,6 +1,19 @@
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { convergedTranscriptRepresentation } from './transcriptIdentityWall';
 
+export function sameRunAssistant(left: WorkspaceMessage, right: WorkspaceMessage) {
+  if (!compatibleTurnOwners(left, right)) return false;
+  if (left.asyncMessage || right.asyncMessage || left.asyncQuestion || right.asyncQuestion) return Boolean(left.asyncQuestion && left.asyncQuestion.itemId === right.asyncQuestion?.itemId);
+  return Boolean(left.runId && right.runId && left.runId === right.runId && left.role === 'assistant' && right.role === 'assistant');
+}
+
+export function richerLiveAssistant(candidate: WorkspaceMessage, liveRows: WorkspaceMessage[], placements: Map<WorkspaceMessage, WorkspaceMessage>) {
+  const live = candidate.state !== 'complete' && candidate.state !== 'error'
+    && liveRows.find(row => sameRunAssistant(candidate, row) && row.text.length > candidate.text.length);
+  if (live) placements.set(live, withCanonicalAssistantPlacement(placements.get(live) ?? live, candidate));
+  return live;
+}
+
 /** The reverse of history-after-live correlation: a canonical answer may be
  * published before the first chat final. Only the protocol's run-owned chat
  * identity plus its explicit prompt binding can establish that missing link.
@@ -50,10 +63,19 @@ export function correlateLiveAssistantsToCanonicalTurns(
     // frame still addresses that live ID. Defer this proven turn handoff until
     // history advances or completion establishes canonical authority.
     if (match.state === 'streaming' && candidate.state !== 'complete' && candidate.state !== 'error'
-      && match.text.startsWith(candidate.text)) return match;
+      && match.text.startsWith(candidate.text)) return withCanonicalAssistantPlacement(match, candidate);
     return convergedTranscriptRepresentation(candidate, match);
   });
   return { messages, consumed };
+}
+
+/** Keep canonical continuity proof on the retained live row, never in a separate cache. */
+export function withCanonicalAssistantPlacement(live: WorkspaceMessage, canonical: WorkspaceMessage): WorkspaceMessage {
+  if (canonical.source !== 'history' || !canonical.transcriptSessionId || !canonical.displayPosition
+    || !compatibleTurnOwners(live, canonical)) return live;
+  if (live.displayPosition && (live.displayPosition.source !== canonical.displayPosition.source
+    || live.displayPosition.rawSeq >= canonical.displayPosition.rawSeq)) return live;
+  return { ...live, transcriptSessionId: canonical.transcriptSessionId, displayPosition: canonical.displayPosition };
 }
 
 export function liveAssistantHistoryPlacement(

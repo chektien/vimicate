@@ -67,6 +67,8 @@ export function applySessionRegistryLifecycleSignal(registry: SessionRunRegistry
       registry.observePhase(signal.sessionKey, 'running', signal.runId);
       return true;
     }
+    // Active presence is not evidence that an approval was answered.
+    if (trackedPhase === 'needs-user') return false;
     return trackedRun || trackedPhase === 'uncertain' || trackedPhase === 'waiting' || trackedPhase === 'running'
       ? registry.observePhase(signal.sessionKey, 'running', signal.runId)
       : false;
@@ -79,7 +81,7 @@ export function applySessionRegistryLifecycleSignal(registry: SessionRunRegistry
     if (!signal.authoritativeNoActiveRun || !trackedRun) return false;
     return registry.observePhase(signal.sessionKey, signal.phase, trackedRun);
   }
-  return trackedRun || trackedPhase === 'uncertain' || trackedPhase === 'waiting' || trackedPhase === 'running'
+  return trackedRun || trackedPhase === 'uncertain' || trackedPhase === 'needs-user' || trackedPhase === 'waiting' || trackedPhase === 'running'
     ? registry.observePhase(signal.sessionKey, signal.phase, signal.runId)
     : false;
 }

@@ -290,17 +290,16 @@ describe('pending-final recovery task authority', () => {
 describe('repeat-launch recovery cost', () => {
   beforeEach(() => { vi.useFakeTimers(); background.tasks = []; });
   afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
-  it('checks an already exhausted obligation once, then reuses unchanged history at the steady cadence', async () => {
+  it('checks an already exhausted obligation once, then reads the source at the steady cadence', async () => {
     const context = setup([]);
     context.pending.register('one', 'stale', Date.now() - 60_000); context.pending.markExhausted('one', 'stale');
     context.history.resolve([]);
     context.controller.recoverPendingFinalAnswers();
     await vi.advanceTimersByTimeAsync(250);
     expect(context.dependencies.loadHistory).toHaveBeenCalledTimes(1);
-    expect(context.dependencies.loadHistory).toHaveBeenLastCalledWith('one', 'preserve-review', false, false);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(context.dependencies.loadHistory).toHaveBeenCalledTimes(2);
-    expect(context.dependencies.loadHistory).toHaveBeenLastCalledWith('one', 'preserve-review', false, true);
+    expect(context.dependencies.loadHistory).toHaveBeenLastCalledWith('one');
     expect(context.pending.owns('one', 'stale')).toBe(true);
   });
 });

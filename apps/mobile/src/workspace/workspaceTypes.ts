@@ -4,7 +4,7 @@ import { explicitSessionActivityTimestamp, sessionActivityTimestamp } from './se
 import { isHiddenWorkspaceSession } from './workspaceSessionVisibility';
 import { arrayAt, stringAt, numberAt, isRecord } from './workspacePayloadFields';
 export { semanticWorkspaceRole, workspaceRole } from './workspaceRole';
-export type WorkspaceRunPhase = 'submitting' | 'accepted' | 'running' | 'waiting' | 'completed' | 'failed' | 'uncertain';
+export type WorkspaceRunPhase = 'submitting' | 'accepted' | 'running' | 'waiting' | 'needs-user' | 'completed' | 'failed' | 'uncertain';
 export type WorkspaceProject = {
   id: string;
   sessionKey: string;
@@ -61,6 +61,10 @@ export type WorkspaceMessage = TranscriptMessageMetadata & {
   toolGroup?: { count: number; lastMessageId: string }; // Ephemeral display header, never canonical.
   tool?: { name: string; summary: string; durationMs?: number; skillName?: string; resultSucceeded?: true };
   attachments?: WorkspaceAttachment[];
+  /** Client-synthesized image-only import, not authored placeholder wording. */
+  stagedImagePlaceholder?: true;
+  /** Imported alias already represented by this image, preventing many-to-one hiding. */
+  stagedImageCounterpartId?: string;
   question?: QuestionRecord;
   approval?: { id: string; kind: 'exec' | 'plugin'; allowedDecisions: ApprovalDecision[]; resolved: boolean; expiresAtMs?: number; outcome?: 'allowed' | 'denied' | 'expired' | 'resolved-externally' };
   recovery?: { sourceMessageId: string; state: 'available' | 'loading' | 'failed' | 'unavailable' | 'recovered'; detail?: string };

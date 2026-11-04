@@ -46,7 +46,7 @@ export function compileTranscriptMarkdown(source: string) {
     }
     if (!trimmed || /^(?:\s*<br\s*\/?>)+\s*$/i.test(line)) return lineResult(line, 'blank', inlineGlyphs(line, 0));
     // CommonMark treats a whole-line HTML comment as an invisible HTML block.
-    if (/^\s*<!--.*-->\s*$/.test(line)) return lineResult(line, 'blank', []);
+    if (/^\s*(?:<!--(?:(?!-->).)*-->\s*)+$/.test(line)) return lineResult(line, 'blank', []);
     if (/^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) return lineResult(line, 'rule', []);
     if (isTableSeparator(trimmed)) return lineResult(line, 'rule', []);
     const tableSeparatorIndex = tables.separatorByLine[index] ?? -1;

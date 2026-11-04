@@ -22,7 +22,7 @@ describe('run lifecycle', () => {
 
   it('classifies authoritative wait results for shared status presentation', () => {
     expect(runPhaseForWaitResult({ status: 'done' })).toBe('completed');
-    expect(runPhaseForWaitResult({ status: 'timeout' })).toBe('waiting');
+    expect(runPhaseForWaitResult({ status: 'timeout' })).toBe('running');
     expect(runPhaseForWaitResult({ status: 'error', error: 'quota' })).toBe('failed');
     expect(runPhaseForWaitResult({ status: 'mystery' })).toBe('uncertain');
   });

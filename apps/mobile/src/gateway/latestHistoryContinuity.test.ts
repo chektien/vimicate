@@ -3,6 +3,7 @@ import type { OpenClawClient } from './OpenClawClient';
 import { completedNativeHistoryContinuity, retainedNativeHistoryWindow } from './latestHistoryContinuity';
 import { type WorkspaceMessage } from '../workspace/workspaceTypes';
 import { messagesFromPayload } from '../workspace/historyMessageProjection';
+import { mergeLatestHistory } from './historyPagination';
 
 const sessionKey = 'continuity';
 const generation = '00000000-0000-4000-8000-000000000117';
@@ -102,4 +103,16 @@ describe('native history continuity controls', () => {
     expect(retainedNativeHistoryWindow(retained, sessionKey, { source: 'sqlite', transcriptSessionId: generation, rawSeq: 804 }))
       .toEqual([otherSession, otherGeneration, otherSource, newer]);
   });
+});
+
+it.each([true, false])('preserves a retained live assistant canonical coordinate, runId=%s', async (hasRunId) => {
+  const prompt = { ...messagesFromPayload(page([747], null))[0]!, role: 'user' as const, text: 'work', id: 'prompt', runId: 'run-one' };
+  const canonical = { ...messagesFromPayload(page([803], null))[0]!, id: 'canonical', text: 'partial', ...(hasRunId ? { runId: 'run-one' } : {}) };
+  const live: WorkspaceMessage = { id: 'live-answer', role: 'assistant', sessionKey, source: 'live', text: 'partial plus latest bytes', state: 'streaming', runId: 'run-one' };
+  const merged = mergeLatestHistory([prompt, canonical], [prompt, live], sessionKey);
+  expect(merged.find(row => row.id === live.id)).toMatchObject({ ...live, displayPosition: canonical.displayPosition, transcriptSessionId: generation });
+  const { history, completed } = setup();
+  const client = { history, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient;
+  expect(await completedNativeHistoryContinuity(client, sessionKey, completed, merged, '', () => true)).toBe(completed);
+  expect(history).not.toHaveBeenCalled();
 });

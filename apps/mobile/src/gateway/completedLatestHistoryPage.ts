@@ -4,7 +4,7 @@ import { historyPageCompletesRun, runMissingCanonicalPrompt } from './historyTur
 import type { OpenClawClient } from './OpenClawClient';
 import { messagesFromPayload } from '../workspace/historyMessageProjection';
 import { completePendingInputSnapshot } from './pendingInputSnapshot';
-import type { RunPromptLookback } from './runPromptLookback';
+import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 
 export async function completedLatestHistoryPage(
   client: OpenClawClient,
@@ -12,7 +12,7 @@ export async function completedLatestHistoryPage(
   firstPayload: Record<string, unknown>,
   workspacePath: string,
   isCurrent: () => boolean,
-  lookback?: RunPromptLookback,
+  shouldLoadPromptContext: (messages: WorkspaceMessage[]) => boolean = () => true,
 ) {
   if (!isCurrent()) return null;
   let page = firstPayload;
@@ -22,13 +22,9 @@ export async function completedLatestHistoryPage(
   const pendingInputSnapshot = completePendingInputSnapshot(page, messages, sessionKey);
   let lookbackProblem = '';
   const missingRunId = runMissingCanonicalPrompt(messages);
-  if (!missingRunId) return { messages, cursor: publicCursor, lookbackProblem, pendingInputSnapshot };
-  const retainedOlder = lookback?.olderRows(sessionKey, missingRunId, messages);
-  if (retainedOlder) {
-    messages = coalesceTranscriptIdentities([...retainedOlder, ...messages]);
-    lookback!.record(sessionKey, missingRunId, messages);
-    return { messages, cursor: publicCursor, lookbackProblem, pendingInputSnapshot };
-  }
+  // The sizing owner can reject this raw candidate before optional network
+  // reads. Reuse this projection, and leave final combined admission to it.
+  if (!missingRunId || !shouldLoadPromptContext(messages)) return { messages, cursor: publicCursor, lookbackProblem, pendingInputSnapshot };
   for (let attempt = 0; attempt < 2 && lookbackCursor.hasMore && lookbackCursor.nextOffset !== null; attempt += 1) {
     try {
       page = await client.history(sessionKey, 80, lookbackCursor.nextOffset);
@@ -46,7 +42,6 @@ export async function completedLatestHistoryPage(
     messages = coalesceTranscriptIdentities([...older, ...messages]);
     if (historyPageCompletesRun(older, missingRunId)) break;
   }
-  if (historyPageCompletesRun(messages, missingRunId)) lookback?.record(sessionKey, missingRunId, messages);
   // Lookback rows make the newest run self-contained for publication, but
   // they do not consume pages from the reader's older-history traversal. The
   // bounded presentation window may omit some lookback rows; advancing the

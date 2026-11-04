@@ -2,12 +2,13 @@ import { liveNarrationInsertionIndex } from './liveNarrationPlacement';
 import { type WorkspaceMessage } from '../workspace/workspaceTypes';
 import { authoritativeHistoryChronology } from '../workspace/historyMessageProjection';
 import { sharedNarrationDisplayOrder } from '../workspace/historyDisplayOrder';
-import { coalesceTranscriptIdentities, convergedTranscriptRepresentation, retainingAbsorbedLiveIdentity, transcriptPublicationIdentity } from './transcriptIdentityWall';
+import { absorbedLiveMessageMatches, coalesceTranscriptIdentities, convergedTranscriptRepresentation, retainingAbsorbedLiveIdentity, transcriptPublicationIdentity } from './transcriptIdentityWall';
 import { pruneUnownedRestoredLiveRows } from './transcriptChronology';
-import { correlateLiveAssistantsToCanonicalTurns, embeddedTimestampMilliseconds, liveAssistantHistoryPlacement } from './liveAssistantHistoryPlacement';
+import { correlateLiveAssistantsToCanonicalTurns, embeddedTimestampMilliseconds, liveAssistantHistoryPlacement, richerLiveAssistant, sameRunAssistant } from './liveAssistantHistoryPlacement';
 import { reconcileCompletePendingInputSnapshot, type PendingInputSnapshotReconciliation } from './pendingInputSnapshot';
 import { provenClaudeNativeLive, reconcileClaudeNativeLive } from './claudeNativeLiveConvergence';
 import { assistantTextIsGatewayIncomplete } from './messageCompleteness';
+import { retainedHistoryRecords } from './retainedHistoryRecords';
 
 export type HistoryCursor = {
   sessionKey: string;
@@ -54,15 +55,9 @@ export function mergeLatestHistory(latest: WorkspaceMessage[], current: Workspac
   const local = localCandidates.filter((message) => !localReconciliation.consumed.has(message));
   const structuredLiveCandidates = current.filter((message) => message.source === 'live' && message.sessionKey === sessionKey && message.role !== 'assistant');
   const liveAssistants = current.filter((message) => message.source === 'live' && message.sessionKey === sessionKey && message.role === 'assistant');
-  const richerLiveAssistant = (candidate: WorkspaceMessage) => candidate.state !== 'complete' && candidate.state !== 'error'
-    && liveAssistants.find((live) => sameRunAssistant(candidate, live) && live.text.length > candidate.text.length);
-  const latestHistoryIDs = new Set(presentedLatest.map(transcriptPublicationIdentity));
-  // The newest page replaces overlapping durable rows. Retaining the earlier
-  // copy first would leave cumulative/final rows permanently stale. Narration
-  // can change message ID on canonicalization; the exact publication alias
-  // must also retire its old slot before native chronology is evaluated.
+  const livePlacements = new Map<WorkspaceMessage, WorkspaceMessage>();
   const canonicalHistory = authoritativeHistoryChronology(
-    [...earlier.filter((message) => !latestHistoryIDs.has(transcriptPublicationIdentity(message))), ...presentedLatest].filter((message) => !richerLiveAssistant(message)),
+    [...retainedHistoryRecords(earlier, presentedLatest), ...presentedLatest].filter((message) => !richerLiveAssistant(message, liveAssistants, livePlacements)),
     (message) => message.source === 'history',
   );
   const canonicalToolResults = new Set(canonicalHistory.flatMap((message) => {
@@ -111,7 +106,7 @@ export function mergeLatestHistory(latest: WorkspaceMessage[], current: Workspac
     localReconciliation.replacements,
     presentedLatest,
   );
-  return reconcileClaudeNativeLive(sharedNarrationDisplayOrder(deduplicated(insertLiveDetailAtRunFinals(withLiveAssistants, structuredLive, current, localReconciliation.replacements))), claudeMatches);
+  return reconcileClaudeNativeLive(sharedNarrationDisplayOrder(deduplicated(insertLiveDetailAtRunFinals(withLiveAssistants.map(row => livePlacements.get(row) ?? row), structuredLive, current, localReconciliation.replacements))), claudeMatches);
 }
 
 /** A fresh history page can still carry a Gateway display cap after message.get succeeded. */
@@ -190,6 +185,8 @@ function reconcileLatestLocalRows(latest: WorkspaceMessage[], durable: Workspace
       // colon-command spelling from an earlier local convergence. Preserve
       // that presentation while the newest Gateway row refreshes metadata.
       const refreshed = convergedTranscriptRepresentation(message, published);
+      if (message.stagedImagePlaceholder) refreshed.stagedImagePlaceholder = true;
+      else delete refreshed.stagedImagePlaceholder;
       // The fresh page owns the submitted media snapshot. The retained copy
       // may contain an old local+managed union persisted by an earlier client;
       // preserve authored text/position without carrying that union forward.
@@ -214,11 +211,6 @@ function sameDurableUserIdentity(left: WorkspaceMessage, right: WorkspaceMessage
   if (right.source !== 'history' || right.role !== 'user') return false;
   if (left.id === right.id) return true;
   return Boolean(left.idempotencyKey && right.idempotencyKey && sameSubmissionIdentity(left.idempotencyKey, right.idempotencyKey));
-}
-
-function sameRunAssistant(left: WorkspaceMessage, right: WorkspaceMessage) {
-  if (left.asyncMessage || right.asyncMessage || left.asyncQuestion || right.asyncQuestion) return Boolean(left.sessionKey === right.sessionKey && left.asyncQuestion && left.asyncQuestion.itemId === right.asyncQuestion?.itemId);
-  return Boolean(left.runId && right.runId && left.runId === right.runId && left.role === 'assistant' && right.role === 'assistant');
 }
 
 function insertLocalPromptsAtPublishedPositions(canonical: WorkspaceMessage[], local: WorkspaceMessage[], previous: WorkspaceMessage[], replacements: ReadonlyMap<WorkspaceMessage, WorkspaceMessage>) {
@@ -398,6 +390,10 @@ function precedingPublishedAnchorIndex(result: WorkspaceMessage[], previous: Wor
 
 function samePublicationIdentity(left: WorkspaceMessage, right: WorkspaceMessage) {
   if (left.id === right.id) return true;
+  // Canonicalization retires the live answer's ID but retains its proven
+  // alias. A follow-up already painted after that answer must anchor to the
+  // replacement, not fall back to the preceding prompt while history lags.
+  if (absorbedLiveMessageMatches(left, right)) return true;
   return Boolean(left.role === right.role
     && left.idempotencyKey && right.idempotencyKey
     && sameSubmissionIdentity(left.idempotencyKey, right.idempotencyKey));

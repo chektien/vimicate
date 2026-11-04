@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
-import { correlateLiveAssistantsToCanonicalTurns } from './liveAssistantHistoryPlacement';
+import { correlateLiveAssistantsToCanonicalTurns, withCanonicalAssistantPlacement } from './liveAssistantHistoryPlacement';
 
 const prompt: WorkspaceMessage = { id: 'p', role: 'user', text: 'request', source: 'history',
   sessionKey: 's', transcriptSessionId: 'g1', runId: 'r1', idempotencyKey: 'p:user', timestamp: '1788265860000' };
@@ -9,6 +9,9 @@ const oldLive: WorkspaceMessage = { id: 'live-chat-r1', role: 'assistant', text:
 const answer: WorkspaceMessage = { ...oldLive, id: 'new-answer', source: 'history', text: 'same prefix' };
 
 describe('canonical turn ownership', () => {
+  it.each([{ sessionKey: 'other' }, { transcriptSessionId: 'g2' }, { runId: 'r2' }])('never borrows a continuity coordinate across conflicting owners %j', (scope) => {
+    expect(withCanonicalAssistantPlacement(oldLive, { ...answer, ...scope, displayPosition: { source: 'sqlite', rawSeq: 803 } })).toBe(oldLive);
+  });
   it.each([
     { transcriptSessionId: 'g2', runId: 'r2' },
     { sessionKey: 'other' },

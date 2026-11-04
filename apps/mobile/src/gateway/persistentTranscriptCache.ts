@@ -79,6 +79,8 @@ function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): Workspa
     ...(message.role === 'user' && transcriptInputReceiptRunId(message.inputReceiptRunId) ? { inputReceiptRunId: message.inputReceiptRunId } : {}),
     ...(message.displayPosition ? { displayPosition: message.displayPosition } : {}),
     ...(cliProvenance ? { cliProvenance } : {}),
+    ...(message.stagedImagePlaceholder === true && message.role === 'user' && cliProvenance?.kind === 'claude-native' ? { stagedImagePlaceholder: true as const } : {}),
+    ...(message.role === 'user' && message.stagedImageCounterpartId ? { stagedImageCounterpartId: message.stagedImageCounterpartId } : {}),
     ...(message.source === 'live' && message.steerSealed ? { steerSealed: true } : {}),
     ...(message.source === 'live' && message.role === 'assistant' && message.claudeNativeFullText
       && message.claudeNativeFullText.length <= textLimit ? { claudeNativeFullText: message.claudeNativeFullText } : {}),
@@ -117,6 +119,8 @@ function parsedMessage(value: unknown): WorkspaceMessage[] {
     ...(value.role === 'user' && transcriptInputReceiptRunId(value.inputReceiptRunId) ? { inputReceiptRunId: value.inputReceiptRunId as string } : {}),
     ...(displayPosition ? { displayPosition } : {}),
     ...(cliProvenance ? { cliProvenance } : {}),
+    ...(value.stagedImagePlaceholder === true && value.role === 'user' && cliProvenance?.kind === 'claude-native' ? { stagedImagePlaceholder: true as const } : {}),
+    ...(value.role === 'user' && typeof value.stagedImageCounterpartId === 'string' && value.stagedImageCounterpartId.length <= 2048 ? { stagedImageCounterpartId: value.stagedImageCounterpartId } : {}),
     ...(source === 'live' && value.steerSealed === true ? { steerSealed: true } : {}),
     ...(source === 'live' && value.role === 'assistant' && typeof value.claudeNativeFullText === 'string'
       && value.claudeNativeFullText.length <= CACHE_TEXT_LIMIT && value.claudeNativeFullText.endsWith(value.text)

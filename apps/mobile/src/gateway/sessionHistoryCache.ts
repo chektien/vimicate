@@ -4,6 +4,7 @@ import { BoundedSessionCache } from '../workspace/boundedSessionCache';
 import { coalesceTranscriptIdentities } from './transcriptIdentityWall';
 
 export class SessionHistoryCache {
+  onPublication: ((sessionKey: string, rows: WorkspaceMessage[]) => void) | undefined;
   private readonly listeners = new Set<() => void>();
   private notificationPending = false;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
@@ -18,6 +19,7 @@ export class SessionHistoryCache {
     const previous = this.values.restore(sessionKey);
     if (previous && sameTranscriptPublication(previous, next)) return;
     this.values.store(sessionKey, next);
+    this.onPublication?.(sessionKey, next);
     // Cache writes can occur inside React's history updater. Notify after the
     // transaction, coalesced once, never update another component during render.
     if (this.listeners.size && !this.notificationPending) {

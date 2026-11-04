@@ -14,10 +14,10 @@ import { conversationalToolProtocol } from '../tooling/embeddedToolProtocol';
 import { historyDisplayOrder } from './historyDisplayOrder';
 import { claudeOversizedRecordContent } from './claudeOversizedRecord';
 import { semanticWorkspaceRole, workspaceRole } from './workspaceRole';
-import { internalSystemRole, isClaudeCliCommentary, nativeTranscriptMetadata, nativeTranscriptMedia, transcriptSessionIdentity } from './transcriptMetadata';
+import { internalSystemRole, internalSystemText, isClaudeCliCommentary, nativeTranscriptMetadata, nativeTranscriptMedia, transcriptSessionIdentity } from './transcriptMetadata';
 import type { WorkspaceAttachment, WorkspaceMessage } from './workspaceTypes';
 import { arrayAt, stringAt, numberAt, isRecord } from './workspacePayloadFields';
-import { withoutClaudeStagedImageReferences } from './claudeStagedImageReferences';
+import { withoutRedundantStagedImagePlaceholders, withoutClaudeStagedImageReferences } from './claudeStagedImageReferences';
 
 export function messagesFromPayload(payload: Record<string, unknown>, workspacePath = ''): WorkspaceMessage[] {
   const pendingRows = queuedInputRows(payload);
@@ -28,11 +28,12 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
   const callActivities = toolCallActivityIndex(rows); const joinedPrompts = new Map<WorkspaceMessage, string[]>(); const asyncPrompts = rows.flatMap(row => isRecord(row) ? asyncQuestionMetadata(row).asyncQuestion ?? [] : []).slice(-128);
   const projected = rows.flatMap<WorkspaceMessage>((wire) => {
     if (!isRecord(wire)) return [];
-    const raw = withoutClaudeStagedImageReferences(wire);
+    const { raw, placeholder } = withoutClaudeStagedImageReferences(wire);
+    const internalRole = internalSystemRole(raw);
     const fallback = isRecord(raw.openclawStreamFallback) ? raw.openclawStreamFallback : {};
-    const narrationItemId = raw.role === 'assistant' && fallback.source === 'segment'
+    const narrationItemId = !internalRole && raw.role === 'assistant' && fallback.source === 'segment'
       && typeof fallback.itemId === 'string' && fallback.itemId.length > 0 && fallback.itemId.length <= 256 ? fallback.itemId : undefined;
-    const declaredRole = narrationItemId || isClaudeCliCommentary(raw) ? 'narration' : internalSystemRole(raw) ?? workspaceRole(stringAt(raw, ['role', 'kind', 'type']));
+    const declaredRole = internalRole ?? (narrationItemId || isClaudeCliCommentary(raw) ? 'narration' : workspaceRole(stringAt(raw, ['role', 'kind', 'type'])));
     const content = claudeOversizedRecordContent(raw);
     const extractedText = extractText(content);
     const compactionBoundary = isCompactionControlMessage(extractedText);
@@ -49,12 +50,13 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
     const embedded = conversationalToolProtocol(role, extractedText);
     const activities = inferred ? [inferred] : [...structured, ...(embedded?.activities ?? [])];
     const text = compactionBoundary ? '--- compaction ---'
+      : internalRole ? internalSystemText(raw, extractedText)
       : role === 'user' ? displayedCommandTextFromWire(strippedUserPromptEnvelope(extractedText)) : embedded?.prose ?? extractedText;
     // A tool result often prints source code or Markdown that merely mentions
     // images. Those strings are read-only tool output, not transcript media.
     // Keep genuine structured image blocks, but only scan prose rows for
     // Markdown/MEDIA/path attachments.
-    const extractedAttachments = extractAttachments(raw, workspacePath, role !== 'tool' && !isInternalExecutionNotice(raw) && !isSessionNotice(raw));
+    const extractedAttachments = extractAttachments(raw, workspacePath, role !== 'tool' && !internalRole && !isInternalExecutionNotice(raw) && !isSessionNotice(raw));
     const assistantContent = role === 'assistant'
       ? projectAssistantProtocolContent(text, extractedAttachments, true)
       : { text, attachments: extractedAttachments };
@@ -99,13 +101,14 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
       ...(index === 0 && narrationItemId ? { narrationItemId } : {}),
       ...(index === 0 && idempotencyKey ? { idempotencyKey } : {}),
       ...(index === 0 && attachments.length ? { attachments } : {}),
+      ...(index === 0 && placeholder ? { stagedImagePlaceholder: true as const } : {}),
       ...(index === 0 && recovery ? { recovery } : {}),
     })).map((row, index) => index === 0 ? projectSessionNotice(projectExecutionNotice(row, raw), raw) : row);
     const joined = role === 'user' ? joinedUserPromptEnvelopes(extractedText) : null;
     if (joined && projectedRows[0]) joinedPrompts.set(projectedRows[0], joined.map(displayedCommandTextFromWire));
     return projectedRows;
   });
-  return compactEmptyConversationBoundaries(authoritativeHistoryChronology(withoutJoinedQueuedInputs(projected, joinedPrompts)));
+  return compactEmptyConversationBoundaries(authoritativeHistoryChronology(withoutRedundantStagedImagePlaceholders(withoutJoinedQueuedInputs(projected, joinedPrompts))));
 }
 
 /** Accepted steer inputs stay outside OpenClaw's model history until their turn runs. */

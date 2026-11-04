@@ -222,3 +222,9 @@ describe('HTML comment lines', () => {
     expect(compiled[6]?.kind).toBe('paragraph');
   });
 });
+
+it('does not hide visible text between two comments on one line', () => {
+  const compiled = compileTranscriptMarkdown('<!-- a -->Important answer<!-- b -->\n<!-- a --> <!-- b -->');
+  expect(compiled[0]?.kind).toBe('paragraph');
+  expect(compiled[1]).toMatchObject({ kind: 'blank', glyphs: [] });
+});

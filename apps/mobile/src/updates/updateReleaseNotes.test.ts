@@ -6,13 +6,13 @@ describe('OTA update release notes', () => {
     expect(updateReleaseNotesFromManifest({
       extra: {
         vimicateUpdate: {
-          title: 'Transcript stability',
-          fixes: [' Stable live rows ', 'No render-loop crash'],
+          title: 'Stable transcript row layout',
+          fixes: [' Keep wrapped replies and tool rows separated after history updates '],
         },
       },
     })).toEqual({
-      title: 'Transcript stability',
-      fixes: ['Stable live rows', 'No render-loop crash'],
+      title: 'Stable transcript row layout',
+      fixes: ['Keep wrapped replies and tool rows separated after history updates'],
     });
   });
 

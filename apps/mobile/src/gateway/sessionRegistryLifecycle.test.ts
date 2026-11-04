@@ -184,3 +184,12 @@ it('captures retained terminal routes so an older frame revision does not block 
   expect(applySessionRegistryLifecycleSignal(registry, { sessionKey: 'live', runId: 'new', phase: 'running' }, request)).toBe(true);
   expect(registry.runFor('live')).toBe('new');
 });
+
+it('does not infer approval resolution from a positive same-run census', () => {
+  const registry = new SessionRunRegistry(); registry.registerRun('live', 'r1');
+  registry.observePhase('live', 'needs-user', 'r1');
+  expect(applySessionRegistryLifecycleSignal(registry, { sessionKey: 'live', runId: 'r1', phase: 'running' })).toBe(false);
+  expect(registry.phaseFor('live')).toBe('needs-user');
+  expect(applySessionRegistryLifecycleSignal(registry, { sessionKey: 'live', runId: 'r2', phase: 'running' })).toBe(true);
+  expect(registry.phaseFor('live')).toBe('running');
+});

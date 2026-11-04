@@ -1,3 +1,4 @@
+import { withoutRedundantStagedImagePlaceholders } from '../workspace/claudeStagedImageReferences';
 import type { WorkspaceAttachment, WorkspaceMessage } from '../workspace/workspaceTypes';
 import { assistantTextIsGatewayTruncated } from './messageCompleteness';
 import { preferredToolSummary } from '../tooling/toolActivity';
@@ -24,7 +25,7 @@ export function coalesceTranscriptIdentities(messages: WorkspaceMessage[]) {
     coalesceByIdentity(identifyCanonicalNarrationAliases(identifyNarrationMessageOwners(rejectConflictingNarrationIDs(messages))), messageIdentity),
     transcriptPublicationIdentity,
   );
-  return reconcilePendingInputAliases(identified);
+  return withoutRedundantStagedImagePlaceholders(reconcilePendingInputAliases(identified));
 }
 
 /**
@@ -306,6 +307,7 @@ export function convergedTranscriptRepresentation(left: WorkspaceMessage, right:
     ...(tool ? { tool } : {}),
     ...(preferred.recovery || alternate.recovery ? { recovery: preferred.recovery ?? alternate.recovery } : {}),
   };
+  if (!preferred.stagedImagePlaceholder) delete converged.stagedImagePlaceholder;
   // The caller has already established one identity/turn. Remember the exact
   // absorbed live ID so a delayed replay cannot become a new row after its
   // canonical replacement. Never infer this relation from equal text here.

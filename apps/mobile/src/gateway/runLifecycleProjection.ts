@@ -2,7 +2,7 @@ import type { GatewayFrame } from './gatewayEvents';
 import type { SessionRunPhase, SessionRunRegistry } from './sessionRunRegistry';
 import { isAssistantProjectionDiagnostic } from './gatewayDiagnosticProjection';
 
-export type RunLifecycleSignal = { sessionKey: string; runId: string; phase: SessionRunPhase; startedAtMs?: number; endedAtMs?: number; durationMs?: number };
+export type RunLifecycleSignal = { sessionKey: string; runId: string; phase: SessionRunPhase; approvalResolved?: boolean; startedAtMs?: number; endedAtMs?: number; durationMs?: number };
 
 /**
  * Bind only non-terminal session activity to an already-authoritative active
@@ -19,6 +19,9 @@ export function bindRunLifecycleSignal(signal: RunLifecycleSignal | null, active
 /** A terminal chat frame settles only a run already owned by this session. */
 export function ownedRunLifecycleSignal(signal: RunLifecycleSignal | null, registry: SessionRunRegistry) {
   if (!signal) return null;
+  if ((signal.phase === 'running' || signal.phase === 'waiting') && !signal.approvalResolved
+    && registry.phaseFor(signal.sessionKey) === 'needs-user'
+    && (!signal.runId || registry.ownsRun(signal.sessionKey, signal.runId))) return null;
   return (signal.phase === 'completed' || signal.phase === 'failed')
     && !registry.ownsRun(signal.sessionKey, signal.runId) ? null : signal;
 }
@@ -43,11 +46,13 @@ export function runLifecycleSignalForGatewayFrame(frame: GatewayFrame): RunLifec
     const stream = text(payload.stream).toLocaleLowerCase(); const phase = text(data.phase).toLocaleLowerCase();
     if (stream === 'error' || phase === 'error' || phase === 'failed') return { sessionKey, runId, phase: isAssistantProjectionDiagnostic(printable(data)) ? 'uncertain' : 'failed', ...timing };
     if (stream === 'lifecycle' && ['end', 'done', 'complete', 'completed'].includes(phase)) return { sessionKey, runId, phase: 'completed', ...timing };
-    if (phase === 'waiting' || phase === 'approval') return { sessionKey, runId, phase: 'waiting', ...timing };
+    if (phase === 'approval') return { sessionKey, runId, phase: 'needs-user', ...timing };
+    if (phase === 'waiting') return { sessionKey, runId, phase: 'waiting', ...timing };
     if (['tool', 'item', 'lifecycle', 'fallback'].includes(stream)) return { sessionKey, runId, phase: 'running', ...timing };
   }
-  if (event.endsWith('.approval.requested')) return { sessionKey, runId, phase: 'waiting' };
-  if (event.endsWith('.approval.resolved')) return { sessionKey, runId, phase: 'running' };
+  // Approval requests are rendered from accepted identity-aware approval rows.
+  // A raw replay must not resurrect a request already resolved in that owner.
+  if (event.endsWith('.approval.resolved')) return { sessionKey, runId, phase: 'running', approvalResolved: true };
   if (event.endsWith('.run.started')) return { sessionKey, runId, phase: 'running' };
   if (event.endsWith('.run.completed')) return { sessionKey, runId, phase: 'completed' };
   if (event.endsWith('.run.failed')) return { sessionKey, runId, phase: 'failed' };

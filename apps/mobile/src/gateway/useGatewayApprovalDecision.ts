@@ -40,6 +40,7 @@ export function useGatewayApprovalDecision({ client, selectedRef, runRegistry, u
       if (!scenePublicationAuthority.current.owns(activityRevision)) return false;
       const failed = messageAfterApprovalDecisionFailure(message, error);
       if (failed !== message) {
+        runRegistry.current.approvals.observe(sessionKey, [failed]);
         updateSessionMessages(sessionKey, approvalDecisionFailureAction(message, error));
         if (message.runId) runRegistry.current.markRunUncertain(sessionKey, message.runId);
         persistRuns(); publishSelectedRun(sessionKey);
@@ -48,7 +49,9 @@ export function useGatewayApprovalDecision({ client, selectedRef, runRegistry, u
       return false;
     }
     if (!scenePublicationAuthority.current.owns(activityRevision)) return false;
+    runRegistry.current.approvals.observe(sessionKey, approvalDecisionAction(message, decision)([message]));
     updateSessionMessages(sessionKey, approvalDecisionAction(message, decision));
+    publishSelectedRun(sessionKey);
     // A refresh failure is not a failure of the decision already accepted.
     try { await loadPendingApprovals(sessionKey); }
     catch (error) {

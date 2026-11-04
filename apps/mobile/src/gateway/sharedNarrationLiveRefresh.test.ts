@@ -3,15 +3,16 @@ import { LiveMessagePublicationTimers } from './liveMessagePublication';
 import { scheduleSharedNarrationRefresh } from './sharedNarrationLiveRefresh';
 
 describe('active shared-narration refresh', () => {
-  it('coalesces rapid preambles and refreshes the owning session once', () => {
+  it('coalesces a streaming preamble run into one non-extending two-second refresh', () => {
     vi.useFakeTimers();
     const timers = new LiveMessagePublicationTimers();
     const refresh = vi.fn(async () => undefined);
     const narration = { id: 'pre', role: 'narration' as const, text: 'checking' };
 
     expect(scheduleSharedNarrationRefresh(timers, narration, 'one', refresh)).toBe(true);
-    expect(scheduleSharedNarrationRefresh(timers, narration, 'one', refresh)).toBe(true);
-    vi.advanceTimersByTime(120);
+    for (let i = 0; i < 6; i++) { vi.advanceTimersByTime(300); expect(scheduleSharedNarrationRefresh(timers, narration, 'one', refresh)).toBe(true); }
+    expect(refresh).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
 
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(refresh).toHaveBeenCalledWith('one');
@@ -36,7 +37,7 @@ describe('active shared-narration refresh', () => {
       refresh,
       failure,
     )).toBe(true);
-    vi.advanceTimersByTime(120);
+    vi.advanceTimersByTime(2000);
     await Promise.resolve();
     await Promise.resolve();
 

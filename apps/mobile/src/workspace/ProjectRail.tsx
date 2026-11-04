@@ -10,6 +10,8 @@ import { projectHierarchyMeta, projectParentLabel } from './projectHierarchyPres
 import { PROJECT_CARD_LEFT_INSET, PROJECT_RAIL_LIST_LEFT_INSET, projectCardRightInset } from '../layout/projectRailGeometry';
 import { PROJECT_RAIL_HEADER_ICON_SIZES, projectSortIconColor } from './projectRailHeaderPresentation';
 import { useActiveInterval } from '../lifecycle/useActiveInterval';
+import { ProjectRunDot } from './ProjectRunDot';
+import { useProjectRunPulse } from './useProjectRunPulse';
 import { pendingQuestionLabel } from '../questions/pendingQuestionPresentation';
 
 type ProjectRailProps = {
@@ -27,13 +29,23 @@ type ProjectRailProps = {
   onToggleFold: (key: string) => void;
   onToggleStar: (key: string) => void;
   onRefresh: () => void;
+  visible?: boolean;
   compactDrawer?: boolean;
   onClose?: (() => void) | undefined;
 };
 
-export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focused, fontScale, reflowSuppressed, sortMode, collapsedRootKeys, onToggleSort, onSelect, onToggleFold, onToggleStar, onRefresh, compactDrawer = false, onClose }: ProjectRailProps) {
+export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focused, fontScale, reflowSuppressed, sortMode, collapsedRootKeys, onToggleSort, onSelect, onToggleFold, onToggleStar, onRefresh, compactDrawer = false, visible = true, onClose }: ProjectRailProps) {
   const list = useRef<FlatList<WorkspaceProject>>(null);
   const visibleRange = useRef<ProjectRailVisibleRange>(null);
+  const [visibleKeys, setVisibleKeys] = useState<ReadonlySet<string>>(new Set());
+  const pulse = useProjectRunPulse(visible && projects.some(project => visibleKeys.has(project.sessionKey) && projectRunGlyph(project.runPhase)?.tone === 'running'));
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<WorkspaceProject>[] }) => {
+    const items = viewableItems.filter(item => item.isViewable);
+    const indices = items.flatMap(item => item.index === null ? [] : [item.index]);
+    visibleRange.current = indices.length ? { first: Math.min(...indices), last: Math.max(...indices) } : null;
+    const keys = new Set(items.map(item => item.item.sessionKey));
+    setVisibleKeys(previous => previous.size === keys.size && [...keys].every(key => previous.has(key)) ? previous : keys);
+  }, []);
   const focusedIndex = projects.findIndex((project) => project.sessionKey === focusedKey);
   const activeRootKey = projects.find((project) => project.sessionKey === activeKey)?.rootSessionKey;
   const groupTints = useMemo(() => workspaceGroupTintMap(projects.map((project) => project.group || project.projectName || '').filter(Boolean)), [projects]);
@@ -65,10 +77,7 @@ export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focus
         keyExtractor={(project) => project.id}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="always"
-        onViewableItemsChanged={({ viewableItems }: { viewableItems: ViewToken<WorkspaceProject>[] }) => {
-          const indices = viewableItems.flatMap((item) => item.index === null ? [] : [item.index]);
-          visibleRange.current = indices.length ? { first: Math.min(...indices), last: Math.max(...indices) } : null;
-        }}
+        onViewableItemsChanged={onViewableItemsChanged}
         onScrollToIndexFailed={({ index, averageItemLength }) => {
           list.current?.scrollToOffset({ offset: Math.max(0, index * Math.max(34, averageItemLength)), animated: false });
           requestAnimationFrame(() => list.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 }));
@@ -86,7 +95,7 @@ export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focus
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                accessibilityLabel={`${project.name}, ${parentLabel ? `thread in ${parentLabel}` : 'project'}, ${projectRunLabel(project.runPhase)}${questionLabel ? `, ${questionLabel}` : ''}`}
+                accessibilityLabel={`${project.name}, ${parentLabel ? `thread in ${parentLabel}` : 'project'}, ${projectRunLabel(project.runPhase)}${!projectRunGlyph(project.runPhase) && project.unread ? ', unread output' : ''}${questionLabel ? `, ${questionLabel}` : ''}`}
                 onPress={() => onSelect(project.sessionKey)}
                 style={[styles.rowSelect, { paddingRight: projectCardRightInset(project.kind === 'thread') }, sortMode === 'manual' && project.kind === 'thread' && styles.threadRowSelect]}
               >
@@ -95,7 +104,7 @@ export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focus
                 <View style={[styles.rowBody, project.kind !== 'thread' && styles.rootRowBody]}>
                   <View style={styles.nameLine}>
                     <Text numberOfLines={1} style={[styles.name, workspaceFontMetrics(11, fontScale), project.kind === 'thread' && styles.threadName, cursor && styles.cursorText]}>{project.name.toLowerCase()}</Text>
-                    <ProjectRunDot project={project} />
+                    <ProjectRunDot project={project} opacity={pulse} />
                     {questionLabel ? <Text accessible={false} style={[styles.questionGlyph, workspaceFontMetrics(type.sizeSm, fontScale), cursor && styles.cursorText]}>{'↩\uFE0E'}</Text> : null}
                   </View>
                   {project.path && !project.path.endsWith(project.name) && sortMode === 'manual' ? <Text numberOfLines={1} style={[styles.detail, workspaceFontMetrics(8, fontScale), cursor && styles.cursorMuted]}>{project.path}</Text> : null}
@@ -132,13 +141,6 @@ function ManualAllHeader({ count, fontScale }: { count: number; fontScale: numbe
   return <View style={styles.section}><Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={[styles.sectionTitle, workspaceFontMetrics(11, fontScale)]}>⌄ all projects</Text><Text numberOfLines={1} style={[styles.sectionCount, workspaceFontMetrics(9, fontScale)]}>{count}</Text></View>;
 }
 
-function ProjectRunDot({ project }: { project: WorkspaceProject }) {
-  const glyph = projectRunGlyph(project.runPhase);
-  if (glyph) return <Text accessibilityLabel={`Run ${glyph.label}`} style={[styles.runGlyph, styles[glyph.tone]]}>{glyph.symbol}</Text>;
-  if (project.unread) return <View accessibilityLabel="Unread output" style={[styles.dot, styles.unread]} />;
-  return <View style={styles.dot} />;
-}
-
 function relativeAge(timestamp: number, now: number) {
   const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
   if (seconds < 60) return 'now';
@@ -166,5 +168,5 @@ const styles = StyleSheet.create({
   threadRow: { minHeight: 32, marginLeft: 12, backgroundColor: colors.canvas }, threadDisclosure: { color: colors.borderStrong }, threadName: { fontSize: 11, fontWeight: '600' },
   rowSelect: { flex: 1, minWidth: 0, overflow: 'hidden', flexDirection: 'row', alignItems: 'flex-start', paddingLeft: PROJECT_CARD_LEFT_INSET, paddingVertical: 7 }, threadRowSelect: { paddingVertical: 4 }, ordinal: { flexShrink: 0, paddingTop: 1, color: colors.faint, fontFamily: type.mono, fontSize: 10, fontWeight: '700', textAlign: 'right' }, disclosure: { width: 14, color: colors.faint, fontFamily: type.mono, fontSize: 11, textAlign: 'center' }, rowBody: { flex: 1, minWidth: 0, overflow: 'hidden' }, rootRowBody: { paddingRight: 30 },
   nameLine: { flexDirection: 'row', alignItems: 'center', minWidth: 0, overflow: 'hidden' }, name: { flex: 1, minWidth: 0, color: colors.ink, fontFamily: type.mono, fontSize: 11, fontWeight: '700' }, cursorText: { color: colors.canvas }, cursorMuted: { color: '#353733' }, starButton: { position: 'absolute', right: 1, top: 1, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }, star: { color: colors.orange, fontFamily: type.mono, fontSize: 15, lineHeight: 20, textAlign: 'center' }, detail: { flexShrink: 1, minWidth: 0, color: colors.inkMuted, fontFamily: type.mono, fontSize: 8, marginTop: 2 }, metaLine: { minHeight: 13, minWidth: 0, overflow: 'hidden', marginTop: 2, flexDirection: 'row', alignItems: 'center', gap: 5 }, metaSpacer: { flex: 1, minWidth: 0 }, groupPill: { maxWidth: 74, flexShrink: 1, overflow: 'hidden', paddingHorizontal: 5, borderWidth: 1, borderRadius: 7, fontFamily: type.mono, fontSize: 7.5, fontWeight: '700' }, groupPillCursor: { color: colors.canvas, borderColor: colors.canvas, backgroundColor: colors.activeAccent }, meta: { flexShrink: 1, minWidth: 0, color: colors.yellow, fontFamily: type.mono, fontSize: 8, fontWeight: '700' }, age: { flexShrink: 0, color: colors.faint, fontFamily: type.mono, fontSize: 8, fontWeight: '700' },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'transparent', marginLeft: 5 }, unread: { backgroundColor: colors.blue }, runGlyph: { width: 10, marginLeft: 4, fontFamily: type.mono, fontSize: 9, lineHeight: 12, fontWeight: '800', textAlign: 'center' }, running: { color: colors.orange }, waiting: { color: colors.yellow }, uncertain: { color: colors.yellow }, failed: { color: colors.red }, dim: { position: 'absolute', inset: 0, backgroundColor: 'rgba(29,32,33,0.18)' },
+  dim: { position: 'absolute', inset: 0, backgroundColor: 'rgba(29,32,33,0.18)' },
 });

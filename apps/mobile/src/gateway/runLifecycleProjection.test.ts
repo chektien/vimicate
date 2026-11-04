@@ -10,7 +10,7 @@ describe('gateway run lifecycle projection', () => {
   });
 
   it('classifies approvals and errors without activity-age inference', () => {
-    expect(runLifecycleSignalForGatewayFrame({ event: 'exec.approval.requested', payload: { request: { sessionKey: 'one' }, runId: 'r1' } })?.phase).toBe('waiting');
+    expect(runLifecycleSignalForGatewayFrame({ event: 'exec.approval.requested', payload: { request: { sessionKey: 'one' }, runId: 'r1' } })).toBeNull();
     expect(runLifecycleSignalForGatewayFrame({ event: 'agent', payload: { sessionKey: 'one', runId: 'r1', stream: 'error', data: {} } })?.phase).toBe('failed');
   });
 
@@ -47,4 +47,17 @@ describe('gateway run lifecycle projection', () => {
     expect(bindRunLifecycleSignal(ownerlessCompletion, 'newer-run')).toBeNull();
     expect(bindRunLifecycleSignal(ownerlessProgress, 'newer-run')).toEqual({ sessionKey: 'one', runId: 'newer-run', phase: 'running' });
   });
+});
+
+it('keeps approval attention through ordinary activity until an explicit resolution or terminal event', () => {
+  const registry = new SessionRunRegistry(); registry.registerRun('one', 'r1');
+  registry.observePhase('one', 'needs-user', 'r1');
+  for (const data of [{ phase: 'waiting' }, { phase: 'start' }]) {
+    const signal = runLifecycleSignalForGatewayFrame({ event: 'agent', payload: { sessionKey: 'one', runId: 'r1', stream: 'tool', data } });
+    expect(ownedRunLifecycleSignal(signal, registry)).toBeNull();
+  }
+  const resolved = runLifecycleSignalForGatewayFrame({ event: 'exec.approval.resolved', payload: { sessionKey: 'one', runId: 'r1' } });
+  expect(ownedRunLifecycleSignal(resolved, registry)?.phase).toBe('running');
+  const failed = runLifecycleSignalForGatewayFrame({ event: 'chat', payload: { sessionKey: 'one', runId: 'r1', state: 'failed' } });
+  expect(ownedRunLifecycleSignal(failed, registry)?.phase).toBe('failed');
 });

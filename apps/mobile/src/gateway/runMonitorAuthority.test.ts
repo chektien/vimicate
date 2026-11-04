@@ -188,6 +188,21 @@ describe('run-monitor continuation authority', () => {
     expect(context.dependencies.startFinalAnswerRecovery).toHaveBeenCalledExactlyOnceWith('one', 'old-run');
   });
 
+  it.each(['running', 'waiting', 'needs-user', 'uncertain'] as const)('preserves %s through routine poll and transport timeouts', async (phase) => {
+    const context = setup();
+    context.registry.observePhase('one', phase, 'old-run');
+    const next = deferred<AgentWaitResult>();
+    vi.mocked(context.dependencies.client.waitForRun)
+      .mockRejectedValueOnce(new Error('agent.wait timed out'))
+      .mockReturnValueOnce(next.promise);
+    context.wait.resolve({ status: 'timeout' });
+    await vi.waitFor(() => expect(context.dependencies.client.waitForRun).toHaveBeenCalledTimes(3));
+    const observed = context.registry.phaseFor('one');
+    context.history.resolve([]); next.resolve({ status: 'completed' });
+    await background.tasks[0];
+    expect(observed).toBe(phase);
+  });
+
   it('settles the originating run while another thread is selected without overwriting its detail', async () => {
     const context = setup(); context.dependencies.selectedRef.current = 'two';
     context.registry.registerRun('two', 'other-run'); context.history.resolve([]);

@@ -31,7 +31,7 @@ import { DeferredPromptRefusals, RefusalFilteredHistoryCache } from './deferredP
 
 const EMPTY_LATEST_MESSAGES: WorkspaceMessage[] = [];
 
-export function useGatewayHistory(client: OpenClawClient, selectedRef: { current: string }, onDetail: Dispatch<SetStateAction<string>>, initialSessionKey = '', initiallyActive = true, historyFreshness?: CanonicalHistoryFreshness) {
+export function useGatewayHistory(client: OpenClawClient, selectedRef: { current: string }, onDetail: Dispatch<SetStateAction<string>>, initialSessionKey = '', initiallyActive = true, historyFreshness?: CanonicalHistoryFreshness, onLatestPublication?: (sessionKey: string, rows: WorkspaceMessage[]) => void) {
   const cursor = useRef<HistoryCursor | null>(null);
   const archive = useRef<ArchivedHistoryState | null>(null);
   const sessionGeneration = useRef<GatewaySessionGeneration | null>(null);
@@ -49,6 +49,7 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
   const promptRefusals = useRef(new DeferredPromptRefusals());
   const historyCache = useRef<SessionHistoryCache>(new RefusalFilteredHistoryCache(promptRefusals.current));
   const latestTailCache = useRef<SessionHistoryCache>(new RefusalFilteredHistoryCache(promptRefusals.current));
+  latestTailCache.current.onPublication = onLatestPublication;
   const historyViewCache = useRef(new SessionHistoryViewCache());
   const historySelectionRevision = useRef(0);
   const publicationAuthority = useRef<HistoryPublicationAuthority | null>(null);
@@ -522,5 +523,5 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
     else if (selectedRef.current) await loadHistory(selectedRef.current);
   }, [loadHistory, loadOlderHistory, selectedRef]);
 
-  return { messages, messageSessionKey, latestMessages, hasNewerHistory: windowMode.current === 'older' && (canLoadNewer || reviewOmitsLatestMessages(windowMode.current, messages, latestMessages)), updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication };
+  return { messages, messageSessionKey, subscribeLatestHistory: latestTailCache.current.subscribe, latestMessages, hasNewerHistory: windowMode.current === 'older' && (canLoadNewer || reviewOmitsLatestMessages(windowMode.current, messages, latestMessages)), updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication };
 }

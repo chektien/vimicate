@@ -8,7 +8,6 @@ import type { HistoryRefreshDeferral } from './historyRefreshDeferral';
 import type { OlderHistoryRequestAuthority } from './historyRequestAuthority';
 import type { SessionHistoryCache } from './sessionHistoryCache';
 import type { CanonicalHistoryFreshness } from './canonicalHistoryFreshness';
-import { RunPromptLookback } from './runPromptLookback';
 import { canPageOlder, returnToLatestHistory, type HistoryFailure, type HistoryWindowMode, type ReviewEntryIntent, type ThreadEntryHistoryPresentation } from './sessionHistoryView';
 import { latestHistoryRefreshAction } from './historyReviewPublication';
 import { presentationBoundedLatestHistory } from './presentationBoundedLatestHistory';
@@ -85,7 +84,6 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
   // caller that polls until it sees a final never saw one. A caller that does
   // not change the presentation now joins the request already in flight.
   const inFlightLatest = new Map<string, { request: Promise<WorkspaceMessage[] | undefined>; owns: () => boolean }>();
-  const runPromptLookback = new RunPromptLookback();
 
   function resetLatestPagination(latest: HistoryCursor) {
     cursor.current = latest;
@@ -169,7 +167,7 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
         hydrateSharedNarration(sessionKey, ownsLatest),
       ]);
       if (!payload || !narration || !ownsLatest()) return;
-      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration, runPromptLookback);
+      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration);
       if (!bounded) return;
       const retained = latestTailCache.current.restore(sessionKey) ?? historyCache.current.restore(sessionKey) ?? [];
       const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest, presentation !== 'reveal-current');
@@ -260,9 +258,9 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
       const narrationRequest = hydrateSharedNarration(sessionKey, ownsLatest);
       const payload = await client.history(sessionKey, 80, 0); if (!ownsLatest()) return;
       const narration = await narrationRequest; if (!narration || !ownsLatest()) return;
-      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration, runPromptLookback); if (!bounded) return;
+      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration); if (!bounded) return;
       const retained = latestTailCache.current.restore(sessionKey) ?? historyCache.current.restore(sessionKey) ?? [];
-      const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest); if (!completed) return;
+      const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest, true); if (!completed) return;
       const mountedReview = historyCache.current.restore(sessionKey) ?? [];
       const projected = completed.messages;
       const pendingInputs = completed.pendingInputSnapshot

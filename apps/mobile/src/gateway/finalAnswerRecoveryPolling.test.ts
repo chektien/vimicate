@@ -47,16 +47,3 @@ describe('late canonical final-answer polling', () => {
     expect(onFailure).toHaveBeenCalledWith(failure);
   });
 });
-
-describe('steady final answer polling', () => {
-  it('marks only post-fast-path loads as steady so they may reuse unchanged history', async () => {
-    const steady: boolean[] = [];
-    let calls = 0;
-    await pollForFinalAnswer({
-      fastDelaysMs: [1, 2], steadyDelayMs: 60, wait: async () => undefined, shouldContinue: () => true,
-      load: async (attempt) => { steady.push(attempt.steady); calls += 1; return calls; },
-      isFinal: value => value === 4, onFastPathExhausted: () => undefined,
-    });
-    expect(steady).toEqual([false, false, true, true]);
-  });
-});

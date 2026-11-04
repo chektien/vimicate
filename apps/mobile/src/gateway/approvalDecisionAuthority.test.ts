@@ -158,3 +158,16 @@ describe('approval-decision continuation authority', () => {
     }
   });
 });
+
+it('resolves cropped approval attention without clearing another pending identity', async () => {
+  const test = setup(); const first = approval();
+  const second = { ...first, id: 'second-row', approval: { ...first.approval!, id: 'second' } };
+  test.registry.approvals.observe('one', [first, second]);
+  test.replace([]);
+  const decision = test.decide(first, 'allow-once'); test.resolve();
+  expect(await decision).toBe(true);
+  expect(test.registry.presentationPhaseFor('one')).toBe('needs-user');
+  expect(test.registry.phaseFor('one')).toBe('accepted');
+  expect(test.registry.approvals.pendingIds('one')).toEqual(['second']);
+  expect(test.registry.runFor('one')).toBe('old');
+});

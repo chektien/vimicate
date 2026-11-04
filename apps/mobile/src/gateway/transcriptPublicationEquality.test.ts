@@ -5,6 +5,10 @@ import { sameTranscriptPublication, sameWorkspaceMessageExceptText } from './tra
 const row: WorkspaceMessage = { id: 'answer', role: 'assistant', text: 'done', sessionKey: 'one', source: 'history', attachments: [{ id: 'image', filename: 'proof.png', mimeType: 'image/png', uri: 'https://example.test/proof.png', headers: { z: 'last', a: 'first' } }] };
 
 describe('transcript publication equality', () => {
+  it('publishes synthesized-image provenance even when rendered text is unchanged', () => {
+    expect(sameTranscriptPublication([row], [{ ...row, stagedImagePlaceholder: true }])).toBe(false);
+    expect(sameTranscriptPublication([row], [{ ...row, stagedImageCounterpartId: 'imported' }])).toBe(false);
+  });
   it('suppresses a semantically identical authoritative refresh', () => {
     expect(sameTranscriptPublication([row], [{ ...row, attachments: row.attachments!.map((attachment) => ({ ...attachment, headers: { a: 'first', z: 'last' } })) }])).toBe(true);
   });

@@ -67,7 +67,9 @@ export function useGatewayRunMonitor(dependencies: GatewayRunMonitorDependencies
       ownsRun: () => runRegistry.current.runFor(sessionKey) === acceptedRunId && ownsContinuation(),
       onWaiting: (observation) => {
         if (!ownsContinuation()) return;
-        runRegistry.current.observePhase(sessionKey, 'waiting', acceptedRunId); publishSelectedRun(sessionKey);
+        // Poll expiration carries no lifecycle evidence. Preserve approval,
+        // connection uncertainty and the last meaningful activity phase.
+        if (runRegistry.current.presentationPhaseFor(sessionKey) === 'needs-user') return;
         if (selectedRef.current === sessionKey) setDetail(observation?.timeoutPhase ? `running: ${observation.timeoutPhase}` : 'running: confirming completion');
       },
     });

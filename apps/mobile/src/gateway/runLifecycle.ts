@@ -20,7 +20,7 @@ export function runTerminalDetail(result: AgentWaitResult) {
 export function runPhaseForWaitResult(result: AgentWaitResult): SessionRunPhase {
   const status = result.status?.trim().toLocaleLowerCase() ?? '';
   if (result.error?.trim() || ['error', 'failed', 'failure', 'killed', 'aborted', 'cancelled', 'canceled'].includes(status)) return 'failed';
-  if (status === 'timeout') return 'waiting';
+  if (status === 'timeout') return 'running';
   if (['done', 'complete', 'completed', 'success', 'succeeded', 'ok'].includes(status)) return 'completed';
   return 'uncertain';
 }

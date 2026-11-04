@@ -58,6 +58,6 @@ describe('a run this device stopped', () => {
     registry.beginStopRequest(sessionKey, 'run-0')(true);
     registry.observePhase(sessionKey, 'failed', 'run-1');
     expect(registry.phaseFor(sessionKey)).toBe('failed');
-    expect(dot(registry)).toMatchObject({ label: 'crashed', tone: 'failed' });
+    expect(dot(registry)).toMatchObject({ label: 'failed', tone: 'failed' });
   });
 });

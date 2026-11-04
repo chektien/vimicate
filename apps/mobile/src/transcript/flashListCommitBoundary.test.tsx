@@ -7,7 +7,7 @@ import React, { act, startTransition, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-type HostProps = { children?: React.ReactNode; index?: number;
+type HostProps = { children?: React.ReactNode; index?: number; style?: { top?: number; height?: number; opacity?: number };
   onLayout?: (event: { nativeEvent: { layout: { x: number; y: number; width: number; height: number } } }) => void;
   onScroll?: (event: { nativeEvent: Record<string, { x?: number; y?: number; width?: number; height?: number }> }) => void };
 type NativeCell = { currentProps: HostProps; committedProps: HostProps; mounted: boolean; measuredHeight: number };
@@ -362,4 +362,69 @@ it('replays accepted scroll admitted between a projection render and its commit'
   expect(manager.getAbsoluteLastScrollOffset()).toBe(600);
   expect(container.querySelector('[data-row-id="old-30"]')?.getAttribute('data-row-index')).toBe('30');
   expect(container.querySelector('[data-row-id="MISSING"]')).toBeNull();
+});
+
+it('updates painted top after a data revision measures taller wrapped text', async () => {
+  const small = original.slice(0, 10);
+  await act(async () => root.render(<Scene data={small} />));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(manager.getIsFirstLayoutComplete()).toBe(true);
+  const cell = acceptedCell(0);
+  cell.measuredHeight = 60;
+  const grown = [...small, { id: 'tail-added' }];
+  await act(async () => root.render(<Scene data={grown} />));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(manager.getLayout(0).height).toBe(60);
+  expect(manager.getLayout(1).y).toBe(60);
+  await act(async () => cell.currentProps.onLayout!(sizeEvent(60)));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(acceptedCell(1).currentProps.style?.top).toBe(60);
+  const collection = Array.from(nativeCells).find(cell => cell.currentProps.index === undefined && cell.currentProps.style?.opacity === 1);
+  expect(collection?.currentProps.style?.height).toBe(manager.getChildContainerDimensions().height);
+});
+
+
+it('keeps descendant layout callbacks current across repeated accepted replacements', async () => {
+  let data = original.slice(0, 10);
+  await act(async () => root.render(<Scene data={data} />));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  for (const height of [60, 100, 20, 80]) {
+    const cell = acceptedCell(0);
+    cell.measuredHeight = height;
+    data = [...data, { id: `tail-${height}` }];
+    await act(async () => root.render(<Scene data={data} />));
+    await act(async () => cell.currentProps.onLayout!(sizeEvent(height)));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect.soft(manager.getLayout(0).height).toBe(height);
+    expect.soft(manager.getLayout(1).y).toBe(height);
+    expect.soft(acceptedCell(1).currentProps.style?.top).toBe(height);
+    const collection = Array.from(nativeCells).find(cell => cell.currentProps.index === undefined && cell.currentProps.style?.opacity === 1);
+    expect.soft(collection?.currentProps.style?.height).toBe(manager.getChildContainerDimensions().height);
+  }
+});
+
+it('clamps a now-out-of-range initial target while history shrinks before first layout completion', () => {
+  const props = {data: original, keyExtractor, renderItem, initialScrollIndex: 99};
+  type PatchedManager = RecyclerViewManager<Row> & {
+    project(next: typeof props): PatchedManager;
+    acceptProjection(next: PatchedManager): void;
+  };
+  const local = new RecyclerViewManager(props) as PatchedManager;
+  local.updateLayoutParams({width:400, height:200}, 0);
+  local.modifyChildrenLayout([], 100);
+  expect(local.getIsFirstLayoutComplete()).toBe(false);
+  expect(local.getLastScrollOffset()).toBe(local.getLayout(99).y);
+  let shrunk: typeof local | undefined;
+  expect(() => { shrunk = local.project({...props, data: original.slice(0, 10)}); }).not.toThrow();
+  expect(shrunk!.getLastScrollOffset()).toBe(shrunk!.getLayout(9).y);
+  expect(shrunk!.props.initialScrollIndex).toBe(99);
+  local.acceptProjection(shrunk!);
+  const grown = local.project(props);
+  expect(grown.getLastScrollOffset()).toBe(grown.getLayout(99).y);
+  expect(local.getDataLength()).toBe(10); // Pending growth stays speculative.
+  const emptied = local.project({...props, data: []});
+  expect(emptied.getDataLength()).toBe(0);
+  local.acceptProjection(emptied);
+  expect(local.getDataLength()).toBe(0);
+  expect(() => local.project({...props, data: original.slice(0, 10)})).not.toThrow();
 });

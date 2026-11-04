@@ -28,6 +28,8 @@ export function sameWorkspaceMessageExceptText(left: WorkspaceMessage, right: Wo
     && left.runId === right.runId
     && left.sessionKey === right.sessionKey
     && left.source === right.source
+    && left.stagedImagePlaceholder === right.stagedImagePlaceholder
+    && left.stagedImageCounterpartId === right.stagedImageCounterpartId
     && left.transcriptSessionId === right.transcriptSessionId
     && left.narrationItemId === right.narrationItemId
     && left.asyncQuestionPrivate === right.asyncQuestionPrivate && left.asyncMessage === right.asyncMessage && sameAsyncQuestion(left.asyncQuestion, right.asyncQuestion)
