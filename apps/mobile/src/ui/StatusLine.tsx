@@ -7,7 +7,7 @@ import { STATUS_LINE_LEFT_INSET, STATUS_LINE_RIGHT_INSET } from './statusLineGeo
 export function StatusLine({ mode, path, branch, detail, quota, onRefreshQuota, usage, position, compact = false }: { mode: string; path: string; branch: string; detail: string; quota?: ProviderQuotaPresentation | null; onRefreshQuota?: () => void; usage?: string; position: string; compact?: boolean }) {
   const visibility = statusLineVisibility(compact);
   return (
-    <ScrollView horizontal directionalLockEnabled focusable={false} keyboardDismissMode="none" keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} style={styles.viewport} contentContainerStyle={styles.root}>
+    <ScrollView scrollsToTop={false} horizontal directionalLockEnabled focusable={false} keyboardDismissMode="none" keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} style={styles.viewport} contentContainerStyle={styles.root}>
       <Text style={[styles.mode, mode === 'insert' ? styles.insertMode : mode.startsWith('visual') ? styles.visualMode : styles.normalMode]}>{mode}</Text>
       {visibility.path ? <Text numberOfLines={1} style={styles.path}>{path}</Text> : null}
       {visibility.branch && branch && branch !== '—' ? <Text style={styles.branch}>branch {branch}</Text> : null}

@@ -93,6 +93,7 @@ export function PairingBar({ gateway, statusOverride, onEditingChange, paneContr
         {showWorkspaceChrome ? <VimicateMark /> : null}{showWorkspaceChrome ? helpControl : null}
         <ConnectionStatusControl expanded={settingsVisible} label={statusPresentation.label} tone={statusPresentation.tone} onPress={() => setSettingsOpen(!settingsVisible)} />
         {settingsVisible ? <ScrollView
+          scrollsToTop={false}
           ref={settingsScroll}
           accessibilityLabel="Gateway connection settings"
           horizontal

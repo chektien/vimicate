@@ -11,7 +11,7 @@ export function PromptAttachmentRail({ attachments, compact, visibleSlots, onPre
   if (!attachments.length) return null;
   const slot = compact ? styles.compactSlot : styles.slot;
   const slotWidth = compact ? COMPACT_ATTACHMENT_SLOT_WIDTH : ATTACHMENT_SLOT_WIDTH;
-  return <ScrollView accessibilityLabel="Prompt attachments" horizontal snapToInterval={slotWidth} decelerationRate="fast"
+  return <ScrollView scrollsToTop={false} accessibilityLabel="Prompt attachments" horizontal snapToInterval={slotWidth} decelerationRate="fast"
     showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
     style={[styles.rail, { width: visibleSlots * slotWidth, height: slot.height }]} contentContainerStyle={styles.railContent}>
     {attachments.map((attachment, index) => <View key={attachment.id} style={[styles.chip, slot]}>

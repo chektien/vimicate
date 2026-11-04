@@ -249,7 +249,7 @@ export const TranscriptPane = forwardRef<TranscriptPaneHandle, {
   }), [olderHistory.request, requestNewerHistory, revealSourceRow, revealSourceRowAfterRevision, setMessageFoldExpanded, toggleMessageFold, viewPositionForSourceRow, viewport.holdReviewAnchor, viewport.captureReviewAnchor]);
   return (
     <Pressable accessible={false} onPress={onFocus} style={[styles.root, focused && styles.focused]}>
-      <FlashList
+      <FlashList scrollsToTop={false}
         // Native recycler geometry is dataset-owned too. Reusing one
         // FlashList instance across project sessions lets the previous
         // session's retained content offset win after the JS navigation cache

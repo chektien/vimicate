@@ -77,7 +77,7 @@ function Pane({ expanded, onToggleExpanded, controller, rootLabel, directoryPath
     {controller.helpVisible ? <FileHelp fontScale={listFontScale} /> : null}
     <View style={styles.body} onLayout={(event) => split.onLayoutHeight(event.nativeEvent.layout.height)}>
       <PaneFontPinchSurface style={{ flex: 0, height: split.listHeight, ...(expanded ? { display: 'none' } : {}) }} onStep={(direction) => { onRequestFocus(); controller.setRegion('list'); onFontStep?.('list', direction); }}>
-      <FlatList ref={list} accessibilityLabel="Project file list" style={styles.list}
+      <FlatList scrollsToTop={false} ref={list} accessibilityLabel="Project file list" style={styles.list}
         data={directoryEntries}
         keyExtractor={(entry) => entry.path} extraData={`${controller.selectedIndex}:${focused ? 1 : 0}:${controller.region}:${rowHeight}`}
         getItemLayout={(_data, index) => ({ index, length: rowHeight, offset: rowHeight * index })}
@@ -150,7 +150,7 @@ function FilePreview({ expanded, onToggleExpanded, controller, focused, fontScal
   if (content.kind === 'document') return frame(<ProjectDocumentPreview key={`${content.projectId}:${content.path}:${content.mtimeMs}:${content.size}`} content={content} onFocus={focusPreview} />);
   if (content.kind === 'image') return frame(<ImagePreview key={content.path} path={content.path} uri={`data:${content.mimeType};base64,${content.dataBase64}`} fontScale={fontScale} onFocus={() => { onRequestFocus(); controller.setRegion('preview'); }} onOpen={() => { const id = `files:${content.projectId}:${content.path}`; onOpenMedia([{ id, filename: content.path.split('/').pop() ?? content.path, mimeType: content.mimeType, byteCount: content.size, uri: `data:${content.mimeType};base64,${content.dataBase64}` }], id); }} />);
   // Discard only VirtualizedList's stale offscreen metrics when row geometry changes.
-  return frame(<PaneFontPinchSurface onStep={(direction) => { onRequestFocus(); controller.setRegion('preview'); onFontStep?.('preview', direction); }}><FlatList key={`${previewWidth}:${fontScale}`} ref={scroll} accessibilityLabel={`Rendered preview ${content.path}`} style={styles.preview} contentContainerStyle={styles.previewContent}
+  return frame(<PaneFontPinchSurface onStep={(direction) => { onRequestFocus(); controller.setRegion('preview'); onFontStep?.('preview', direction); }}><FlatList scrollsToTop={false} key={`${previewWidth}:${fontScale}`} ref={scroll} accessibilityLabel={`Rendered preview ${content.path}`} style={styles.preview} contentContainerStyle={styles.previewContent}
     data={lines}
     onLayout={event => setPreviewWidth(event.nativeEvent.layout.width)}
     onViewableItemsChanged={onViewableItemsChanged}

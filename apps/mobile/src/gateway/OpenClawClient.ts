@@ -272,6 +272,10 @@ export class OpenClawClient {
       return;
     }
     this.eventRevisions.note(frame);
+    if (frame.type === 'event' && frame.event === 'sessions.changed') {
+      const payload = frame.payload as Record<string, unknown> | undefined;
+      if (payload?.session && payload.catalogChanged !== true) this.sessionCensus.applyEventRow(payload.session); else this.sessionCensus.invalidate();
+    }
     if (this.refusalEchoes.matches(frame)) return;
     dispatchGatewayEventSafely(frame, this.onEvent, (error) => {
       this.reportEventFailure(error, 'event.projection-failed');

@@ -27,7 +27,7 @@ export function WorkspaceCommandBar({ search, command, commands, modelChoices, o
   const offer = command ? commandCompletionOptions(commands, command, { models: modelChoices }) : null;
   return <View style={styles.root}>
     {command && offer ? <>
-      {offer.options.length ? <FlatList
+      {offer.options.length ? <FlatList scrollsToTop={false}
         // Reset the scroll when filtering changes, without remounting the native input.
         key={command.query}
         accessibilityLabel="Command completion options"

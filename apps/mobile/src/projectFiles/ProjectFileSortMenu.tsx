@@ -14,7 +14,7 @@ export function ProjectFileSortMenu({ sorting, fontScale, onFocus }: {
       <Text style={[styles.label, workspaceFontMetrics(type.sizeSm, fontScale)]}>{sorting.label}</Text>
       <Text style={[styles.hint, workspaceFontMetrics(type.sizeSm, fontScale)]}>{sorting.visible ? 'Esc close' : 'gs sort'}</Text>
     </Pressable>
-    {sorting.visible ? <ScrollView accessibilityLabel="File sort options" style={styles.options}>
+    {sorting.visible ? <ScrollView scrollsToTop={false} accessibilityLabel="File sort options" style={styles.options}>
       {FILE_SORT_CHOICES.map(choice => <Pressable key={choice.key} accessibilityRole="button" accessibilityLabel={`Sort by ${choice.field}`}
         accessibilityState={{ selected: sorting.order.field === choice.field }}
         onPress={() => sorting.choose({ field: choice.field, direction: choice.direction })} style={styles.option}>

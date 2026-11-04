@@ -15,7 +15,7 @@ export function WorkspaceShortcuts({ commands, onClose }: { commands: GatewayCom
     <Pressable accessibilityRole="button" accessibilityLabel="Dismiss keyboard shortcuts" onPress={onClose} style={styles.backdrop} />
     <View style={[styles.panel, { marginTop: insets.top + 36, marginBottom: insets.bottom + space.md }]}>
       <View style={styles.heading}><View style={styles.titleGroup}><Text accessibilityRole="header" style={styles.title}>Keyboard shortcuts</Text><Text style={styles.hint}>Use the bindings for the focused pane. Esc or × closes.</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close keyboard shortcuts" onPress={onClose} style={styles.close}><Text style={styles.title}>×</Text></Pressable></View>
-      <ScrollView accessibilityLabel="All Vimicate keyboard bindings" keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+      <ScrollView scrollsToTop={false} accessibilityLabel="All Vimicate keyboard bindings" keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         {workspaceShortcutReference.map(section => <View key={section.title} style={styles.section}><Text accessibilityRole="header" style={styles.sectionTitle}>{section.title}</Text>{section.bindings.map(([keys, description]) => <Binding key={keys} keys={keys} description={description} />)}</View>)}
         <View style={styles.section}><Text accessibilityRole="header" style={styles.sectionTitle}>Colon commands</Text>{commandCatalog(commands).map(command => <Binding key={command.name} keys={`:${command.name}${command.acceptsArgs ? ' …' : ''}${command.aliases.length ? ` · ${command.aliases.map(alias => `:${alias}`).join(' · ')}` : ''}`} description={command.description} />)}</View>
       </ScrollView>

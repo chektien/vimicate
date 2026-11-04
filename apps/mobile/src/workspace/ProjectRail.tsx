@@ -71,6 +71,7 @@ export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focus
         {compactDrawer && onClose ? <Pressable accessibilityRole="button" accessibilityLabel="Close project switcher" hitSlop={8} onPress={onClose} style={styles.headerAction}><Text style={[styles.headerActionGlyph, styles.close, workspaceFontMetrics(PROJECT_RAIL_HEADER_ICON_SIZES.close, fontScale, PROJECT_RAIL_HEADER_ICON_SIZES.close + 2)]}>×</Text></Pressable> : null}
       </View>
       <FlatList
+        scrollsToTop={false}
         ref={list}
         style={styles.scrollViewport}
         data={projects}

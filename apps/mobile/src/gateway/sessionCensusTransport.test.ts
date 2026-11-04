@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'census' }));
 vi.mock('expo-device', () => ({ isDevice: false, deviceType: 2, DeviceType: { PHONE: 1, TABLET: 2 } }));
 vi.mock('../../modules/vimicate-diagnostics', () => ({ recordGatewayDiagnostic: () => undefined }));
@@ -80,4 +80,29 @@ it('accepts long identity strings that the Gateway contract leaves unbounded', a
   request.mockResolvedValueOnce(full({ key, sessionId }));
   const payload = await client.listSessions();
   expect((payload.sessions as Record<string, unknown>[])[0]).toMatchObject({ key, sessionId });
+});
+
+describe('event-patched census', () => {
+  const event = (session: Record<string, unknown>) => (client: OpenClawClient) => (client as unknown as { handleFrame: (raw: string, generation: number) => Promise<void> }).handleFrame(JSON.stringify({ type: 'event', event: 'sessions.changed', payload: { sessionKey: 'thread', session } }), (client as unknown as { generation: number }).generation);
+  it('serves routine census from change-notice rows without refetching, keeping detail fields', async () => {
+    const client = new OpenClawClient(); const request = vi.spyOn(client, 'request');
+    request.mockResolvedValueOnce(full({ unread: false, activeRunId: 'r1', hasActiveRun: true }));
+    await client.listSessions();
+    await event({ key: 'thread', sessionId: 'generation', lifecycleRevision: 'life', sessionModelRevision: 'model', kind: 'direct', unread: true, hasActiveRun: false })(client);
+    const payload = await client.listSessions();
+    expect(request).toHaveBeenCalledOnce();
+    const row = (payload.sessions as Record<string, unknown>[])[0]!;
+    expect(row).toMatchObject({ unread: true, hasActiveRun: false, agentRuntime: { id: 'claude-cli' } });
+    expect(row.activeRunId).toBeUndefined();
+  });
+  it('fetches after a notice without a row, an unknown or reincarnated session, or the age ceiling', async () => {
+    for (const notice of [undefined, { key: 'other', sessionId: 'x' }, { key: 'thread', sessionId: 'replacement' }]) {
+      const client = new OpenClawClient(); const request = vi.spyOn(client, 'request');
+      request.mockResolvedValue(full());
+      await client.listSessions();
+      await (client as unknown as { handleFrame: (raw: string, generation: number) => Promise<void> }).handleFrame(JSON.stringify({ type: 'event', event: 'sessions.changed', payload: { reason: 'update', ...(notice ? { session: notice } : {}) } }), (client as unknown as { generation: number }).generation);
+      await client.listSessions();
+      expect(request).toHaveBeenCalledTimes(2);
+    }
+  });
 });
