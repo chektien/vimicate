@@ -114,8 +114,8 @@ it('reports an older publication that extends an existing leading message identi
   await render([{ ...row('leading-tool-group'), text: 'partial\nolder detail' }, row('tail')], { loading: true });
   await act(async () => { finish({ committed: true, published: true, addedMessageCount: 0 }); await Promise.resolve(); });
   await render([{ ...row('leading-tool-group'), text: 'partial\nolder detail' }, row('tail')]);
-  expect(presentation.status).toBe('older history loaded');
-  expect(presentation.boundaryMessageIDs).toEqual(['leading-tool-group']);
+  expect(presentation.status).toBe('history refreshed');
+  expect(presentation.boundaryMessageIDs).toEqual([]);
 });
 
 it('reports raw cursor progress honestly when a continued collapsed tool group adds no visible rows', async () => {

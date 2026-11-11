@@ -14,14 +14,19 @@ export function sealLiveChatForSteer(rows: WorkspaceMessage[], prompt: Workspace
     && row.source === 'live' && row.role === 'assistant') : -1;
   if (index < 0) return [...rows, prompt];
   const live = rows[index]!;
-  const count = rows.filter(row => row.steerSealed && row.runId === runId && row.sessionKey === prompt.sessionKey).length;
+  // The steering prompt's own identity names the seal. A count of surviving
+  // seals would reuse an ID once saved history has retired an earlier one.
   const sealed: WorkspaceMessage[] = live.text.trim() ? [{
-    id: `live-item-${runId}-steer-${count + 1}`, role: 'narration', text: live.text, source: 'live', state: 'complete', runId, steerSealed: true,
+    id: `live-item-${runId}-steer-${prompt.idempotencyKey ?? prompt.id}`, role: 'narration', text: live.text, source: 'live', state: 'complete', runId, steerSealed: true,
     ...(live.sessionKey ? { sessionKey: live.sessionKey } : {}),
     ...(live.timestamp ? { timestamp: live.timestamp } : {}),
     ...(live.transcriptSessionId ? { transcriptSessionId: live.transcriptSessionId } : {}),
   }] : [];
-  // Client-stamped like the prompt, so chronology keeps it below the prompt.
-  const continued: WorkspaceMessage = { ...live, text: '', ...(prompt.timestamp ? { timestamp: prompt.timestamp } : {}) };
+  // The continuation answers the steering prompt, so it carries no clock of
+  // its own. The device clock that stamped the prompt is not host chronology,
+  // and the live copy's earlier host time would sort it above the prompt.
+  // Refresh places an untimed continuation by its run and publication slot.
+  const { timestamp: _earlier, ...untimed } = live;
+  const continued: WorkspaceMessage = { ...untimed, text: '' };
   return [...rows.slice(0, index), ...sealed, ...rows.slice(index + 1), prompt, continued];
 }

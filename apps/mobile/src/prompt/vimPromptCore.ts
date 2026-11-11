@@ -3,6 +3,7 @@ import { promptControlEffect } from './promptControlEffect';
 import { textObjectRange } from '../editor/vimTextObjects';
 import { isPromptFindMotion, promptFindDestination, promptFindOperatorMotion } from './vimPromptCharacterMotion';
 import { promptKeyIsCount, promptOperator, type PromptOperator, type PromptPending } from './promptCommand';
+import { firstNonBlank, horizontalCursor, lineBounds, lineLastCursor, lineRange } from './promptLineGeometry';
 
 export type VimMode = 'normal' | 'insert';
 export type PromptVisualMode = 'character' | 'line' | 'block';
@@ -169,7 +170,7 @@ export function handlePromptKey(state: PromptState, input: VimKey): PromptResult
       }
       if (suffix === 'g' && key === 'g') {
         const current = lineBounds(state.text, state.selection.end);
-        return done(clean(applyPromptLineOperator(state, operator, 0, current.end < state.text.length ? current.end + 1 : current.end)));
+        return done(clean(applyPromptLineOperator(state, operator, 0, current.end < state.text.length ? current.end + 1 : current.end, current.end === state.text.length)));
       }
       if (suffix === 'i' || suffix === 'a') {
         const object = promptTextObject(state.text, state.selection.end, key, suffix === 'a');
@@ -179,7 +180,7 @@ export function handlePromptKey(state: PromptState, input: VimKey): PromptResult
     }
     if (operator && state.pending === key) {
       const bounds = lineRange(state.text, state.selection.end, operatorRepetitions);
-      return done(clean(applyPromptLineOperator(state, operator, bounds.start, bounds.end)));
+      return done(clean(applyPromptLineOperator(state, operator, bounds.start, bounds.end, bounds.includesFinalLine)));
     }
     if (operator && (key === 'i' || key === 'a' || key === 'g')) {
       return done({ ...state, pending: `${operator}${key}` as PromptPending });
@@ -193,7 +194,7 @@ export function handlePromptKey(state: PromptState, input: VimKey): PromptResult
         return done(clean(applyPromptOperator(state, operator, changeRange.start, changeRange.end)));
       }
       return done(clean(range.linewise
-        ? applyPromptLineOperator(state, operator, range.start, range.end)
+        ? applyPromptLineOperator(state, operator, range.start, range.end, range.includesFinalLine)
         : applyPromptOperator(state, operator, range.start, range.end)));
     }
     return done({ ...state, pending: '', count: '', operatorCount: 1 });
@@ -318,25 +319,9 @@ function replaceRangeWithUndo(state: PromptState, start: number, end: number, va
 }
 function undo(state: PromptState): PromptState { const previous = state.undo.at(-1); return previous ? { ...state, ...previous, authority: state.authority + 1, undo: state.undo.slice(0, -1), redo: [...state.redo, snapshot(state)] } : state; }
 function redo(state: PromptState): PromptState { const next = state.redo.at(-1); return next ? { ...state, ...next, authority: state.authority + 1, undo: [...state.undo, snapshot(state)], redo: state.redo.slice(0, -1) } : state; }
-function lineBounds(text: string, cursor: number) { const safe = Math.max(0, Math.min(cursor, text.length)); const start = safe === 0 ? 0 : text.lastIndexOf('\n', safe - 1) + 1; const next = text.indexOf('\n', safe); return { start, end: next === -1 ? text.length : next }; }
-function lineRange(text: string, cursor: number, count: number) { const first = lineBounds(text, cursor); let end = first.end; for (let i = 1; i < count && end < text.length; i += 1) end = lineBounds(text, end + 1).end; if (end < text.length) end += 1; return { start: first.start, end }; }
-function firstNonBlank(text: string, cursor: number) { const bounds = lineBounds(text, cursor); return bounds.start + (text.slice(bounds.start, bounds.end).match(/^\s*/)?.[0].length ?? 0); }
 function horizontal(state: PromptState, delta: number) { return move(state, horizontalCursor(state.text, state.selection.end, delta < 0 ? -1 : 1)); }
-function horizontalCursor(text: string, cursor: number, direction: -1 | 1) {
-  const bounds = lineBounds(text, cursor);
-  if (direction < 0) {
-    if (cursor > bounds.start) return cursor - 1;
-    if (bounds.start <= 0) return 0;
-    return lineLastCursor(lineBounds(text, bounds.start - 1));
-  }
-  const last = lineLastCursor(bounds);
-  if (cursor < last) return cursor + 1;
-  if (bounds.end >= text.length) return last;
-  return lineBounds(text, bounds.end + 1).start;
-}
 function vertical(state: PromptState, delta: number) { const bounds = lineBounds(state.text, state.selection.end); const column = state.selection.end - bounds.start; const probe = delta > 0 ? Math.min(state.text.length, bounds.end + 1) : Math.max(0, bounds.start - 1); const target = lineBounds(state.text, probe); return move(state, Math.min(lineLastCursor(target), target.start + column)); }
 function repeatMove(state: PromptState, count: number, motion: (value: PromptState) => PromptState) { let next = state; for (let index = 0; index < count; index += 1) next = motion(next); return next; }
-function lineLastCursor(bounds: { start: number; end: number }) { return bounds.end > bounds.start ? bounds.end - 1 : bounds.start; }
 function wordRanges(text: string, big = false) { return [...text.matchAll(big ? /\S+/g : /\w+|[^\w\s]+/g)].map((match) => ({ start: match.index, end: match.index + match[0].length - 1 })); }
 function nextWordStart(text: string, cursor: number, big = false) { return wordRanges(text, big).find((word) => word.start > cursor)?.start; }
 function wordForwardBy(state: PromptState, big: boolean) { return move(state, nextWordStart(state.text, state.selection.end, big) ?? Math.max(0, state.text.length - 1)); }
@@ -359,7 +344,16 @@ function applyPromptOperator(state: PromptState, operator: PromptOperator, rawSt
   return { ...publishRegister(next, register), mode: operator === 'c' ? 'insert' : 'normal' };
 }
 
-function applyPromptLineOperator(state: PromptState, operator: PromptOperator, start: number, end: number): PromptState {
+function applyPromptLineOperator(state: PromptState, operator: PromptOperator, start: number, end: number, includesFinalLine = false): PromptState {
+  // The final logical line has no following delimiter. Remove its preceding
+  // newline instead, including when that line is empty, but do not yank any
+  // text from the surviving line or leave the cursor on a phantom final row.
+  if (operator === 'd' && state.text.length > 0 && includesFinalLine) {
+    const register = state.text.slice(start, end) + (state.text.endsWith('\n') ? '\n' : '');
+    const next = replaceRangeWithUndo(state, Math.max(0, start - 1), end, '');
+    const cursor = Math.min(firstNonBlank(next.text, next.text.length), lineLastCursor(lineBounds(next.text, next.text.length)));
+    return { ...publishRegister(next, register, 'line'), selection: collapsed(cursor) };
+  }
   if (operator !== 'c') {
     const next = applyPromptOperator(state, operator, start, end);
     return next.registerRevision === state.registerRevision ? next : { ...next, registerKind: 'line' };
@@ -388,7 +382,7 @@ function promptChangeWordRange(state: PromptState, count: number, big: boolean) 
   return { start: cursor, end };
 }
 
-function promptOperatorMotion(state: PromptState, key: string, count: number): { start: number; end: number; linewise?: boolean } | null {
+function promptOperatorMotion(state: PromptState, key: string, count: number): { start: number; end: number; linewise?: boolean; includesFinalLine?: boolean } | null {
   const cursor = state.selection.end;
   const bounds = lineBounds(state.text, cursor);
   if (key === 'h' || key === 'left') return { start: Math.max(bounds.start, cursor - count), end: cursor };
@@ -396,7 +390,7 @@ function promptOperatorMotion(state: PromptState, key: string, count: number): {
   if (key === '0') return { start: bounds.start, end: cursor };
   if (key === '^') return { start: firstNonBlank(state.text, cursor), end: cursor };
   if (key === '$') return { start: cursor, end: bounds.end };
-  if (key === 'G') return { start: bounds.start, end: state.text.length, linewise: true };
+  if (key === 'G') return { start: bounds.start, end: state.text.length, linewise: true, includesFinalLine: true };
   if (key === 'w' || key === 'W') {
     const big = key === 'W';
     let destination = cursor;
@@ -413,12 +407,12 @@ function promptOperatorMotion(state: PromptState, key: string, count: number): {
   if (key === 'j' || key === 'down') {
     let end = bounds.end;
     for (let index = 0; index < count && end < state.text.length; index += 1) end = lineBounds(state.text, end + 1).end;
-    return { start: bounds.start, end: end < state.text.length ? end + 1 : end, linewise: true };
+    return { start: bounds.start, end: end < state.text.length ? end + 1 : end, linewise: true, includesFinalLine: end === state.text.length };
   }
   if (key === 'k' || key === 'up') {
     let start = bounds.start;
     for (let index = 0; index < count && start > 0; index += 1) start = lineBounds(state.text, start - 1).start;
-    return { start, end: bounds.end < state.text.length ? bounds.end + 1 : bounds.end, linewise: true };
+    return { start, end: bounds.end < state.text.length ? bounds.end + 1 : bounds.end, linewise: true, includesFinalLine: bounds.end === state.text.length };
   }
   return null;
 }
@@ -448,11 +442,12 @@ function handlePromptVisualKey(state: PromptState, input: VimKey, key: string): 
   }
   if (key === 'y' || key === 'd' || key === 'x' || key === 'c' || key === 's') {
     const range = clampSelection(state.text, state.selection); const register = state.text.slice(range.start, range.end);
+    if (state.visualMode === 'line' && key !== 'y') {
+      const lastCursor = Math.max(state.visualAnchor ?? promptCursor(state), promptCursor(state));
+      return done(clean(applyPromptLineOperator(exitVisual(state), key === 'c' || key === 's' ? 'c' : 'd', range.start, range.end, lineBounds(state.text, lastCursor).end === state.text.length)));
+    }
     if (!register) return done(clean(exitVisual(state)));
     if (key === 'y') return done(clean(publishRegister({ ...exitVisual(state), selection: collapsed(range.start) }, register, state.visualMode === 'line' ? 'line' : 'character')));
-    if ((key === 'c' || key === 's') && state.visualMode === 'line') {
-      return done(clean(applyPromptLineOperator(exitVisual(state), 'c', range.start, range.end)));
-    }
     const next = publishRegister(replaceRangeWithUndo(exitVisual(state), range.start, range.end, ''), register, state.visualMode === 'line' ? 'line' : 'character');
     return done(clean({ ...next, mode: key === 'c' || key === 's' ? 'insert' : 'normal' }));
   }

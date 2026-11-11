@@ -424,7 +424,9 @@ it('keeps the socket through a transient inactive scene and catches up without r
   // Liveness proven, then dropped catalog and question state is rehydrated.
   expect(probe.requests).toEqual(expect.arrayContaining(['health', 'question.list']));
   expect(probe.registry).toHaveBeenCalledOnce();
-  expect(probe.history).not.toHaveBeenCalled();
+  // Selected transcript is still reused. Only the offscreen question-discovery
+  // snapshot is revalidated after the scene missed events.
+  expect(probe.history.mock.calls.map(call => call[0])).toEqual(['b']);
   probe.census.mockClear();
   await scene('inactive'); await scene('background');
   expect(probe.client!.status).toBe('idle');

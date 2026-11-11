@@ -5,6 +5,7 @@ import { projectGatewayEvent, upsertLiveMessage } from './gatewayEventProjection
 import { mergeLatestHistory } from './historyPagination';
 import { parsedTranscriptCache, serializedTranscriptCache } from './persistentTranscriptCache';
 import { sealLiveChatForSteer } from './steerLiveSeal';
+import { coalesceTranscriptIdentities } from './transcriptIdentityWall';
 
 const sessionKey = 'agent:main:direct:vimicate-ios:project:example-cloud';
 const sessionId = '11111111-1111-4111-8111-111111111111';
@@ -82,6 +83,27 @@ describe('Claude CLI steering seals live text above the steered prompt', () => {
     const rows = sealLiveChatForSteer(upsertLiveMessage([], frame('Running the command.')), image, runId);
     expect(rows.map(row => `${row.role}:${row.text}`)).toEqual(['narration:Running the command.', 'user:what colour is this?', 'assistant:']);
     expect(rows[1]!.attachments).toHaveLength(1);
+  });
+
+  it('names each seal by its steering prompt so retiring an earlier seal cannot reuse an ID', () => {
+    const origin: WorkspaceMessage = { id: 'origin', role: 'user', text: 'start', source: 'local', sessionKey, runId, idempotencyKey: 'origin', timestamp: '1000' };
+    let rows = upsertLiveMessage([origin], frame('Alpha.'));
+    rows = sealLiveChatForSteer(rows, prompt('s1', 'first steer', 2500), runId);
+    rows = upsertLiveMessage(rows, frame('Alpha.\n\nBeta.'));
+    rows = sealLiveChatForSteer(rows, prompt('s2', 'second steer', 3500), runId);
+    rows = upsertLiveMessage(rows, frame('Alpha.\n\nBeta.\n\nGamma.'));
+    // Saved history covers Alpha only, so only its seal retires.
+    const canonical = messagesFromPayload({ sessionKey, sessionId, messages: [
+      { role: 'user', content: 'start', timestamp: 1000, idempotencyKey: 'origin:user', __openclaw: { id: 'origin', idempotencyKey: 'origin:user', transcriptPosition: { source, rawSeq: 10 } } },
+      { role: 'assistant', timestamp: 2000, content: [{ type: 'text', text: 'Alpha.' }, { type: 'toolcall', id: 'tool-a', name: 'Bash', arguments: {} }],
+        stopReason: 'tool_use', __openclaw: { id: 'step-a', importedFrom: 'claude-cli', cliSessionId, externalId: 'step-a' } },
+    ] });
+    rows = mergeLatestHistory(canonical, rows, sessionKey);
+    expect(rows.filter(row => row.steerSealed).map(row => row.text)).toEqual(['Beta.']);
+    rows = sealLiveChatForSteer(rows, prompt('s3', 'third steer', 4500), runId);
+    const seals = coalesceTranscriptIdentities(rows).filter(row => row.steerSealed);
+    expect(seals.map(row => row.text)).toEqual(['Beta.', 'Gamma.']);
+    expect(new Set(seals.map(row => row.id)).size).toBe(2);
   });
 
   it('only seals an existing live copy and moves an empty continuation below the new prompt', () => {

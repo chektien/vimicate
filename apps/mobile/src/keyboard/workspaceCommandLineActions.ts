@@ -25,7 +25,11 @@ export function workspaceCommandLineActions({ commandRef, searchRef, setCommand,
       if (!command) return 'none';
       if (!event.control && !event.command && !event.option) {
         if (normalizedHardwareKey(event) === 'tab') { actions.complete(event.shift); return 'none'; }
-        if (!event.shift && ['up', 'down'].includes(event.key)) { actions.recall(event.key === 'up' ? -1 : 1); return 'none'; }
+        if (['up', 'down'].includes(event.key)) {
+          if (event.shift) actions.recall(event.key === 'up' ? -1 : 1);
+          else actions.complete(event.key === 'up');
+          return 'none';
+        }
       }
       const result = handleCommandLineKey(command, event);
       if (result.action === 'none' && result.state.query !== command.query) actions.updateQuery(result.state.query);

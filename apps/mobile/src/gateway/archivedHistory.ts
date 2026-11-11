@@ -12,7 +12,7 @@ export type ArchiveIdentity = { sessionKey: string; currentSessionId: string; cu
 export type ArchivedSegment = { sessionId: string; order: number; state: 'archived' | 'current'; startedAtMs?: number; endedAtMs?: number; endReason?: string; sourceRevision: string };
 export type ArchivedPageCursor = { segmentIndex: number; nextOffset: number; totalRawRecords: number };
 export type ArchivedHistoryState = { identity: ArchiveIdentity; workspacePath?: string; familyToken?: string; segments?: ArchivedSegment[]; nextArchivedIndex?: number; pageCursor?: ArchivedPageCursor | undefined; exhausted: boolean; blocked?: string };
-export type ArchivedHistoryTransport = { archivedHistoryRequest: (params: Record<string, unknown>) => Promise<Record<string, unknown>>; decorateMessages?: (messages: WorkspaceMessage[], sessionKey: string) => WorkspaceMessage[] };
+export type ArchivedHistoryTransport = { projectionContext?: () => WorkspaceMessage[]; archivedHistoryRequest: (params: Record<string, unknown>) => Promise<Record<string, unknown>>; decorateMessages?: (messages: WorkspaceMessage[], sessionKey: string) => WorkspaceMessage[] };
 
 const ARCHIVED_FAMILY_AUTHORITY_FAILURES = [
   'current session generation changed',
@@ -86,7 +86,7 @@ export async function loadNextArchivedSegment(transport: ArchivedHistoryTranspor
     // be used to derive or validate cursor advancement.
     const projectedRecords = Array.isArray(payload.messages) ? payload.messages : [];
     if (projectedRecords.length > MAX_PROJECTED_PAGE_ROWS) throw new Error('Archived history exceeded its projected page bound.');
-    const parsed = messagesFromPayload({ ...payload, sessionKey: state.identity.sessionKey }, state.workspacePath ?? '').map((message) => ({ ...message, id: `archive:${segment.sessionId}:${message.id}` }));
+    const parsed = messagesFromPayload({ ...payload, sessionKey: state.identity.sessionKey }, state.workspacePath ?? '', transport.projectionContext?.() ?? []).map((message) => ({ ...message, id: `archive:${segment.sessionId}:${message.id}` }));
     const messages = transport.decorateMessages?.(parsed, state.identity.sessionKey) ?? parsed;
     if (payload.hasMore === true) {
       const nextOffset = integer(payload.nextOffset);

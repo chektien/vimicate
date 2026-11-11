@@ -2,7 +2,7 @@ export class ProjectFilesRequestOwner {
   private generation = 0;
   private controllers = new Set<AbortController>();
 
-  begin() {
+  begin(admit: () => boolean = () => true) {
     for (const existing of this.controllers) existing.abort();
     this.controllers.clear();
     const generation = ++this.generation;
@@ -11,7 +11,7 @@ export class ProjectFilesRequestOwner {
     return {
       generation,
       signal: controller.signal,
-      current: () => generation === this.generation && !controller.signal.aborted,
+      current: () => generation === this.generation && !controller.signal.aborted && admit(),
       finish: () => this.controllers.delete(controller),
     };
   }

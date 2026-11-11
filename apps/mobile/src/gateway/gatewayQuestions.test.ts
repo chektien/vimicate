@@ -38,3 +38,11 @@ describe('Gateway question authority', () => {
     expect(owner.forSession('qa-one')[0]?.status).toBe('expired');
   });
 });
+
+it('retires delivery attention on expiry and rejects unseen old-generation questions after reset', () => {
+  const owner = new GatewayQuestionOwner(); owner.event({ event: 'question.requested', payload: record }); owner.admit(record.id, record.sessionKey, { answers: { choice: ['One'] } });
+  owner.expire(1001); expect(owner.forSession(record.sessionKey)[0]).toMatchObject({ status: 'expired' }); expect(owner.forSession(record.sessionKey)[0]?.answerDelivery).toBeUndefined();
+  owner.reconcileSessions([{ id: 'project', sessionKey: record.sessionKey, name: 'Project', path: '', branch: '', starred: false, threadCount: 0, state: 'idle', sessionId: 'new-generation', sessionStartedAtMs: 2000 }]);
+  expect(owner.event({ event: 'question.requested', payload: { ...record, id: 'unseen-stale' } })).toBe(false);
+  owner.hydrate({ questions: [{ ...record, id: 'unseen-stale' }] }, owner.revision); expect(owner.forSession(record.sessionKey)).toEqual([]);
+});

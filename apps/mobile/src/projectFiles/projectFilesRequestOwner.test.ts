@@ -14,3 +14,12 @@ describe('ProjectFilesRequestOwner', () => {
     expect(second.current()).toBe(false);
   });
 });
+
+it('rejects a request immediately when its owner scope changes, before effect cleanup', () => {
+  const owner = new ProjectFilesRequestOwner();
+  let selectedScope = 'a';
+  const request = owner.begin(() => selectedScope === 'a');
+  expect(request.current()).toBe(true);
+  selectedScope = 'b';
+  expect(request.current()).toBe(false);
+});

@@ -25,6 +25,7 @@ export const LOCAL_COMMANDS: GatewayCommand[] = [
   { name: 'progress', description: 'show or hide live progress rows', acceptsArgs: true, aliases: [] },
   { name: 'reconnect', description: 'reconnect the paired Gateway', acceptsArgs: false, aliases: [] },
   { name: 'repair', description: 'clear only this RN surface connection', acceptsArgs: false, aliases: [] },
+  { name: 'remove-project', description: 'remove the selected top-level project from Vimicate (keeps its folder)', acceptsArgs: false, aliases: [] },
   { name: 'reload-projects', description: 'reload the authoritative project registry', acceptsArgs: false, aliases: [] },
   { name: 'status', description: 'show selected session status', acceptsArgs: false, aliases: [] },
   { name: 'stop', description: 'stop the selected thread run', acceptsArgs: false, aliases: [] },

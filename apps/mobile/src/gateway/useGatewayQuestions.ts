@@ -9,12 +9,14 @@ import { questionNeedsOtherSurface, type QuestionRecord } from '../questions/que
 import type { HardwareKeyEvent } from '../../modules/vimicate-editor';
 import { questionScopeNotice } from './questionScopeNotice';
 import { normalizedHardwareKey } from '../keyboard/hardwareKey';
-import { brokerPendingQuestionCounts, projectsWithPendingQuestions } from '../questions/pendingQuestionPresentation';
+import { brokerQuestionDeliveryCounts, projectsWithQuestionDelivery, type QuestionDeliveryCounts, brokerPendingQuestionCounts, combinedPendingQuestionCounts, projectsWithPendingQuestions } from '../questions/pendingQuestionPresentation';
+const noAsyncQuestions: ReadonlyMap<string, number> = new Map();
 type PendingResolution = { activity: number; connection: number; epoch: number; sessionKey: string; createdAtMs: number; cancel: boolean };
 export type QuestionActivity = (record: QuestionRecord, phase: 'requested' | 'answered') => void;
-export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatus, authority: MutableRefObject<HistoryPublicationAuthority>, messages: WorkspaceMessage[], sessionKey: string, projects: WorkspaceProject[], onActivity?: QuestionActivity) {
+export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatus, authority: MutableRefObject<HistoryPublicationAuthority>, messages: WorkspaceMessage[], sessionKey: string, projects: WorkspaceProject[], onActivity?: QuestionActivity, asyncCounts = noAsyncQuestions, asyncDelivery: ReadonlyMap<string, QuestionDeliveryCounts> = new Map()) {
   const alive = useRef(true); useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const owner = useMemo(() => new GatewayQuestionOwner(), []);
+  owner.reconcileSessions(projects);
   const [revision, setRevision] = useState(0); const [notice, setNotice] = useState(''); const [scopeNotice, setScopeNotice] = useState('');
   const [drafts, setDrafts] = useState<Record<string, QuestionDraft>>({}); const draftsRef = useRef(drafts); draftsRef.current = drafts;
   const [busy, setBusy] = useState<string[]>([]); const busyRef = useRef(new Map<string, PendingResolution>());
@@ -32,6 +34,11 @@ export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatu
     if (client.status !== 'connected' || !authority.current.isActive) return;
     if (!client.hasOperatorScope('operator.questions')) { setScopeNotice(client.questionScopeNotice || questionScopeNotice.required); return; }
     setScopeNotice('');
+    for (const [id, pending] of busyRef.current) if (!authority.current.owns(pending.activity) || client.connectionRevision !== pending.connection) {
+      if (!pending.cancel) owner.delivery(id, pending.sessionKey, 'unconfirmed');
+      busyRef.current.delete(id);
+    }
+    setBusy([...busyRef.current.keys()]);
     const epoch = owner.epoch; const connection = client.connectionRevision; const activity = authority.current.capture(); const started = owner.revision;
     try { const payload = await client.request('question.list', {}); if (!alive.current || !authority.current.owns(activity) || client.connectionRevision !== connection || owner.epoch !== epoch) return; owner.hydrate(payload, started); owner.expire(Date.now()); publish(); setNotice(''); }
     catch (error) { if (alive.current && authority.current.owns(activity) && client.connectionRevision === connection && owner.epoch === epoch) setNotice(questionScopeNotice.loadFailed); }
@@ -60,17 +67,21 @@ export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatu
   const clear = useCallback(() => { interactionRef.current = null; setInteraction(null); owner.clear(); setNotice(''); setScopeNotice(''); busyRef.current.clear(); setBusy([]); setOtherFocus(null); setTextEditing(null); setDrafts({}); draftsRef.current = {}; setErrors({}); publish(); }, [owner, publish]);
   const draft = useCallback((record: QuestionRecord) => draftsRef.current[record.id] ?? emptyQuestionDraft(), []);
   const update = useCallback((record: QuestionRecord, next: QuestionDraft) => {
+    if (owner.get(record.id, record.sessionKey)?.answerDelivery) return;
     draftsRef.current = { ...draftsRef.current, [record.id]: next }; setDrafts(draftsRef.current);
-  }, []);
+  }, [owner]);
   const resolve = useCallback(async (record: QuestionRecord, cancel = false) => {
     const current = owner.get(record.id, record.sessionKey);
-    if (!current || current.status !== 'pending' || current.expiresAtMs <= Date.now() || questionNeedsOtherSurface(current) || busyRef.current.has(record.id) || client.status !== 'connected' || !authority.current.isActive) return;
-    const answers = questionDraftAnswers(current, draft(current));
+    if (!current || current.pendingOmitted || current.status !== 'pending' || current.expiresAtMs <= Date.now() || questionNeedsOtherSurface(current) || busyRef.current.has(record.id) || client.status !== 'connected' || !authority.current.isActive) return;
+    let answers = current.submittedAnswers ?? questionDraftAnswers(current, draft(current));
     if (!cancel && !answers) { setErrors(e => ({ ...e, [record.id]: 'Answer every question before submitting.' })); return; }
-    const epoch = owner.epoch; const connection = client.connectionRevision; const activity = authority.current.capture(); busyRef.current.set(record.id, { activity, connection, epoch, sessionKey: current.sessionKey, createdAtMs: current.createdAtMs, cancel }); setBusy([...busyRef.current.keys()]);
+    const epoch = owner.epoch; const connection = client.connectionRevision; const activity = authority.current.capture(); if (!cancel && answers) answers = owner.admit(record.id, record.sessionKey, answers) ?? answers; publish(); setErrors(e => { const next = { ...e }; delete next[record.id]; return next; });
+    const ticket = { activity, connection, epoch, sessionKey: current.sessionKey, createdAtMs: current.createdAtMs, cancel };
+    busyRef.current.set(record.id, ticket); setBusy([...busyRef.current.keys()]);
     try {
       const result = await client.request('question.resolve', { id: record.id, ...(cancel ? { cancel: true } : { answers }), resolvedBy: 'Vimicate' });
-      if (!alive.current || !authority.current.owns(activity) || client.connectionRevision !== connection || owner.epoch !== epoch) return;
+      if (!alive.current || owner.epoch !== epoch) return;
+      if (!authority.current.owns(activity) || client.connectionRevision !== connection) { if (!cancel && busyRef.current.get(record.id) === ticket) owner.delivery(record.id, record.sessionKey, 'unconfirmed'); return; }
       if (!result || typeof result !== 'object') throw new Error('Invalid question.resolve response');
       if (!owner.event({ event: 'question.resolved', payload: { ...result, id: record.id } })) throw new Error('Invalid question.resolve response');
       const confirmed = owner.get(record.id, record.sessionKey);
@@ -80,8 +91,9 @@ export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatu
       publish();
       await hydrate();
     } catch (error) {
-      if (alive.current && authority.current.owns(activity) && client.connectionRevision === connection && owner.epoch === epoch) { setErrors(e => ({ ...e, [record.id]: `Answer not confirmed · ${error instanceof Error ? error.message : 'Gateway refused answer'}` })); await hydrate(); }
-    } finally { if (owner.epoch === epoch) { busyRef.current.delete(record.id); if (alive.current) setBusy([...busyRef.current.keys()]); } }
+      if (alive.current && authority.current.owns(activity) && client.connectionRevision === connection && owner.epoch === epoch) { if (!cancel) owner.delivery(record.id, record.sessionKey, 'failed'); publish(); setErrors(e => ({ ...e, [record.id]: `Answer not confirmed · ${error instanceof Error ? error.message : 'Gateway refused answer'}` })); await hydrate(); }
+    } finally { if (owner.epoch === epoch && (!authority.current.owns(activity) || client.connectionRevision !== connection)) { if (!cancel && busyRef.current.get(record.id) === ticket) owner.delivery(record.id, record.sessionKey, 'unconfirmed'); if (alive.current && authority.current.isActive) { publish(); await hydrate(); } }
+      if (owner.epoch === epoch && busyRef.current.get(record.id) === ticket) { busyRef.current.delete(record.id); if (alive.current) setBusy([...busyRef.current.keys()]); } }
   }, [authority, client, draft, hydrate, onActivity, owner, publish]);
   const handleKey = useCallback((record: QuestionRecord, input: HardwareKeyEvent, entry?: QuestionEntry): QuestionKeyResult => {
     if (record.status !== 'pending' || record.expiresAtMs <= Date.now() || busyRef.current.has(record.id) || questionNeedsOtherSurface(record) || input.command || input.control || input.option) return false;
@@ -99,7 +111,7 @@ export function useGatewayQuestions(client: OpenClawClient, status: GatewayStatu
   }, [draft, interact, resolve, update]);
   useEffect(() => { const ids = owner.ids(); setDrafts(current => Object.keys(current).every(id => ids.has(id)) ? current : Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id)))); setErrors(current => Object.keys(current).every(id => ids.has(id)) ? current : Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id)))); }, [owner, revision]);
   const rows = useMemo(() => questionMessages(messages, owner.forSession(sessionKey)), [messages, owner, revision, sessionKey]);
-  const projectedProjects = useMemo(() => projectsWithPendingQuestions(projects, brokerPendingQuestionCounts(owner.snapshot())), [owner, projects, revision]);
+  const projectedProjects = useMemo(() => projectsWithQuestionDelivery(projectsWithPendingQuestions(projects, combinedPendingQuestionCounts(brokerPendingQuestionCounts(owner.snapshot()), asyncCounts)), brokerQuestionDeliveryCounts(owner.snapshot()), asyncDelivery), [asyncCounts, asyncDelivery, owner, projects, revision]);
   return { messages: rows, projects: projectedProjects, pendingSessions: owner.pendingSessions(), notice: status === 'connected' ? scopeNotice || notice : '', event, hydrate, clear, ui: {
     drafts, busy, errors, draft, resolve, handleKey, consumeOtherFocus, textEditing, editing, otherFocus, interaction, interact, leave, returnRevision, targetRevision,
     choose: (record: QuestionRecord, question: number, option: number) => { interact(record.id); update(record, focusQuestionSubmit(record, chooseQuestionOption(record, draft(record), option, question))); },

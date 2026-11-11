@@ -26,11 +26,11 @@ export function TranscriptQuestion({ record, focused, fontScale, onFocus, nonBlo
     if (record.status !== 'pending' || nonBlocking) return;
     setNow(Date.now()); const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer);
   }, [record.id, record.status, nonBlocking]);
-  if (record.status !== 'pending') return null;
+  if (record.status !== 'pending' || record.pendingOmitted) return null;
   if (questionNeedsOtherSurface(record)) return <Text accessibilityRole="alert" style={styles.notice}>This question needs private input. Answer it elsewhere in OpenClaw. Vimicate does not collect secrets.</Text>;
   if (!actions) return <Text style={styles.notice}>Question controls unavailable. Reconnect to OpenClaw.</Text>;
   const draft = actions.draft(record); const busy = actions.busy.includes(record.id); const expired = !nonBlocking && now >= record.expiresAtMs;
-  const disabled = busy || expired;
+  const disabled = busy || expired || record.answerDelivery === 'sending';
   const size = (base: number) => ({ fontSize: base * fontScale, lineHeight: Math.round(base * 1.45 * fontScale) });
   const body = [styles.text, size(12)]; const meta = [styles.meta, size(12)];
   const blurOthers = () => { setOtherIndex(null); editing?.(record, false); };
@@ -41,7 +41,7 @@ export function TranscriptQuestion({ record, focused, fontScale, onFocus, nonBlo
   };
   const confirmOther = () => { blurOthers(); actions.activate?.(record, record.questions.length, 0); };
   const remaining = Math.max(0, Math.ceil((record.expiresAtMs - now) / 1000));
-  const status = nonBlocking ? 'Optional · work can continue' : expired ? 'Expired' : `Waiting for input · expires in ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+  const status = record.answerDelivery === 'sending' ? 'Sending answer…' : record.answerDelivery === 'unconfirmed' ? 'Answer awaiting confirmation' : record.answerDelivery === 'failed' ? 'Answer not confirmed · retry this answer' : nonBlocking ? 'Optional · work can continue' : expired ? 'Expired' : `Waiting for input · expires in ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
   // Only list keys this prompt actually uses.
   const optionCount = Math.max(0, ...record.questions.map(question => question.options.length));
   const footerActive = focused && interacting && draft.active === record.questions.length;
@@ -81,7 +81,7 @@ export function TranscriptQuestion({ record, focused, fontScale, onFocus, nonBlo
     {actions.errors[record.id] ? <Text accessibilityRole="alert" style={styles.notice}>{actions.errors[record.id]}</Text> : null}
     <View style={styles.footer}>
       {[
-        { label: busy ? 'Submitting…' : 'Submit answers', accessibility: 'Submit question answers', run: () => actions.resolve(record) },
+        { label: busy || record.answerDelivery === 'sending' ? 'Submitting…' : record.answerDelivery ? 'Retry answer' : 'Submit answers', accessibility: 'Submit question answers', run: () => actions.resolve(record) },
         { label: nonBlocking ? 'Collapse' : 'Cancel', accessibility: nonBlocking ? 'Collapse question' : 'Cancel question', run: () => actions.resolve(record, true) },
         ...(nonBlocking && actions.skip ? [{ label: 'Skip question', accessibility: 'Skip question', run: () => actions.skip?.(record) }] : []),
       ].map((action, index) => {

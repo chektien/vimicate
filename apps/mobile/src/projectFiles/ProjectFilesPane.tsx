@@ -35,8 +35,8 @@ export function ProjectFilesPane({ controller, rootLabel = 'Project', rootPath =
   useEffect(() => { setExpanded(false); }, [controller.open, controller.content?.projectId, controller.content?.path]);
   const showingExpanded = expanded && controller.content?.kind === 'text' && controller.content.mimeType === 'text/html' && controller.previewPhase !== 'error';
   if (!controller.open) return null;
-  const directoryPath = rootPath ? `${rootPath.replace(/\/+$/, '')}${controller.path ? `/${controller.path}` : ''}` || '/'
-    : rootLabel === 'Project' ? `./${controller.path}` : `${rootLabel}/${controller.path}`;
+  const directoryPath = controller.directoryLabel ?? (rootPath ? `${rootPath.replace(/\/+$/, '')}${controller.path ? `/${controller.path}` : ''}` || '/'
+    : rootLabel === 'Project' ? `./${controller.path}` : `${rootLabel}/${controller.path}`);
   const pane = <Pane expanded={showingExpanded} onToggleExpanded={() => setExpanded(value => !value)} controller={controller} rootLabel={rootLabel} directoryPath={directoryPath} focused={focused} listFontScale={listFontScale} previewFontScale={previewFontScale} split={split} onFontStep={onFontStep} onRequestFocus={onRequestFocus} onOpenMedia={onOpenMedia} />;
   return <View accessibilityViewIsModal={showingExpanded || presentation === 'overlay'} style={showingExpanded || presentation === 'overlay' ? styles.overlaySafe : [styles.sidebar, { width }]}>{pane}</View>;
 }

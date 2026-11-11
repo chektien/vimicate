@@ -932,3 +932,63 @@ it.each(['tap', 'enter'])('retries a failed selected preview via %s without requ
   act(() => probe.current!.openEntry(0)); await flush();
   expect(readFile).toHaveBeenCalledTimes(2);
 });
+
+it('binds host labels and delayed remote replies to the current project, thread and folder', async () => {
+  const pending = deferred<ProjectFileList>();
+  const port: ProjectFilesPort = { listDirectory: async ({ projectId, path }) => path === 'repo@work-mac' ? pending.promise
+    : { projectId, path, entries: [], directoryLabel: projectId === 'notes' ? 'Project folders' : 'gateway:~/repos/other' }, readFile: vi.fn() };
+  await act(async () => root.render(<Harness projectId="notes" scopeKey="thread-a" port={port} />));
+  act(() => probe.current!.openBrowser()); await flush();
+  expect(probe.current!.directoryLabel).toBe('Project folders');
+  act(() => probe.current!.openFilePath('repo@work-mac/guide.md')); await flush();
+  expect(probe.current!.directoryLabel).toBeUndefined();
+  await act(async () => root.render(<Harness projectId="other" scopeKey="thread-b" port={port} />)); await flush();
+  expect(probe.current!.directoryLabel).toBe('gateway:~/repos/other');
+  await act(async () => pending.resolve({ projectId: 'notes', path: 'repo@work-mac', entries: [], directoryLabel: 'work-mac:~/repos/example' }));
+  expect(probe.current!.directoryLabel).toBe('gateway:~/repos/other');
+  expect(probe.current!.content).toBeNull();
+});
+
+it('clears old remote content and its host label when a different host is unavailable', async () => {
+  const port: ProjectFilesPort = { listDirectory: async ({ projectId, path }) => {
+    if (path.startsWith('repo@offline')) throw new Error('host offline is unavailable');
+    return { ...markdownList, projectId, path, directoryLabel: 'work-mac:~/repos/example',
+      entries: markdownList.entries.map(entry => ({ ...entry, path: path ? `${path}/${entry.name}` : entry.path })) };
+  }, readFile: async ({ projectId, path }) => ({ ...markdown, projectId, path }) };
+  await act(async () => root.render(<Harness projectId="notes" port={port} />));
+  act(() => probe.current!.openFilePath('repo@work-mac/plan.md')); await flush();
+  expect(probe.current!.content).toMatchObject({ text: markdown.text });
+  expect(probe.current!.directoryLabel).toBe('work-mac:~/repos/example');
+  act(() => probe.current!.openFilePath('repo@offline/plan.md')); await flush();
+  expect(probe.current!.content).toBeNull(); expect(probe.current!.entries).toEqual([]);
+  expect(probe.current!.directoryLabel).toBeUndefined(); expect(probe.current!.problem).toContain('offline');
+});
+
+it.each(['README.md', 'docs/guide.md', 'docs', 'some@ordinary-folder/guide.md'])('binds the relative link %s to its explicit primary host before listing or reading', async (linked) => {
+  const calls: string[] = [];
+  const port: ProjectFilesPort = { listDirectory: async ({ projectId, path }) => {
+    calls.push(path);
+    if (!path.startsWith('repo@work-mac')) return { projectId, path, entries: [], primaryRoot: 'repo@work-mac', directoryLabel: 'Project folders' };
+    const target = `repo@work-mac/${linked}`;
+    return { projectId, path, directoryLabel: `work-mac:~/repos/example/${path.split('/').slice(1).join('/')}`, entries: target === path ? []
+      : [{ name: linked.split('/').at(-1)!, path: target, kind: linked === 'docs' ? 'directory' : 'text', ...(linked === 'docs' ? {} : { mimeType: 'text/markdown' }), size: linked === 'docs' ? 0 : markdown.size, mtimeMs: 1 }] };
+  }, readFile: vi.fn(async ({ projectId, path }) => ({ ...markdown, projectId, path })) };
+  await act(async () => root.render(<Harness projectId="notes" port={port} />));
+  act(() => probe.current!.openFilePath(linked, 2)); await flush();
+  expect(calls[1]).toBe(`repo@work-mac${linked.includes('/') ? '/' + linked.split('/').slice(0, -1).join('/') : ''}`);
+  if (linked === 'docs') {
+    expect(probe.current!.path).toBe('repo@work-mac/docs'); expect(port.readFile).not.toHaveBeenCalled();
+  } else {
+    expect(probe.current!.content?.path).toBe(`repo@work-mac/${linked}`);
+    expect(probe.current!.previewNavigation.cursor.row).toBe(1);
+  }
+});
+
+it('bounds a malformed repeated host-root redirect without reading contents', async () => {
+  const listDirectory = vi.fn(async ({ projectId, path }: { projectId: string; path: string }) => ({ projectId, path, entries: [], primaryRoot: 'repo@work-mac' }));
+  const readFile = vi.fn();
+  await act(async () => root.render(<Harness projectId="notes" port={{ listDirectory, readFile }} />));
+  act(() => probe.current!.openFilePath('README.md')); await flush();
+  expect(listDirectory).toHaveBeenCalledTimes(2); expect(readFile).not.toHaveBeenCalled();
+  expect(probe.current!.problem).toBe('Repeated file root redirect');
+});

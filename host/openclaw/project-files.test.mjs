@@ -10,7 +10,7 @@ const REGISTRY_LIMIT = 4 * 1024 * 1024;
 const TEXT_LIMIT = 1024 * 1024;
 
 function fixture(t) {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vimicate-project-files-')));
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), '.vimicate-project-files-')));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const vimicateDir = path.join(base, 'registry');
   const project = path.join(base, 'project');

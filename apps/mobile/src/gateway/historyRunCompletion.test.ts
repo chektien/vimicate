@@ -6,6 +6,14 @@ const message = (id: string, role: WorkspaceMessage['role'], timestamp: number, 
 const epoch = 1_800_000_000_000;
 
 describe('historical run completion projection', () => {
+  it('requires explicit end-turn evidence before deriving a footer from native Claude text', () => {
+    const prompt = message('prompt', 'user', epoch);
+    const native: WorkspaceMessage = { ...message('partial', 'assistant', epoch + 1_000), state: 'complete',
+      cliProvenance: { kind: 'claude-native', sessionId: 'cli', externalId: 'partial' } };
+    expect(withHistoryRunCompletions([prompt, native])).toEqual([prompt, native]);
+    expect(withHistoryRunCompletions([prompt, { ...native, cliEndTurn: true }]).at(-1)?.id).toBe('history-run-partial');
+  });
+
   it('adds one native-like completion after the final assistant in a timestamped turn', () => {
     const result = withHistoryRunCompletions([
       message('prompt', 'user', epoch),

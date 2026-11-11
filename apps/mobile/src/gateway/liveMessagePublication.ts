@@ -2,6 +2,7 @@ import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { identifyNarrationMessageOwners, narrationMessageIdentity, rejectConflictingNarrationIDs } from './narrationTextConvergence';
 import { convergedLiveMessage } from './liveMessageConvergence';
 import { upsertLiveMessage } from './gatewayEventProjection';
+import { ToolBoundaryChatTexts } from './toolBoundaryLiveSeal';
 import { latestPresentationWindow, MAX_VISIBLE_HISTORY_ROWS } from './historyWindow';
 import { launchGuardedBackgroundTask } from '../async/guardedBackgroundTask';
 
@@ -20,10 +21,12 @@ export class LiveMessagePublicationBuffer {
   private messages = new Map<string, WorkspaceMessage>();
   private pendingIdentitiesBySession = new Map<string, Set<string>>();
   private seen = new Set<string>();
+  private toolBoundaries = new ToolBoundaryChatTexts();
 
   enqueue(message: WorkspaceMessage) {
     const identity = bufferedMessageIdentity(message);
     const first = !this.seen.has(identity);
+    message = this.toolBoundaries.observe(message, first);
     this.seen.add(identity);
     if (this.seen.size > LiveMessagePublicationBuffer.MAX_SEEN_IDENTITIES) this.seen.delete(this.seen.values().next().value ?? '');
     const previous = this.messages.get(identity);
@@ -86,7 +89,7 @@ export class LiveMessagePublicationBuffer {
     this.pendingIdentitiesBySession.delete(sessionKey);
     return coalescePendingNarration(pending);
   }
-  clear() { this.messages.clear(); this.pendingIdentitiesBySession.clear(); this.seen.clear(); }
+  clear() { this.messages.clear(); this.pendingIdentitiesBySession.clear(); this.seen.clear(); this.toolBoundaries.clear(); }
   get size() { return this.messages.size; }
 }
 

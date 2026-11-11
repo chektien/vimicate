@@ -97,8 +97,10 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
   const [selectedKey, setSelectedKey] = useState(offlineProjects[0]?.sessionKey ?? '');
   const [commands, setCommands] = useState<GatewayCommand[]>([]); const [modelChoices, setModelChoices] = useState<ModelChoice[]>([]);
   const [sending, setSending] = useState(false); const chatStreams = useRef(new ChatStreamAccumulator()); useEffect(() => { if (status !== 'connected') chatStreams.current.clear(); }, [status]); // no stale deltaText baseline after a drop
+  const questionProjectionContext = useRef<() => WorkspaceMessage[]>(() => []);
+  const retainedQuestionContext = useCallback(() => questionProjectionContext.current(), []);
   const observeApprovals = useCallback((key: string, rows: WorkspaceMessage[]) => { runRegistry.current.approvals.observe(key, rows); }, []);
-  const { subscribeLatestHistory, hasNewerHistory, messages: rawMessages, latestMessages: rawLatestMessages, messageSessionKey, updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication } = useGatewayHistory(client, selectedRef, setDetail, selectedKey, appActive.current, historyFreshness.current, observeApprovals);
+  const { historyLoading, subscribeLatestHistory, hasNewerHistory, messages: rawMessages, latestMessages: rawLatestMessages, messageSessionKey, updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication } = useGatewayHistory(client, selectedRef, setDetail, selectedKey, appActive.current, historyFreshness.current, observeApprovals, retainedQuestionContext);
   const messages = useStoppedRunNotices(rawMessages, runRegistry.current); const latestMessages = useStoppedRunNotices(rawLatestMessages, runRegistry.current);
   const recordLocalInteraction = useCallback((sessionKey: string, timestamp = Date.now(), unread = false, source: 'activity' | 'compatibility' = 'activity') => {
     const activityAt = source === 'compatibility' ? activityLedger.current.recordCompatibility(sessionKey, timestamp) : activityLedger.current.record(sessionKey, timestamp); if (activityAt === undefined) return;
@@ -119,7 +121,7 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
     sessionKey: record.sessionKey, identity: `question.${phase}\u0000${record.sessionKey}\u0000${record.id}\u0000${record.createdAtMs}`,
     occurredAt: phase === 'requested' ? record.createdAtMs : Date.now(),
   }, { recencyOnly: true }), [recordAttention]);
-  const questions = useGatewayQuestions(client, status, scenePublicationAuthority, messages, messageSessionKey, projects, recordQuestionActivity); const messagesRef = useRef(messages); messagesRef.current = messages;
+  const messagesRef = useRef(messages); messagesRef.current = messages;
   const hasPublishedFinalForRun = useCallback((sessionKey: string, runId: string) => (messageSessionKey === sessionKey && hasRenderedAssistantFinalForRun(messagesRef.current, runId)) || hasRenderedAssistantFinalForRun(sessionMessages(sessionKey), runId), [messageSessionKey, sessionMessages]);
   const publishSelectedRun = useSelectedRunPublication(runRegistry, selectedRef, setSending, setProjects);
   useEffect(() => {
@@ -129,7 +131,9 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
       if (next !== revision) { revision = next; publishSelectedRun(); }
     });
   }, [publishSelectedRun, subscribeLatestHistory]);
-  const { asyncSubmit, asyncQuestions, queuedPrompts } = useGatewayConversationInputs(client, status, profile?.endpoint ?? '', scenePublicationAuthority, runRegistry, selectedKey, projects, messages, latestMessages, publishSelectedRun);
+  const { asyncSubmit, asyncQuestions, queuedPrompts } = useGatewayConversationInputs(client, status, profile?.endpoint ?? '', scenePublicationAuthority, runRegistry, selectedKey, projects, messages, latestMessages, publishSelectedRun, { client, selectedSessionKey: messageSessionKey, projects, subscribe: subscribeLatestHistory, sessionMessages });
+  questionProjectionContext.current = asyncQuestions.projectionContext;
+  const questions = useGatewayQuestions(client, status, scenePublicationAuthority, messages, messageSessionKey, projects, recordQuestionActivity, asyncQuestions.pendingCounts, asyncQuestions.deliveryCounts);
   const persistRuns = useCallback(() => { launchGuardedBackgroundTask(() => saveValue(ACTIVE_RUNS_KEY, JSON.stringify(runRegistry.current.snapshot()))); }, []);
   const persistPendingFinalAnswers = useCallback(() => { launchGuardedBackgroundTask(() => saveValue(PENDING_FINAL_ANSWERS_KEY, pendingFinalAnswers.current.serialized())); }, []);
   useTranscriptRunTruth({ messageSessionKey, visibleMessages: messages, runRegistry, sessionMessages, persistRuns, publishSelectedRun });
@@ -192,11 +196,10 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
     try { await task; }
     finally { if (connectionTask.current === task) connectionTask.current = null; }
   }, [client, loadCommands, loadPendingApprovals, loadSessions, recoverActiveRuns, recoverPendingFinalAnswers]);
-  // Socket kept through a transient inactive scene: events, including
-  // questions and catalog changes, were dropped. Prove the socket is alive,
-  // then catch up all dropped state without reconnecting; a dead socket reconnects.
-  // A ref keeps the lifecycle effect from re-subscribing on every question render.
+  // Resume probes the socket, then hydrates missed state or reconnects.
+  // Refs keep question renders from replacing the lifecycle subscription.
   const hydrateQuestions = useRef(questions.hydrate); hydrateQuestions.current = questions.hydrate;
+  const discoverQuestions = useRef(asyncQuestions.discover); discoverQuestions.current = asyncQuestions.discover;
   const resumeKeptConnection = useCallback(async () => {
     if (!scenePublicationAuthority.current.isActive) return;
     const activityRevision = scenePublicationAuthority.current.capture(); const connection = client.connectionRevision;
@@ -211,7 +214,7 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
     if (!scenePublicationAuthority.current.owns(activityRevision)) return;
     await loadSessions(true, '', false, true);
     if (!scenePublicationAuthority.current.owns(activityRevision)) return;
-    await Promise.all([loadPendingApprovals(), hydrateQuestions.current()]);
+    await Promise.all([loadPendingApprovals(), hydrateQuestions.current()]); discoverQuestions.current();
     if (scenePublicationAuthority.current.owns(activityRevision)) { recoverActiveRuns(); recoverPendingFinalAnswers(); }
   }, [client, establishConnection, loadPendingApprovals, loadSessions, recoverActiveRuns, recoverPendingFinalAnswers]);
 
@@ -476,6 +479,6 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
   asyncSubmit.current = submit; const abort = useGatewayAbort(client, selectedRef, runRegistry, scenePublicationAuthority, setDetail, publishSelectedRun);
 
   const fileLocations = useGatewayFileLocations(client); const recoverMessage = useGatewayMessageRecovery({ client, selectedRef, messagesRef, messageSessionKey, projectsRef, updateSessionMessages, setDetail, scenePublicationAuthority }); const listProjectFiles = useCallback((projectId: string, path = '') => client.listProjectFiles(projectId, path), [client]); const readProjectFile = useCallback((projectId: string, path: string) => client.readProjectFile(projectId, path), [client]); const resolveSharedFile = useCallback((sourcePath: string) => client.resolveSharedFile(sourcePath), [client]); const listSharedFiles = useCallback((projectId: string, path = '') => client.listSharedFiles(projectId, path), [client]); const readSharedFile = useCallback((projectId: string, path: string) => client.readSharedFile(projectId, path), [client]);
-  const refresh = useCallback(() => Promise.all([loadSessions(true, '', true), providerUsage.refresh()]).then(() => undefined), [loadSessions, providerUsage]);
-  return { queuedPrompts, asyncQuestions, questions: questions.ui, questionNotice: questions.notice, ...fileLocations, hasNewerHistory, resolveArtifact: client.resolveArtifact, listProjectFiles, readProjectFile, resolveSharedFile, listSharedFiles, readSharedFile, profile, status, detail, projects: questions.projects, projectsReady, selectedKey, latestMessages, messages: questions.messages, messageSessionKey, commands, modelChoices, sending, loadingOlder, canLoadOlder, historyProblem, providerUsage: providerUsage.state, refreshProviderUsage: providerUsage.refresh, pair, connect, forget, selectProject, toggleStar, submit, abort, decideApproval, recoverMessage, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refresh };
+  const refresh = useCallback(() => Promise.all([loadSessions(true, '', true), providerUsage.refresh()]).then(() => { discoverQuestions.current(); }), [loadSessions, providerUsage]);
+  return { historyLoading, queuedPrompts, asyncQuestions, questions: questions.ui, questionNotice: questions.notice, ...fileLocations, hasNewerHistory, resolveArtifact: client.resolveArtifact, listProjectFiles, readProjectFile, resolveSharedFile, listSharedFiles, readSharedFile, profile, status, detail, projects: questions.projects, projectsReady, selectedKey, latestMessages, messages: questions.messages, messageSessionKey, commands, modelChoices, sending, loadingOlder, canLoadOlder, historyProblem, providerUsage: providerUsage.state, refreshProviderUsage: providerUsage.refresh, pair, connect, forget, selectProject, toggleStar, submit, abort, decideApproval, recoverMessage, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refresh };
 }

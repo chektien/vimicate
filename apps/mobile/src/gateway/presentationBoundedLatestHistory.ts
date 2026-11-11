@@ -8,7 +8,7 @@ import { mergeSharedNarration } from './sharedNarration';
 /** Reject oversized candidates before consuming their raw-record cursor. */
 export async function presentationBoundedLatestHistory(
   client: OpenClawClient, sessionKey: string, firstPayload: Record<string, unknown>,
-  workspacePath: string, owns: () => boolean, narration: WorkspaceMessage[],
+  workspacePath: string, owns: () => boolean, narration: WorkspaceMessage[], retainedRows: WorkspaceMessage[] | (() => WorkspaceMessage[]) = [],
 ) {
   let payload = firstPayload;
   const fits = (messages: WorkspaceMessage[]) => withHistoryRunCompletions(messages)
@@ -20,7 +20,7 @@ export async function presentationBoundedLatestHistory(
     if (limit !== 80) payload = await client.history(sessionKey, limit, 0);
     if (!owns()) return null;
     const completed = await completedLatestHistoryPage(client, sessionKey, payload, workspacePath, owns,
-      messages => limit === 1 || fits(mergeSharedNarration(messages, narration)));
+      messages => limit === 1 || fits(mergeSharedNarration(messages, narration)), retainedRows);
     if (!completed) return null;
     const messages = mergeSharedNarration(completed.messages, narration);
     if (limit === 1 || fits(messages)) return { ...completed, messages };

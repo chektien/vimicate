@@ -127,7 +127,8 @@ describe('workspace gateway adapters', () => {
     ] });
 
     expect(call?.tool).toEqual({ name: 'bash', summary: 'bash · pnpm test' });
-    expect(result?.tool).toEqual(call?.tool);
+    // The result shares the call's fold metadata and names the call it settles.
+    expect(result?.tool).toEqual({ ...call?.tool, resultOf: 'call-1' });
     expect(call?.text).toContain('"TOKEN": "private"');
     expect(result?.text).toContain('{"tests":129}');
   });

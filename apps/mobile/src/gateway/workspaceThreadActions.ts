@@ -34,6 +34,25 @@ export async function createWorkspaceThread(client: ThreadMutationClient, projec
   return { selectedKey: created.sessionKey, message: `:new-thread ${resolvedLabel} — created under ${parent.name}.`, registryPayload: acceptedRegistry, ...(created.runStarted && created.runId ? { runId: created.runId } : {}) };
 }
 
+export type ProjectRemovalClient = { removeRegistryProject: (projectID: string, expectedSha256: string) => Promise<Record<string, unknown>> };
+
+/** Removes a top-level project from projects.md only. Its folder, OpenClaw
+ * session and child-thread registry rows stay, so re-adding the entry restores it. */
+export async function removeWorkspaceProject(client: ProjectRemovalClient, projects: WorkspaceProject[], selectedKey: string, registryPayload: Record<string, unknown>, runActive: boolean, argumentsInput = ''): Promise<ThreadActionResult> {
+  if (argumentsInput.trim()) throw new Error(':remove-project removes the selected project and takes no arguments.');
+  const selected = projects.find((project) => project.sessionKey === selectedKey);
+  if (!selected || selected.kind !== 'project' || !selected.id) throw new Error(':remove-project needs a selected top-level project. Use :close-thread for a child thread.');
+  if (runActive) throw new Error(`:remove-project ${selected.name} has an active run. Use :stop first.`);
+  const capabilities = registryPayload.capabilities as Record<string, unknown> | undefined;
+  const projectsFile = registryPayload.projects as Record<string, unknown> | undefined;
+  if (capabilities?.projectRemoval !== 'projects-md-v1') throw new Error(':remove-project needs the updated Vimicate Gateway plugin.');
+  if (typeof projectsFile?.sha256 !== 'string' || !projectsFile.sha256) throw new Error(':remove-project needs a loaded project registry. Run :reload-projects first.');
+  const result = await client.removeRegistryProject(selected.id, projectsFile.sha256);
+  const accepted = result.projects as Record<string, unknown> | undefined;
+  if (result.outcome !== 'removed' || result.projectID !== selected.id || typeof accepted?.markdown !== 'string') throw new Error(':remove-project received an invalid Gateway reply.');
+  return { selectedKey: '', message: `:remove-project ${selected.name} — removed from Vimicate; its folder was kept.`, registryPayload: { projects: accepted } };
+}
+
 export async function closeWorkspaceThread(client: ThreadMutationClient, projects: WorkspaceProject[], selectedKey: string, registryPayload: Record<string, unknown>, runActive: boolean, argumentsInput = '', nowSeconds = Date.now() / 1000): Promise<ThreadActionResult> {
   if (argumentsInput.trim()) throw new Error(':close-thread closes the selected thread and takes no arguments.');
   const selected = projects.find((project) => project.sessionKey === selectedKey);

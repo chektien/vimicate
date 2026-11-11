@@ -122,7 +122,7 @@ it('returns a publication receipt that remains pending until the queued older pa
     expect(settled).toBe(false);
   });
   expect(owner.messages.map(row => row.id)).toContain('older');
-  await expect(receipt.publication).resolves.toEqual({ committed: true, published: true, addedMessageCount: 1, addedVisibleRowCount: 1 });
+  await expect(receipt.publication).resolves.toMatchObject({ committed: true, published: true, addedMessageCount: 1, addedVisibleRowCount: 1 });
 });
 
 it('loads toward eighty new rendered rows through collapsed tool-heavy current pages without skipping offsets', async () => {
@@ -162,7 +162,8 @@ it('publishes an accepted partial batch and resumes from its exact cursor after 
   });
   const client = { status: 'connected', history, followSession: async () => {}, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient;
   await mount(client);
-  await act(async () => { owner.resetHistory(project, null); await owner.loadHistory(key); await owner.loadOlderHistory(); });
+  await act(async () => { owner.resetHistory(project, null); await owner.loadHistory(key); });
+  await act(async () => { await owner.loadOlderHistory(); });
   expect(owner.messages.map(row => row.id)).toContain('older-one');
   expect(owner.historyProblem).toBe('temporary page failure');
   fail = false;
@@ -172,3 +173,63 @@ it('publishes an accepted partial batch and resumes from its exact cursor after 
   expect(history.mock.calls.map(call => call[2])).toEqual([0, 80, 81, 81]);
   expect(owner.canLoadOlder).toBe(false);
 });
+
+it('retains bounded scan-only progress through more than thirty-two filtered pages', async () => {
+  const history = vi.fn(async (_key: string, _limit: number, offset: number) => offset === 0 ? page('tail', 80)
+    : offset < 120 ? { sessionKey: key, totalMessages: 500, messages: [], nextOffset: offset + 1, hasMore: true }
+    : { sessionKey: key, totalMessages: 500, messages: [{ id: 'eventually-older', role: 'user', content: 'found' }], nextOffset: null, hasMore: false });
+  const client = { status: 'connected', history, followSession: async () => {}, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient;
+  await mount(client);
+  await act(async () => { owner.resetHistory(project, null); await owner.loadHistory(key); });
+  await act(async () => { await owner.loadOlderHistory(); });
+  expect(owner.canLoadOlder).toBe(true);
+  expect(owner.messages.map(row => row.id)).toEqual(['tail']);
+  expect(history.mock.calls.at(-1)?.[2]).toBe(111);
+  await act(async () => { await owner.loadOlderHistory(); });
+  expect(history.mock.calls[33]?.[2]).toBe(112);
+  expect(owner.messages.map(row => row.id)).toEqual(['eventually-older', 'tail']);
+  expect(owner.canLoadOlder).toBe(false);
+});
+
+it('restores usable latest provenance across an unchanged thread round-trip', async () => {
+  const history = vi.fn(async (_key: string, _limit: number, offset: number) => page(offset ? 'older' : 'tail', offset + 80));
+  const client = { status: 'connected', history, followSession: async () => {}, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient;
+  await mount(client);
+  await act(async () => { owner.resetHistory(project, null); await owner.loadHistory(key); });
+  await act(async () => { selected.current = 'other'; owner.resetHistory({ ...project, sessionKey: 'other' }, null); });
+  await act(async () => { selected.current = key; owner.resetHistory(project, null); });
+  expect(owner.canLoadOlder).toBe(true);
+  await act(async () => { await owner.loadOlderHistory(); });
+  expect(history.mock.calls.map(call => call[2])).toEqual([0, 80]);
+  expect(owner.messages.map(row => row.id)).toEqual(['older', 'tail']);
+});
+
+it('reconciles a forward-trimmed review before paging older and keeps G on its own latest cursor', async () => {
+  const generation = '00000000-0000-4000-8000-000000000117';
+  const raw = Array.from({ length: 2800 }, (_, index) => ({ role: 'user', content: `prompt ${index}`, timestamp: 1_800_000_000_000 + index,
+    __openclaw: { id: `sparse-${index}`, transcriptPosition: { source: 'sqlite', rawSeq: 100 + index * 7 } } }));
+  const history = vi.fn(async (_key: string, limit: number, offset: number) => {
+    const end = raw.length - offset; const messages = raw.slice(Math.max(0, end - limit), end);
+    const next = offset + messages.length;
+    return { sessionKey: key, sessionId: generation, messages, totalMessages: raw.length, offset, hasMore: next < raw.length, nextOffset: next < raw.length ? next : null };
+  });
+  const client = { status: 'connected', history, followSession: async () => {}, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient;
+  await mount(client);
+  await act(async () => { owner.resetHistory(project, null); await owner.loadHistory(key); });
+  for (let step = 0; step < 26; step++) await act(async () => { await owner.loadOlderHistory(); });
+  const assertContiguous = () => {
+    const coordinates = owner.messages.flatMap(row => row.displayPosition && !row.displayPosition.activity ? [row.displayPosition.rawSeq] : []);
+    expect(coordinates.every((seq, index) => index === 0 || seq === coordinates[index - 1]! + 7)).toBe(true);
+  };
+  assertContiguous();
+  await act(async () => { await owner.loadNewerHistory(); });
+  assertContiguous();
+  await act(async () => { await owner.loadOlderHistory(); });
+  assertContiguous();
+  await act(async () => { await owner.restoreLatestHistory(); });
+  expect(owner.messages.at(-1)?.id).toBe('sparse-2799');
+  const beforeOlder = history.mock.calls.length;
+  await act(async () => { await owner.loadOlderHistory(); });
+  expect(history.mock.calls[beforeOlder]?.[2]).toBe(80);
+  assertContiguous();
+}, 15_000); // Twenty-six mounted page transitions, not a latency benchmark.

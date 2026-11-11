@@ -7,13 +7,17 @@ import { describe, expect, it } from 'vitest';
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 describe('native command and search input ownership', () => {
-  it('routes unmodified Up/Down to command recall without taking arrows from search', () => {
+  it('routes Up/Down to completion and Shift-Up/Down to history without taking arrows from search', () => {
     const input = source('modules/vimicate-editor/ios/VimicateCommandInputView.swift');
     const module = source('modules/vimicate-editor/ios/VimicateCommandInputModule.swift');
     const bar = source('src/ui/WorkspaceCommandBar.tsx');
     expect(input).toContain('let historyCommands = historyEnabled ? [');
     expect(input).toContain('UIKeyCommand.inputUpArrow, modifierFlags: []');
     expect(input).toContain('UIKeyCommand.inputDownArrow, modifierFlags: []');
+    expect(input).toContain('UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(completeBackward)');
+    expect(input).toContain('UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(completeForward)');
+    expect(input).toContain('UIKeyCommand.inputUpArrow, modifierFlags: .shift, action: #selector(previousCommand)');
+    expect(input).toContain('UIKeyCommand.inputDownArrow, modifierFlags: .shift, action: #selector(nextCommand)');
     expect(input).toContain('onHistory(["direction": direction])');
     expect(module).toContain('"onHistory"');
     expect(bar).toContain('historyEnabled={Boolean(command)}');

@@ -31,7 +31,9 @@ import { composeTranscriptHandoff } from '../transcript/transcriptHandoff';
 import { applyTranscriptSearch, clearTranscriptSearch, createTranscriptBuffer, createTranscriptVimState, focusTranscriptMessage, focusedTranscriptLine, transcriptLineAt, updatedTranscriptBuffer, type TranscriptHandoffVariant } from '../transcript/transcriptVim';
 import { ProjectRail } from '../workspace/ProjectRail';
 import { projectRailStartupPresentation } from '../workspace/projectRailStartupPresentation';
-import { applyPaneShortcut, createFocusRouting, focusWorkspaceTarget, resolvePaneShortcutPrefix, type WorkspaceFocus } from '../workspace/focusRouting';
+import { createFocusRouting, focusWorkspaceTarget, type WorkspaceFocus } from '../workspace/focusRouting';
+import { useWorkspacePaneShortcuts } from '../workspace/useWorkspacePaneShortcuts';
+import { WorkspacePaneKeyProvider } from '../workspace/WorkspacePaneKeyContext';
 import { useProjectRailController } from '../workspace/useProjectRailController';
 import { StatusLine } from '../ui/StatusLine';
 import { WorkspaceHeader } from '../ui/WorkspaceHeader';
@@ -53,6 +55,7 @@ import type { GatewayStatus } from '../gateway/OpenClawClient';
 import { providerQuotaForProject, type ProviderQuotaPresentation } from '../gateway/providerQuota';
 import { PaneFontPinchSurface } from '../ui/PaneFontPinchSurface';
 import { guardedBackgroundTaskDetail, launchGuardedBackgroundTask } from '../async/guardedBackgroundTask';
+import { removeFromRail } from '../workspace/railRemoval';
 import { usePromptKeyboardController } from '../prompt/usePromptKeyboardController';
 import { AppUpdateNotice } from '../updates/AppUpdateNotice';
 import { useAppUpdateNotice } from '../updates/useAppUpdateNotice';
@@ -80,16 +83,14 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
     (selection) => { setPrompt((current) => enterPromptInsertMode(selection ? setNativeSelection(current, selection) : current)); focus('prompt'); },
     () => setPrompt((current) => current.mode === 'insert' ? handlePromptKey(current, { key: 'escape' }).state : current),
   );
-  const captureTranscriptBeforeProjectSwitch = useRef<() => void>(() => undefined);
   const railStartupAuthority = fixtureProjectRailStartup ?? (fixtureProjectRail ? { paired: true, registryReady: true } : { paired: Boolean(gateway.profile), registryReady: gateway.projectsReady });
   const railStartup = useMemo(() => projectRailStartupPresentation(displayedProjects, {
     paired: railStartupAuthority.paired, registryReady: railStartupAuthority.registryReady, fixture: Boolean(fixtureMessages || fixtureProjectRail),
   }), [displayedProjects, fixtureMessages, fixtureProjectRail, railStartupAuthority.paired, railStartupAuthority.registryReady]);
   const projectRail = useProjectRailController(railStartup.projects, displayedSelectedKey, (key) => {
-    captureTranscriptBeforeProjectSwitch.current();
     if (!fixtureProjectRail) gateway.selectProject(key);
     focus('prompt');
-  }, (key) => { if (!fixtureProjectRail) launchGuardedBackgroundTask(async () => { setVimStatus('removing thread…'); await gateway.submit(':close-thread', [], key); setVimStatus(''); }, (error) => setVimStatus(guardedBackgroundTaskDetail(error, 'close thread failed'))); });
+  }, (key) => { if (!fixtureProjectRail) removeFromRail(railStartup.projects, key, gateway.submit, setVimStatus); });
   const [connectionEditing, setConnectionEditing] = useState(false);
   const transcriptBufferCache = useRef<{ messages: readonly WorkspaceMessage[]; buffer: ReturnType<typeof createTranscriptBuffer> }>({ messages: [], buffer: createTranscriptBuffer([]) });
   const transcriptBuffer = useMemo(() => {
@@ -117,7 +118,6 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
   const [pendingSubmissions, setPendingSubmissions] = useState(0);
   const promptAttachments = usePromptAttachmentController(gateway.selectedKey, setVimStatus);
   const appUpdateNotice = useAppUpdateNotice(pendingSubmissions > 0 ? 'submission' : promptAttachments.pendingDrafts ? 'attachments' : null, () => gateway.selectedKey ? saveDraft(gateway.selectedKey, promptRef.current.text) : Promise.resolve());
-  const paneShortcutPrefix = useRef(false);
   const submissionGate = useRef(new SessionSubmissionGate());
   const pendingSubmissionTailReveal = useRef(new SessionTailRevealRegistry());
   const displayedPromptAttachments = fixturePromptAttachments ?? promptAttachments.attachments;
@@ -149,7 +149,6 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
     if (name.toLocaleLowerCase() !== ':thread-sort') return false; setVimStatus(projectRail.applyThreadSortCommand(argumentsList.join(' '))); return true;
   };
   const sessionTranscriptNavigation = useSessionTranscriptNavigation({ sessionKey: gateway.messageSessionKey, buffer: transcriptBuffer, navigationRef: transcriptNavigationRef, setNavigation: setTranscriptNavigation, viewportRef: transcript, tailReveal: pendingSubmissionTailReveal.current });
-  captureTranscriptBeforeProjectSwitch.current = sessionTranscriptNavigation.captureCurrentSession;
   const submit = async () => {
     const currentPrompt = promptRef.current;
     const submissionSessionKey = gateway.selectedKey;
@@ -158,7 +157,7 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
     if (promptAttachments.isImporting(submissionSessionKey)) { setVimStatus('Still attaching media. Wait for the attachment chip before sending.'); return; }
     if (colonCommandInput(currentPrompt.text) && stagedAttachments.length) { setVimStatus('Remove attachments before running a colon command.'); return; }
     if (fixtureMessages) {
-      if (!submissionGate.current.acquire(submissionSessionKey)) return; setPendingSubmissions((count) => count + 1);
+      const freed = submissionGate.current.acquire(submissionSessionKey); if (!freed) return; setPendingSubmissions((count) => count + 1);
       const sentText = currentPrompt.text;
       const startedAt = performance.now();
       try {
@@ -174,7 +173,7 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
         transcript.current?.reveal(Number.MAX_SAFE_INTEGER, true, 'tail');
         promptHistory.recordSubmitted(sentText);
         requestAnimationFrame(() => setVimStatus(`optimistic send painted in ${Math.round(performance.now() - startedAt)}ms`));
-      } finally { submissionGate.current.release(submissionSessionKey); setPendingSubmissions((count) => count - 1); }
+      } finally { freed(); setPendingSubmissions((count) => count - 1); }
       return;
     }
     if ([':noh', ':nohlsearch'].includes(colonCommandInput(currentPrompt.text)?.toLocaleLowerCase() ?? '')) {
@@ -185,7 +184,7 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
       return;
     }
     if (runPresentationCommand(currentPrompt.text)) { setPrompt((current) => ({ ...createPromptState(''), authority: current.authority + 1, register: current.register, registerKind: current.registerKind, registerRevision: current.registerRevision })); return; }
-    if (!submissionGate.current.acquire(submissionSessionKey)) return; setPendingSubmissions((count) => count + 1);
+    const freed = submissionGate.current.acquire(submissionSessionKey, !stagedAttachments.length); if (!freed) return; setPendingSubmissions((count) => count + 1);
     const sentText = currentPrompt.text;
     setPrompt(clearedForSubmission(currentPrompt));
     const ownsSourceTailReveal = submissionOwnsSourceTailReveal(sentText); if (ownsSourceTailReveal) pendingSubmissionTailReveal.current.arm(submissionSessionKey);
@@ -204,7 +203,7 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
         promptHistory.restoreRejected(sentText);
         if (outcome.kind === 'failed') setVimStatus(outcome.detail);
       }
-    } finally { submissionGate.current.release(submissionSessionKey); setPendingSubmissions((count) => count - 1); }
+    } finally { freed(); setPendingSubmissions((count) => count - 1); }
   };
   const onTranscriptKey = (event: HardwareKeyEvent) => {
     const buffer = activeTranscriptBufferRef.current;
@@ -330,6 +329,14 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
     if (action === 'cancel') setCommand(null);
     if (action === 'submit') launchWorkspaceTask(submitCommand, 'command failed');
   };
+  const keyboardOwner = `${displayedSelectedKey}:${projectFilesFocused ? 'files' : focusedPane}:${gateway.questions.textEditing ?? gateway.asyncQuestions?.ui.textEditing ?? ''}`;
+  const { route: routePaneKey, cancel: cancelPanePrefix } = useWorkspacePaneShortcuts(keyboardOwner, () => ({ state: focusRoutingRef.current, context: { filesOpen: projectFiles.open, filesFocused: projectFilesUI.focusedRef.current } }), routed => {
+    if (routed.state.target === 'projects') setProjectsVisible(true);
+    if (routed.fileFocus === 'open') openProjectFiles();
+    if (routed.fileFocus === 'acquire') projectFilesUI.requestFocus();
+    if (routed.fileFocus === 'release') { if (isPadDevice) projectFilesUI.releaseFocus(); else projectFiles.close(); }
+    setFocusRouting(routed.state);
+  });
   const dispatchHardwareKey = (event: HardwareKeyEvent) => {
     const normalized = normalizedHardwareKey(event);
     if (handleOverlayKey(event)) return;
@@ -347,23 +354,13 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
         end: event.selectionEnd ?? current.selection.end,
       }, event.textAuthority));
     }
-    if (!filesFocused && focusRoutingRef.current.target === 'projects' && normalized === 'escape') { setCommand(null); setSearch(null); paneShortcutPrefix.current = false; onProjectKey(event); return; }
+    if (!filesFocused && focusRoutingRef.current.target === 'projects' && normalized === 'escape') { setCommand(null); setSearch(null); cancelPanePrefix(); onProjectKey(event); return; }
     if (commandRef.current) { handleCommandKey(event); return; }
     if (searchRef.current) { handleSearchKey(event); return; }
-    const prefixed = resolvePaneShortcutPrefix(paneShortcutPrefix.current, event,
+    const paneInput = routePaneKey(event,
       filesFocused || focusRoutingRef.current.target !== 'prompt' || promptRef.current.mode !== 'insert');
-    paneShortcutPrefix.current = prefixed.pending;
-    if (!prefixed.input) return;
-    const routed = applyPaneShortcut(focusRoutingRef.current, prefixed.input, { filesOpen: projectFiles.open, filesFocused });
-    if (routed.handled) {
-      if (routed.state.target === 'projects') setProjectsVisible(true);
-      if (routed.fileFocus === 'open') openProjectFiles();
-      if (routed.fileFocus === 'acquire') projectFilesUI.requestFocus();
-      if (routed.fileFocus === 'release') { if (isPadDevice) projectFilesUI.releaseFocus(); else projectFiles.close(); }
-      setFocusRouting(routed.state);
-      return;
-    }
-    if (filesFocused) { projectFiles.handleKey(prefixed.input); return; }
+    if (!paneInput) return;
+    if (filesFocused) { projectFiles.handleKey(paneInput); return; }
     if (promptHistory.handleBrowserKey(event)) return;
     if (focusRoutingRef.current.target === 'prompt') {
       const bridgedInsert = applyBridgedNativeInsert(promptRef.current, event);
@@ -397,12 +394,10 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
     if (result.effect === 'history-next') promptHistory.navigate(1);
     if (result.effect === 'half-page-up' || result.effect === 'half-page-down') setPromptNavigationRequest((current) => ({ revision: (current?.revision ?? 0) + 1, key: result.effect === 'half-page-up' ? 'halfPageUp' : 'halfPageDown', scope: displayedSelectedKey, state: result.state }));
   };
-  const keyboardOwner = `${displayedSelectedKey}:${projectFilesFocused ? 'files' : focusedPane}`;
   const { onHardwareKey, repeating: workspaceNavigationRepeating } = useWorkspaceHardwareKeys(dispatchHardwareKey, () => {
     const pane = projectFilesUI.focusedRef.current ? 'files' : focusRoutingRef.current.target;
     return { pane, pending: pane === 'prompt' ? promptRef.current.pending : pane === 'transcript' ? transcriptNavigationRef.current.pending : '', commandLineActive: Boolean(commandRef.current || searchRef.current || (pane === 'files' && projectFiles.searchQuery !== null)), scope: displayedSelectedKey };
   }, keyboardOwner);
-  useEffect(() => { paneShortcutPrefix.current = false; }, [keyboardOwner]);
   useEffect(() => { if (focusedPane !== 'prompt' || projectFilesFocused) { promptKeyboard.hide(); promptHistory.closeBrowser(); } }, [focusedPane, projectFilesFocused]);
   const lineColumn = useMemo(() => textPosition(prompt.text, prompt.selection.end), [prompt.selection.end, prompt.text]); const displayedMode = projectFilesFocused && projectFiles.open ? 'files' : promptHistory.browser.open ? 'history' : workspaceModeLabel(focusedPane, prompt, transcriptNavigation);
   const providerQuota = fixtureProviderQuota ?? providerQuotaForProject(gateway.providerUsage, project, Date.now(), gateway.status);
@@ -412,7 +407,7 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
   };
   const projectsPane = (drawer: boolean) => <PaneFontPinchSurface style={[projectRailPinchSurfaceStyle(drawer), !drawer && { width: columns.projectsWidth }]} onStep={(direction) => adjustPaneFont('projects', direction)}><ProjectRail visible={!mediaViewer && !shortcuts && (!drawer || focusedPane === 'projects')} projects={projectRail.projects} emptyLabel={railStartup.emptyLabel} activeKey={displayedSelectedKey} focusedKey={projectRail.focusedKey} focused={focusedPane === 'projects' && !projectFilesFocused} fontScale={paneFontScales.scales.projects} reflowSuppressed={workspaceNavigationRepeating} sortMode={projectRail.sortMode} collapsedRootKeys={projectRail.collapsedRootKeys} onToggleSort={projectRail.toggleSort} onSelect={projectRail.activate} onToggleFold={projectRail.toggleFold} onToggleStar={gateway.toggleStar} onRefresh={() => { setVimStatus('refreshing projects and checking updates…'); launchWorkspaceTask(async () => { await gateway.refresh(); setVimStatus(`projects refreshed · ${await appUpdateNotice.check()}`); }, 'project refresh failed'); }} compactDrawer={drawer} onClose={drawer ? closeCompactProjects : undefined} /></PaneFontPinchSurface>;
   return (
-    <GatewayArtifactContext value={gateway.resolveArtifact}><View style={styles.root}>
+    <WorkspacePaneKeyProvider value={{ route: (event, mode, release, scope) => routePaneKey(event, mode === 'normal', release, scope) === null, cancel: cancelPanePrefix }}><GatewayArtifactContext value={gateway.resolveArtifact}><View style={styles.root}>
     <SafeAreaView accessibilityElementsHidden={Boolean(mediaViewer)} importantForAccessibility={mediaViewer ? 'no-hide-descendants' : 'auto'} style={styles.safe} edges={['top', 'left', 'right']}>
       <SoftwareKeyboardViewport>
       <View style={styles.app}>
@@ -422,7 +417,7 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
           <View accessibilityElementsHidden={(compactWorkspace && focusedPane === 'projects') || (!isPadDevice && projectFiles.open)} importantForAccessibility={(compactWorkspace && focusedPane === 'projects') || (!isPadDevice && projectFiles.open) ? 'no-hide-descendants' : 'auto'} style={styles.workspace}>
             <WorkspaceHeader project={project} compact={compactConversation} />
             <View style={styles.workspaceBody} onLayout={(event) => workspaceSplit.onLayoutHeight(event.nativeEvent.layout.height)}>
-              <PaneFontPinchSurface onStep={(direction) => adjustPaneFont('transcript', direction)}><TranscriptLinkOpenerProvider value={projectFilesUI.linkOpener}><TranscriptActionsProvider gateway={gateway}><TranscriptPane questionNotice={gateway.questionNotice} onLoadNewer={fixtureMessages ? undefined : (expanded, retainedBoundaryMessageID) => gateway.loadNewerHistory({ retainedBoundaryMessageID, expandedMessageIDs: expanded, displayOptions: transcriptDisplay.options, previousProjectedMessages: transcriptDisplay.messages })} hasNewerHistory={!fixtureMessages && gateway.hasNewerHistory} responseMessages={fixtureMessages ? displayedMessages : gateway.latestMessages ?? gateway.messages} onJumpToLatest={() => { sessionTranscriptNavigation.jumpToLatest(); if (!fixtureMessages) restoreLatestHistory(); }} datasetKey={gateway.messageSessionKey} ref={transcript} messages={transcriptDisplay.messages} buffer={transcriptBuffer} navigation={transcriptNavigation} focused={focusedPane === 'transcript' && !projectFilesFocused} fontScale={paneFontScales.scales.transcript} onFocus={() => focus('transcript')} onSelect={(messageIndex, lineInMessage) => setTranscriptNavigation((current) => focusTranscriptMessage(transcriptBuffer, current, messageIndex, lineInMessage))} onNavigationProjection={projectTranscriptNavigation} onViewportReview={sessionTranscriptNavigation.onViewportReview} onApprovalDecision={(message, decision) => launchWorkspaceTask(() => gateway.decideApproval(message, decision), 'approval update failed')} onRecoverMessage={(messageID) => launchWorkspaceTask(() => gateway.recoverMessage(messageID), 'message recovery failed')} onOpenMedia={(attachments, initialID) => setMediaViewer({ attachments, initialID })} canLoadOlder={olderHistory.canLoadOlder} loadingOlder={olderHistory.loadingOlder} historyProblem={olderHistory.historyProblem ?? ''} onLoadOlder={(expanded) => fixtureOlderHistory ? fixtureOlderHistory.loadOlderHistory() : gateway.loadOlderHistory({ expandedMessageIDs: expanded, displayOptions: transcriptDisplay.options, previousProjectedMessages: transcriptDisplay.messages })} onRetryHistory={(expanded) => launchWorkspaceTask(() => gateway.retryHistory({ expandedMessageIDs: expanded, displayOptions: transcriptDisplay.options, previousProjectedMessages: transcriptDisplay.messages }), 'history retry failed')} /></TranscriptActionsProvider></TranscriptLinkOpenerProvider></PaneFontPinchSurface>
+              <PaneFontPinchSurface onStep={(direction) => adjustPaneFont('transcript', direction)}><TranscriptLinkOpenerProvider value={projectFilesUI.linkOpener}><TranscriptActionsProvider gateway={gateway}><TranscriptPane sessionEntry={sessionTranscriptNavigation.entryFor(gateway.messageSessionKey, transcriptBuffer)} onSessionRetire={sessionTranscriptNavigation.onViewportRetire} historyLoading={gateway.historyLoading} questionNotice={gateway.questionNotice} onLoadNewer={fixtureMessages ? undefined : (expanded, retainedBoundaryMessageID) => gateway.loadNewerHistory({ retainedBoundaryMessageID, expandedMessageIDs: expanded, displayOptions: transcriptDisplay.options, previousProjectedMessages: transcriptDisplay.messages })} hasNewerHistory={!fixtureMessages && gateway.hasNewerHistory} responseMessages={fixtureMessages ? displayedMessages : gateway.latestMessages ?? gateway.messages} onJumpToLatest={() => { sessionTranscriptNavigation.jumpToLatest(); if (!fixtureMessages) restoreLatestHistory(); }} datasetKey={gateway.messageSessionKey} ref={transcript} messages={transcriptDisplay.messages} buffer={transcriptBuffer} navigation={transcriptNavigation} focused={focusedPane === 'transcript' && !projectFilesFocused} fontScale={paneFontScales.scales.transcript} onFocus={() => focus('transcript')} onSelect={(messageIndex, lineInMessage) => setTranscriptNavigation((current) => focusTranscriptMessage(transcriptBuffer, current, messageIndex, lineInMessage))} onNavigationProjection={projectTranscriptNavigation} onViewportReview={sessionTranscriptNavigation.onViewportReview} onApprovalDecision={(message, decision) => launchWorkspaceTask(() => gateway.decideApproval(message, decision), 'approval update failed')} onRecoverMessage={(messageID) => launchWorkspaceTask(() => gateway.recoverMessage(messageID), 'message recovery failed')} onOpenMedia={(attachments, initialID) => setMediaViewer({ attachments, initialID })} canLoadOlder={olderHistory.canLoadOlder} loadingOlder={olderHistory.loadingOlder} historyProblem={olderHistory.historyProblem ?? ''} onLoadOlder={(expanded) => fixtureOlderHistory ? fixtureOlderHistory.loadOlderHistory() : gateway.loadOlderHistory({ expandedMessageIDs: expanded, displayOptions: transcriptDisplay.options, previousProjectedMessages: transcriptDisplay.messages })} onRetryHistory={(expanded) => launchWorkspaceTask(() => gateway.retryHistory({ expandedMessageIDs: expanded, displayOptions: transcriptDisplay.options, previousProjectedMessages: transcriptDisplay.messages }), 'history retry failed')} /></TranscriptActionsProvider></TranscriptLinkOpenerProvider></PaneFontPinchSurface>
               <WorkspaceDivider promptHeight={workspaceSplit.promptHeight} panHandlers={workspaceSplit.dividerPanHandlers} onResize={workspaceSplit.resize} />
               <PaneFontPinchSurface style={{ flex: 0, height: workspaceSplit.promptHeight }} onStep={(direction) => adjustPaneFont('prompt', direction)}><PromptPane navigationRequest={promptNavigationRequest} dropEnabled={!connectionEditing && !shortcuts && !mediaViewer && !gateway.questions.textEditing && !gateway.asyncQuestions?.ui.textEditing} sessionKey={displayedSelectedKey} onDrop={(event) => launchWorkspaceTask(() => promptAttachments.importDrop(event), 'drop import failed')} state={prompt} focusedPane={focusedPane} keyboardCapture={!connectionEditing && !gateway.questions.textEditing && !gateway.asyncQuestions?.ui.textEditing} inputBlocked={Boolean(shortcuts || mediaViewer || projectFilesFocused)} commandLineActive={Boolean(command || search)} commandLineNativeInputActive={Boolean(command || search)} commandHistoryActive={Boolean(command)} softwareKeyboardRequested={promptKeyboard.requested} softwareKeyboardForced={promptKeyboard.forced} fontScale={paneFontScales.scales.prompt} height={workspaceSplit.promptHeight} sending={displayedRunActive} attachments={displayedPromptAttachments} importing={promptAttachments.importing} attachmentLimitReached={displayedPromptAttachments.length >= MAX_PROMPT_ATTACHMENTS} compact={compactConversation} historyBrowser={promptHistory.browser} onState={setPrompt} onFocusPrompt={promptKeyboard.activateFromTouch} onRequestPromptFocus={() => focus('prompt')} onHardwareKeyboardChange={promptKeyboard.recordHardware} onHardwareKey={onHardwareKey} onCommandHistory={commandLineActions.recall} onPastedAttachment={promptAttachments.stagePastedAttachment} onPastedCommandLineText={commandLineActions.paste} onSubmit={() => launchWorkspaceTask(submit, 'send failed')} onAbort={() => launchWorkspaceTask(gateway.abort, 'abort failed')} onPickDocument={() => launchWorkspaceTask(promptAttachments.pickDocument, 'document import failed')} onPickImage={() => launchWorkspaceTask(promptAttachments.pickImage, 'image import failed')} onPreviewAttachment={(id) => { const viewer = promptAttachmentViewer(displayedPromptAttachments, id); if (viewer) setMediaViewer(viewer); }} onRemoveAttachment={promptAttachments.remove} onOpenCommand={() => { setCommand({ query: '', softwareKeyboardEnabled: true }); setVimStatus(''); }} onOpenNewThread={() => { setCommand({ query: 'new-thread ', softwareKeyboardEnabled: true }); setVimStatus(''); }} onToggleHistory={promptHistory.toggleBrowser} onCloseHistory={promptHistory.closeBrowser} onAcceptHistory={promptHistory.acceptBrowser} /></PaneFontPinchSurface>
             </View>
@@ -441,6 +436,6 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
       </SoftwareKeyboardViewport>
     </SafeAreaView>
     {mediaViewer ? <TranscriptMediaViewer attachments={mediaViewer.attachments} initialID={mediaViewer.initialID} onClose={() => setMediaViewer(null)} /> : null}{shortcuts ? <WorkspaceShortcuts commands={gateway.commands} onClose={closeShortcuts} /> : null}
-    </View></GatewayArtifactContext>
+    </View></GatewayArtifactContext></WorkspacePaneKeyProvider>
   );
 }

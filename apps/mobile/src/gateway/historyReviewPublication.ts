@@ -1,3 +1,4 @@
+import { reconcileHistoryOmissions } from './historyOmission';
 import { retainedNativeHistoryWindow, type NativeHistoryFloor } from './latestHistoryContinuity';
 import { transcriptPublicationIdentity } from './transcriptIdentityWall';
 import { sharedNarrationWindowCache } from './sharedNarrationWindow';
@@ -99,7 +100,7 @@ export function parkedSessionHistoryPublication(mode: 'latest' | 'older', visibl
 
 /** Older pagination may replace the bounded review edge, never the live tail. */
 export function olderPageHistoryPublication(visible: WorkspaceMessage[], latest: WorkspaceMessage[], older: WorkspaceMessage[], sessionKey: string, narration: WorkspaceMessage[] = [], retainBoundary = false, limit?: number): HistoryReviewPublication {
-  const merged = mergeSharedNarration(mergeOlderHistory(older, visible, sessionKey), narration);
+  const merged = reconcileHistoryOmissions(older, visible, mergeSharedNarration(mergeOlderHistory(older, visible, sessionKey), narration));
   const boundary = retainBoundary ? visible.find(row => merged.some(next => next.id === row.id))?.id : undefined;
   return {
     visible: olderHistoryWindow([], merged, sessionKey, limit, boundary),

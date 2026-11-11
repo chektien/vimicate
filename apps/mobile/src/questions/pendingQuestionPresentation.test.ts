@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { brokerPendingQuestionCounts, projectsWithPendingQuestions, pendingQuestionLabel } from './pendingQuestionPresentation';
+import { brokerPendingQuestionCounts, combinedPendingQuestionCounts, projectsWithPendingQuestions, pendingQuestionLabel } from './pendingQuestionPresentation';
 import type { QuestionRecord } from './questionTypes';
 import type { WorkspaceProject } from '../workspace/workspaceTypes';
 import { presentWorkspaceProjects, visibleWorkspaceProjects } from '../workspace/workspacePresentation';
@@ -34,4 +34,13 @@ it('combines root and child counts, clears derived markers and does not double-c
   expect(projectsWithPendingQuestions(result, new Map()).every(row => row.pendingQuestions === undefined)).toBe(true);
   const one = projectsWithPendingQuestions(input, new Map([['a', 1]]));
   expect(pendingQuestionLabel(one[0]!)).toBe('Question pending in 1 thread');
+});
+
+it('rolls up independent broker and async questions without replacing either source', () => {
+  const broker = brokerPendingQuestionCounts([question('a', 'broker'), question('root', 'root-question')]);
+  const counts = combinedPendingQuestionCounts(broker, new Map([['a', 1], ['b', 1]]));
+  const result = projectsWithPendingQuestions([project('root'), project('a', 'root'), project('b', 'root')], counts);
+  expect(result[0]?.pendingQuestions).toEqual({ own: 1, total: 4, threads: 2 });
+  expect(result[1]?.pendingQuestions).toEqual({ own: 2, total: 2, threads: 0 });
+  expect([...broker]).toEqual([['a', 1], ['root', 1]]);
 });

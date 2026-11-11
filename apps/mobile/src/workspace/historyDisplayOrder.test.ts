@@ -34,9 +34,9 @@ describe('history display order owner', () => {
     expect(order(rows)).toBe(rows);
   });
 
-  it('fails conservatively if stable physical coordinates are already non-monotonic', () => {
+  it('canonicalizes stable physical coordinates after overlapping pages', () => {
     const rows = [row('second', 2), row('first', 1), activity('late', 4, 1)];
-    expect(order(rows)).toBe(rows);
+    expect(ids(order(rows))).toEqual(['first', 'late', 'second']);
   });
 
   it('preserves legacy timestamp slots, stable equal timestamps and ineligible rows', () => {

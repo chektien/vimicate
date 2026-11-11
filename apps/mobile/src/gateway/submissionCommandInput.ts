@@ -1,7 +1,7 @@
 import { colonCommandInput } from '../prompt/colonCommandInput';
 import { modelCommandIntent } from './modelCommandProjection';
 
-const LOCAL_COMMANDS = new Set([':new', ':status', ':commands', ':context', ':diagnostics', ':healthcheck', ':approvals', ':approve', ':deny', ':reload-projects', ':reconnect', ':repair', ':stop', ':new-thread', ':close-thread']);
+const LOCAL_COMMANDS = new Set([':new', ':status', ':commands', ':context', ':diagnostics', ':healthcheck', ':approvals', ':approve', ':deny', ':reload-projects', ':reconnect', ':repair', ':stop', ':new-thread', ':close-thread', ':remove-project']);
 
 /** Keeps explicit replacement commands distinct from local queued interruption. */
 export function submissionCommandInput(body: string, isDelivery: boolean) {

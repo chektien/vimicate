@@ -101,7 +101,7 @@ export function createThreadRegistry({ vimicateDir, readCurrent, readCurrentGene
       const body = file.exists ? JSON.stringify(registry) : '';
       threads = wire('threads.json', 'json', { ...file, body, sha256: file.exists ? sha(body) : '', byteCount: Buffer.byteLength(body) });
     }
-    return { schemaVersion: 2, capabilities: { threadSessionReconcile: 'host-current-v1', threadRegistryProbe: 'nonmutating-v1', ...capabilities() },
+    return { schemaVersion: 2, capabilities: { threadSessionReconcile: 'host-current-v1', threadRegistryProbe: 'nonmutating-v1', projectRemoval: 'projects-md-v1', ...capabilities() },
       projects: wire('projects.md', 'markdown', projects), threads,
       ...(readCurrentGenerations ? { currentSessionGenerations: readCurrentGenerations() } : {}) };
   }
@@ -151,5 +151,35 @@ export function createThreadRegistry({ vimicateDir, readCurrent, readCurrentGene
     return { schemaVersion: 2, contract: 'host-current-v1', outcome: changed ? 'updated' : 'unchanged',
       threads: wire('threads.json', 'json', { body, exists: true, sha256: sha(body), byteCount: Buffer.byteLength(body) }) };
   }
-  return { read, update, dispose() { disposed = true; } };
+  /** Removes one top-level `## Name` section from projects.md by its exact id.
+   * Only the registry entry goes. Project folders and OpenClaw sessions stay. */
+  function removeProject(params) {
+    active();
+    check(params?.contract === 'projects-md-v1', 'contract must be projects-md-v1');
+    const projectID = text(params.projectID);
+    check(/^[A-Za-z0-9._-]{1,128}$/.test(projectID) && /^[0-9a-f]{64}$/.test(params.expectedSha256 ?? ''), 'invalid project removal');
+    const file = readFile('projects.md', true);
+    check(file.sha256 === params.expectedSha256, 'projects.md changed since it was read; reload projects and try again');
+    const lines = file.body.split('\n');
+    const headings = lines.flatMap((line, index) => /^##\s+\S/.test(line) ? [index] : []);
+    const sections = headings.map((start, i) => ({ start, end: headings[i + 1] ?? lines.length }));
+    const matches = sections.filter(({ start, end }) => lines.slice(start + 1, end)
+      .some(line => line.match(/^\s*-\s+id:\s*(.*?)\s*$/i)?.[1] === projectID));
+    check(matches.length === 1, matches.length ? 'project id is registered more than once' : 'project is not registered');
+    check(sections.length > 1, 'cannot remove the last registered project');
+    const [{ start, end }] = matches;
+    const body = [...lines.slice(0, start), ...lines.slice(end)].join('\n').replace(/\n*$/, '\n');
+    const destination = path.join(vimicateDir, 'projects.md');
+    const temporary = destination + '.' + crypto.randomUUID() + '.tmp';
+    try {
+      const fd = fs.openSync(temporary, 'wx', 0o600);
+      try { fs.fchmodSync(fd, fs.statSync(destination).mode & 0o777); fs.writeFileSync(fd, body); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      check(readFile('projects.md', true).sha256 === file.sha256, 'concurrent projects.md change');
+      active(); fs.renameSync(temporary, destination);
+      const fdDir = fs.openSync(vimicateDir, 'r'); try { fs.fsyncSync(fdDir); } finally { fs.closeSync(fdDir); }
+    } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+    return { schemaVersion: 2, contract: 'projects-md-v1', outcome: 'removed', projectID,
+      projects: wire('projects.md', 'markdown', readFile('projects.md', true)) };
+  }
+  return { read, update, removeProject, dispose() { disposed = true; } };
 }

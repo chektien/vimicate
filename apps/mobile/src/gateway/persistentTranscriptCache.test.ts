@@ -3,6 +3,15 @@ import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { parsedTranscriptCache, serializedTranscriptCache } from './persistentTranscriptCache';
 
 describe('persistent transcript cache', () => {
+  it('retains explicit native end-turn evidence without upgrading legacy answer-shaped rows', () => {
+    const native: WorkspaceMessage = { id: 'answer', role: 'assistant', text: 'answer', source: 'history',
+      cliProvenance: { kind: 'claude-native', sessionId: '11111111-1111-4111-8111-111111111111', externalId: 'answer' } };
+    expect(parsedTranscriptCache(serializedTranscriptCache([{ ...native, cliEndTurn: true }]))[0]?.cliEndTurn).toBe(true);
+    expect(parsedTranscriptCache(serializedTranscriptCache([native]))[0]?.cliEndTurn).toBeUndefined();
+    const { cliProvenance: _native, ...withoutProvenance } = native;
+    expect(parsedTranscriptCache(JSON.stringify([{ ...withoutProvenance, cliEndTurn: true }]))[0]?.cliEndTurn).toBeUndefined();
+  });
+
   it('does not persist a process-owned full-message loading lock and repairs legacy cached locks', () => {
     const row: WorkspaceMessage = { id: 'row', role: 'assistant', text: 'partial...(truncated)...', source: 'history', sessionKey: 'one', recovery: { sourceMessageId: 'source', state: 'loading', detail: 'loading full response…' } };
     const payload = serializedTranscriptCache([row]);
@@ -95,7 +104,7 @@ describe('persistent transcript cache', () => {
   });
 });
 
-it('retires a completed Claude cumulative copy on cache-only restore before any history merge', () => {
+it.each([true, false])('requires explicit terminal evidence to retire a cache-only cumulative copy (end-turn %s)', terminal => {
   const sessionKey = 's';
   const transcriptSessionId = '11111111-1111-4111-8111-111111111111';
   const cliSessionId = '22222222-2222-4222-8222-222222222222';
@@ -107,7 +116,7 @@ it('retires a completed Claude cumulative copy on cache-only restore before any 
     transcriptSessionId, idempotencyKey: 'submission:user', timestamp: '1000', displayPosition: { source: 'sqlite', rawSeq: 1 } };
   const prior = native('prior', 'assistant', 'Prior answer.', '1400');
   const step = native('step', 'narration', 'Checking.', '2000');
-  const answer = native('answer', 'assistant', 'Done.', '2200');
+  const answer: WorkspaceMessage = { ...native('answer', 'assistant', 'Done.', '2200'), ...(terminal ? { cliEndTurn: true } : {}) };
   const footer: WorkspaceMessage = { id: 'history-run-answer', role: 'run', text: '✓ done in 1s', source: 'history',
     sessionKey, transcriptSessionId, timestamp: '2200', state: 'complete' };
   const live: WorkspaceMessage = { id: 'live-chat-r', runId: 'r', role: 'assistant', text: 'Checking.\n\nDone.',
@@ -115,6 +124,6 @@ it('retires a completed Claude cumulative copy on cache-only restore before any 
   const payload = serializedTranscriptCache([prompt, prior, step, answer, footer, live]);
   expect(JSON.parse(payload).some((row: WorkspaceMessage) => row.id === live.id)).toBe(true);
   const restored = parsedTranscriptCache(payload);
-  expect(restored.map(row => row.id)).toEqual(['prompt', 'prior', 'step', 'answer', 'history-run-answer']);
+  expect(restored.map(row => row.id)).toEqual(['prompt', 'prior', 'step', 'answer', 'history-run-answer', ...(!terminal ? [live.id] : [])]);
   expect(restored.find(row => row.id === answer.id)?.text).toBe('Done.');
 });

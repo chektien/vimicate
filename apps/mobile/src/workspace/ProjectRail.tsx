@@ -12,7 +12,7 @@ import { PROJECT_RAIL_HEADER_ICON_SIZES, projectSortIconColor } from './projectR
 import { useActiveInterval } from '../lifecycle/useActiveInterval';
 import { ProjectRunDot } from './ProjectRunDot';
 import { useProjectRunPulse } from './useProjectRunPulse';
-import { pendingQuestionLabel } from '../questions/pendingQuestionPresentation';
+import { questionDeliveryLabel, pendingQuestionLabel } from '../questions/pendingQuestionPresentation';
 
 type ProjectRailProps = {
   projects: WorkspaceProject[];
@@ -91,12 +91,13 @@ export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focus
           const cursor = focused && project.sessionKey === focusedKey;
           const parentLabel = projectParentLabel(project, projects);
           const questionLabel = pendingQuestionLabel(project);
+          const deliveryLabel = questionDeliveryLabel(project);
           const card = (
             <View style={[styles.row, sortMode === 'manual' && project.kind === 'thread' && styles.threadRow, active && styles.rowActive, cursor && styles.rowCursor]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                accessibilityLabel={`${project.name}, ${parentLabel ? `thread in ${parentLabel}` : 'project'}, ${projectRunLabel(project.runPhase)}${!projectRunGlyph(project.runPhase) && project.unread ? ', unread output' : ''}${questionLabel ? `, ${questionLabel}` : ''}`}
+                accessibilityLabel={`${project.name}, ${parentLabel ? `thread in ${parentLabel}` : 'project'}, ${projectRunLabel(project.runPhase)}${!projectRunGlyph(project.runPhase) && project.unread ? ', unread output' : ''}${questionLabel ? `, ${questionLabel}` : ''}${deliveryLabel ? `, ${deliveryLabel}` : ''}`}
                 onPress={() => onSelect(project.sessionKey)}
                 style={[styles.rowSelect, { paddingRight: projectCardRightInset(project.kind === 'thread') }, sortMode === 'manual' && project.kind === 'thread' && styles.threadRowSelect]}
               >
@@ -106,6 +107,7 @@ export function ProjectRail({ projects, emptyLabel, activeKey, focusedKey, focus
                   <View style={styles.nameLine}>
                     <Text numberOfLines={1} style={[styles.name, workspaceFontMetrics(11, fontScale), project.kind === 'thread' && styles.threadName, cursor && styles.cursorText]}>{project.name.toLowerCase()}</Text>
                     <ProjectRunDot project={project} opacity={pulse} />
+                    {project.questionDelivery?.failed ? <Text accessible={false} style={[styles.questionGlyph, workspaceFontMetrics(type.sizeSm, fontScale)]}>!</Text> : null}
                     {questionLabel ? <Text accessible={false} style={[styles.questionGlyph, workspaceFontMetrics(type.sizeSm, fontScale), cursor && styles.cursorText]}>{'↩\uFE0E'}</Text> : null}
                   </View>
                   {project.path && !project.path.endsWith(project.name) && sortMode === 'manual' ? <Text numberOfLines={1} style={[styles.detail, workspaceFontMetrics(8, fontScale), cursor && styles.cursorMuted]}>{project.path}</Text> : null}

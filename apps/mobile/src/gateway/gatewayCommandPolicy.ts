@@ -1,6 +1,6 @@
 const RUN_SAFE_COMMANDS = new Set([
   'status', 'commands', 'context', 'diagnostics', 'healthcheck', 'approvals', 'approve', 'deny',
-  'reload-projects', 'reconnect', 'repair', 'stop', 'interrupt', 'new-thread', 'close-thread',
+  'reload-projects', 'reconnect', 'repair', 'stop', 'interrupt', 'new-thread', 'close-thread', 'remove-project',
   // OpenClaw option/status commands are deliberately usable as steering
   // controls while a turn is active.
   'think', 'models', 'model', 'fast',

@@ -19,7 +19,8 @@ it('loads the consecutive interval after the exact reviewed edge without jumping
   const batch = await loadVisibleNewerHistoryBatch(input);
   expect(batch.newer.map(message => message.id)).toEqual(Array.from({ length: 159 }, (_, index) => `r${101 + index}`));
   expect(batch.newer.at(-1)?.id).not.toBe('r999');
-  expect(batch.rewind?.cursor?.nextOffset).toBe(820);
+  expect(batch.rewind?.cursor?.transport?.receipts[0]?.offset).toBe(820);
+  expect(batch.rewind?.cursor?.nextOffset).toBe(900);
   expect(history.mock.calls.map(call => call[2])).toEqual([900, 820, 740]);
 });
 it('continues a bounded boundary search on the next request rather than rescanning', async () => {
@@ -48,7 +49,7 @@ it('stops without an interval when request authority is retired during transport
   const batch = await loadVisibleNewerHistoryBatch({ ...input, owns: () => owns });
   expect(batch.newer).toEqual([]); expect(batch.rewind).toBeNull();
 });
-it('compensates raw coordinate growth after finding the reviewed boundary', async () => {
+it('revalidates canonical boundary membership after count growth without assuming append-only authority', async () => {
   const { input } = fixture(1000); let call = 0;
   input.client.history = async (_key, limit = 80, offset = 0) => {
     const total = ++call >= 3 ? 1200 : 1000;
@@ -57,7 +58,7 @@ it('compensates raw coordinate growth after finding the reviewed boundary', asyn
     }) };
   };
   const batch = await loadVisibleNewerHistoryBatch(input);
-  expect(batch.newer.map(message => message.id)).toEqual(Array.from({ length: 159 }, (_, index) => `r${101 + index}`));
+  expect(batch.newer.map(message => message.id)).toEqual(Array.from({ length: 139 }, (_, index) => `r${101 + index}`));
 });
 it('rejects a stale same-ID generation before the interval can publish', async () => {
   const { input } = fixture(1000);

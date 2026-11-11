@@ -1,3 +1,4 @@
+import { compatibleQuestionGeneration, normalizedSubmissionIdentity } from '../questions/asyncQuestionReplyIdentity';
 import { isSessionNotice, projectSessionNotice, foldedSessionNoticeMirrors } from './sessionNoticeProjection';
 import { markdownImageSources } from './markdownImagePath';
 import { isInternalExecutionNotice, projectExecutionNotice, foldedExecutionNoticeMirrors } from './executionNoticeProjection';
@@ -9,7 +10,7 @@ import { displayedCommandTextFromWire } from '../gateway/gatewayCommands';
 import { projectAssistantProtocolContent } from '../gateway/assistantProtocolProjection';
 import { compactEmptyConversationBoundaries } from '../gateway/conversationBoundaries';
 import { historyMessageRecoveryDescriptor } from '../gateway/messageCompleteness';
-import { toolActivitiesFromContent, toolActivityFromContent, toolActivityPairedWithCall, toolCallActivityIndex, toolContentPartKind, toolRowText, toolSkillEvidence } from '../tooling/toolActivity';
+import { toolActivitiesFromContent, toolActivityFromContent, toolActivityPairedWithCall, toolCallActivityIndex, toolContentPartKind, toolResultEvidence, toolRowText, toolSkillEvidence } from '../tooling/toolActivity';
 import { conversationalToolProtocol } from '../tooling/embeddedToolProtocol';
 import { historyDisplayOrder } from './historyDisplayOrder';
 import { claudeOversizedRecordContent } from './claudeOversizedRecord';
@@ -18,14 +19,20 @@ import { internalSystemRole, internalSystemText, isClaudeCliCommentary, nativeTr
 import type { WorkspaceAttachment, WorkspaceMessage } from './workspaceTypes';
 import { arrayAt, stringAt, numberAt, isRecord } from './workspacePayloadFields';
 import { withoutRedundantStagedImagePlaceholders, withoutClaudeStagedImageReferences } from './claudeStagedImageReferences';
+import { reconcileMessageToolProgress } from './messageToolProgress';
 
-export function messagesFromPayload(payload: Record<string, unknown>, workspacePath = ''): WorkspaceMessage[] {
+export function messagesFromPayload(payload: Record<string, unknown>, workspacePath = '', retainedQuestionContext: WorkspaceMessage[] = []): WorkspaceMessage[] {
   const pendingRows = queuedInputRows(payload);
   const pendingAcceptance = new Map(pendingRows.map(row => [row, row.timestamp]));
   const rows = [...arrayAt(payload, ['messages', 'items', 'history']), ...pendingRows];
   const sessionKey = stringAt(payload, ['sessionKey', 'stableSessionKey', 'key']);
   const transcriptSessionId = transcriptSessionIdentity(payload.sessionId);
-  const callActivities = toolCallActivityIndex(rows); const joinedPrompts = new Map<WorkspaceMessage, string[]>(); const asyncPrompts = rows.flatMap(row => isRecord(row) ? asyncQuestionMetadata(row).asyncQuestion ?? [] : []).slice(-128);
+  const callActivities = toolCallActivityIndex(rows); const joinedPrompts = new Map<WorkspaceMessage, string[]>(); const asyncPrompts = rows.flatMap(row => {
+    if (!isRecord(row)) return [];
+    const question = asyncQuestionMetadata(row).asyncQuestion;
+    if (!question || row.sessionKey !== undefined && row.sessionKey !== sessionKey || row.sessionId !== undefined && transcriptSessionIdentity(row.sessionId) !== transcriptSessionId) return [];
+    return [question];
+  }).slice(-128);
   const projected = rows.flatMap<WorkspaceMessage>((wire) => {
     if (!isRecord(wire)) return [];
     const { raw, placeholder } = withoutClaudeStagedImageReferences(wire);
@@ -61,7 +68,12 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
       ? projectAssistantProtocolContent(text, extractedAttachments, true)
       : { text, attachments: extractedAttachments };
     const asyncMetadata = asyncQuestionMetadata(raw);
-    const asyncAnswerText = role === 'user' && (asyncMetadata.asyncQuestionReplyToId || asyncPrompts.some(q => matchesAsyncAnswer(q, assistantContent.text))) ? assistantContent.text : undefined;
+    const retainedPrompts = retainedQuestionContext.filter(message => message.asyncQuestion && compatibleQuestionGeneration(message, { sessionKey, transcriptSessionId }));
+    const candidates = [...new Map([...asyncPrompts, ...retainedPrompts.flatMap(message => message.asyncQuestion ?? [])].map(question => [question.itemId, question])).values()].filter(q => matchesAsyncAnswer(q, assistantContent.text));
+    const submissionKey = normalizedSubmissionIdentity(stringAt(raw, ['idempotencyKey']) || nativeTranscriptMetadata(raw).idempotencyKey);
+    const knownSubmission = Boolean(submissionKey && retainedPrompts.some(message => normalizedSubmissionIdentity(message.idempotencyKey) === submissionKey));
+    const rowScopeCompatible = (raw.sessionKey === undefined || raw.sessionKey === sessionKey) && (raw.sessionId === undefined || transcriptSessionIdentity(raw.sessionId) === transcriptSessionId);
+    const asyncAnswerText = role === 'user' && (asyncMetadata.asyncQuestionReplyToId || rowScopeCompatible && (knownSubmission || candidates.length === 1)) ? assistantContent.text : undefined;
     const projectedText = asyncAnswerText ? privateQuestionText(asyncAnswerText) : raw.openclawAsyncDelivery ? asyncMetadata.asyncQuestionPrivate ? 'Private input · Answer elsewhere in OpenClaw.' : privateQuestionText(assistantContent.text) : assistantContent.text;
     const attachments = assistantContent.attachments;
     const conversational = role !== 'tool' && Boolean(projectedText || attachments.length);
@@ -78,14 +90,14 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
     // keys, and every further row derives a deterministic, stable identity.
     const pendingAcceptedAtMs = pendingAcceptance.get(raw as typeof pendingRows[number]);
     const inputAcceptedAtMs = pendingAcceptedAtMs ?? native.inputAcceptedAtMs;
-    const shared = { source: 'history' as const, ...(sessionKey ? { sessionKey } : {}), ...(transcriptSessionId ? { transcriptSessionId } : {}), ...(native.displayPosition ? { displayPosition: native.displayPosition } : {}), ...(native.cliProvenance ? { cliProvenance: native.cliProvenance } : {}), ...(timestamp ? { timestamp } : {}), ...(runId ? { runId } : {}) };
+    const shared = { source: 'history' as const, ...(sessionKey ? { sessionKey } : {}), ...(transcriptSessionId ? { transcriptSessionId } : {}), ...(native.displayPosition ? { displayPosition: native.displayPosition } : {}), ...(native.cliProvenance ? { cliProvenance: native.cliProvenance } : {}), ...(native.cliEndTurn ? { cliEndTurn: true as const } : {}), ...(timestamp ? { timestamp } : {}), ...(runId ? { runId } : {}) };
     const published: Array<Pick<WorkspaceMessage, 'role' | 'text' | 'state' | 'tool'>> = [
       ...(conversational ? [{ role, text: projectedText }] : []),
       ...activities.map((activity) => ({
         role: 'tool' as const,
         text: toolRowText(activity),
         ...(activity.status === 'failed' ? { state: 'error' as const } : {}),
-        tool: { name: activity.name, summary: activity.summary, ...toolSkillEvidence(activity) },
+        tool: { name: activity.name, summary: activity.summary, ...toolSkillEvidence(activity), ...toolResultEvidence(activity), ...(activity.messageSend ? { messageSend: activity.messageSend } : {}) },
       })),
     ];
     // A tool row can carry structured media instead of any resolvable activity.
@@ -139,7 +151,7 @@ export function authoritativeHistoryChronology(
   messages: WorkspaceMessage[],
   eligible: (message: WorkspaceMessage) => boolean = () => true,
 ) {
-  return historyDisplayOrder(foldedSessionNoticeMirrors(foldedExecutionNoticeMirrors(messages)), eligible);
+  return historyDisplayOrder(reconcileMessageToolProgress(foldedSessionNoticeMirrors(foldedExecutionNoticeMirrors(messages))), eligible);
 }
 
 function isCompactionControlMessage(value: string) {

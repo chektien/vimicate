@@ -1,5 +1,6 @@
 import type { QuestionRecord } from '../questions/questionTypes';
 import type { TranscriptMessageMetadata } from './transcriptMetadata';
+import type { MessageToolSend } from './messageToolProgress';
 import { explicitSessionActivityTimestamp, sessionActivityTimestamp } from './sessionActivityTimestamp';
 import { isHiddenWorkspaceSession } from './workspaceSessionVisibility';
 import { arrayAt, stringAt, numberAt, isRecord } from './workspacePayloadFields';
@@ -22,7 +23,8 @@ export type WorkspaceProject = {
   rootSessionKey?: string;
   projectName?: string;
   unread?: boolean;
-  /** Derived broker-question presentation, never persisted or run authority. */
+  /** Derived broker/observed-async presentation, never persisted or run authority. */
+  questionDelivery?: { sending: number; unconfirmed: number; failed: number; threads: number };
   pendingQuestions?: { own: number; total: number; threads: number };
   markedUnreadAt?: number;
   modelProvider?: string;
@@ -58,8 +60,11 @@ export type WorkspaceMessage = TranscriptMessageMetadata & {
   terminalReplyText?: string;
   /** One proven terminal live identity absorbed by this canonical assistant. */
   absorbedLiveIdentity?: { messageId: string; runId: string };
+  /** Ephemeral bounded-window omission, never a canonical record. */
+  historyOmission?: { promptMessageId?: string; firstTailMessageId: string };
   toolGroup?: { count: number; lastMessageId: string }; // Ephemeral display header, never canonical.
-  tool?: { name: string; summary: string; durationMs?: number; skillName?: string; resultSucceeded?: true };
+  /** `resultOf` names the call a saved result row belongs to. */
+  tool?: { name: string; summary: string; durationMs?: number; skillName?: string; resultSucceeded?: true; resultOf?: string; messageSend?: MessageToolSend };
   attachments?: WorkspaceAttachment[];
   /** Client-synthesized image-only import, not authored placeholder wording. */
   stagedImagePlaceholder?: true;

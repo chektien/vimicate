@@ -10,6 +10,9 @@ export type QuestionRecord = {
   createdAtMs: number; expiresAtMs: number;
   status: 'pending' | 'answered' | 'cancelled' | 'expired';
   questions: AgentQuestion[]; answers?: QuestionAnswers | undefined; resolvedBy?: string | undefined;
+  submittedAnswers?: QuestionAnswers | undefined;
+  answerDelivery?: 'sending' | 'unconfirmed' | 'failed' | undefined;
+  pendingOmitted?: boolean | undefined;
   recoveredElsewhere?: boolean | undefined;
 };
 export function questionNeedsOtherSurface(record: QuestionRecord) {

@@ -43,10 +43,16 @@ function Probe({ sessionKey, buffer }: { sessionKey: string; buffer: TranscriptB
   const result = useSessionTranscriptNavigation({ sessionKey, buffer, navigationRef,
     setNavigation, viewportRef, tailReveal });
   navigation = result;
-  viewport = useTranscriptViewport(sessionKey, buffer, buffer.lines.length, state.cursor.row, state.cursor.row, result.onViewportReview);
+  viewport = useTranscriptViewport(sessionKey, buffer, buffer.lines.length, state.cursor.row, state.cursor.row, result.onViewportReview, undefined, undefined, {
+    onSessionRetire: (key, capture) => result.onViewportRetire(key, capture?.kind === 'anchor' ? { ...capture, sourceRow: capture.row } : capture),
+  });
   viewport.list.current = list as unknown as FlashListRef<unknown>;
   viewportRef.current = {
     reveal: viewport.reveal, revealAfterRevision: viewport.revealAfterRevision,
+    restoreSessionPosition: (saved: import('./sessionTranscriptViewportPosition').SessionTranscriptViewportPosition) => {
+      const first = buffer.messages!.findIndex(message => message.id === saved.messageId);
+      viewport.revealAfterRevision(buffer.firstRowByMessage[first]! + saved.lineInMessage, 0, saved.rowOffset, { anchor: saved, endAligned: (saved.endGap ?? Infinity) <= 1 });
+    },
     viewPositionForSourceRow: () => 0.31,
     captureReviewPosition: () => {
       const anchor = viewport.captureReviewAnchor();
@@ -72,7 +78,7 @@ function touchReview() {
   viewport.onScrollBeginDrag(); nativeOffset = 600;
   viewport.onScroll(scroll(600)); viewport.onScrollEndDrag(scroll(600));
   viewport.onViewableItemsChanged({ viewableItems: Array.from({ length: 20 }, (_, i) => ({ index: i + 30, isViewable: true })) as never, changed: [] });
-  navigation.captureCurrentSession();
+
 }
 function publishGeometry() {
   viewport.onLayout({ nativeEvent: { layout: { height: 400 } } } as never);
@@ -100,7 +106,8 @@ describe('session handoff versus newer native review', () => {
     // UIKit/trackpad may omit begin-drag. This newer native sample reaches the
     // bottom while the selected cursor remains visible, above the final row.
     nativeOffset = 1600; if (delivered) viewport.onScroll(scroll(nativeOffset));
-    navigation.captureCurrentSession();
+    else viewport.onViewableItemsChanged({ viewableItems: [{ index: 80 }], changed: [] } as never);
+
     await render('b'); await settle(); list.scrollToOffset.mockClear();
     await render('a', rows); publishGeometry(); await settle();
     expect(list.scrollToOffset.mock.calls.map(([request]) => request.offset)).toEqual([1600]);
@@ -112,7 +119,7 @@ describe('session handoff versus newer native review', () => {
     viewport.onScroll(scroll(1600));
     // New content exists, but UIKit first reports the previous end position.
     const sample = { nativeEvent: { contentOffset: { x: 0, y: 1600 }, contentSize: { width: 400, height: 2200 }, layoutMeasurement: { width: 400, height: 400 } } } as never;
-    viewport.onScroll(sample); navigation.captureCurrentSession();
+    viewport.onScroll(sample);
     await render('b'); await settle(); list.scrollToOffset.mockClear();
     await render('a', rows); publishGeometry(); await settle();
     viewport.onContentSizeChange(400, 2200); await settle();
@@ -125,7 +132,7 @@ describe('session handoff versus newer native review', () => {
     await render('a', refreshed);
     // Native cells still occupy offset 600, but the topology commit invalidated
     // the callback range. The switch captures after that commit, not before it.
-    navigation.captureCurrentSession();
+
     await render('b'); await settle(); list.scrollToOffset.mockClear();
     await render('a', refreshed); publishGeometry(); await settle();
     expect(list.scrollToOffset.mock.calls.map(([request]) => request.offset)).toEqual([600]);
@@ -136,8 +143,8 @@ describe('session handoff versus newer native review', () => {
     const rows = buffer(); await render('a', rows); touchReview();
     const refreshed = createTranscriptBuffer([{ id: 'older', role: 'assistant', text: 'older' }, ...rows.messages!]);
     await render('a', refreshed);
-    nativeOffset = 620; // Native placement settled; its deferred viewability callback has not fired.
-    navigation.captureCurrentSession();
+    nativeOffset = 620; viewport.onScroll(scroll(nativeOffset)); // Scroll sample precedes deferred viewability.
+
     await render('b'); await settle(); list.scrollToOffset.mockClear();
     await render('a', refreshed); publishGeometry(); await settle();
     expect(list.scrollToOffset.mock.calls.map(([request]) => request.offset)).toEqual([620]);
@@ -206,7 +213,7 @@ describe('session handoff versus newer native review', () => {
 
   it('does not revive a captured touch anchor after an explicit tail action is captured', async () => {
     const rows = buffer(); await render('a', rows); touchReview();
-    viewport.reveal(99, true, 'tail'); await settle(); navigation.captureCurrentSession();
+    viewport.reveal(99, true, 'tail'); await settle();
     await render('b'); await settle(); list.scrollToOffset.mockClear();
     await render('a', rows); publishGeometry(); await settle();
     expect(list.scrollToOffset.mock.calls.every(([request]) => request.offset === 1_600)).toBe(true);
@@ -258,7 +265,7 @@ describe('session handoff versus newer native review', () => {
   });
 
   it('cancels a saved review-position return as well as a tail return', async () => {
-    await render('a'); await act(async () => parkReview()); navigation.captureCurrentSession();
+    await render('a'); await act(async () => parkReview());
     await render('b'); await settle(); list.scrollToOffset.mockClear(); list.scrollToIndex.mockClear();
     await render('a');
     viewport.onScrollBeginDrag(); viewport.onScroll(scroll(300));

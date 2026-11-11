@@ -1,3 +1,5 @@
+import { validatedHistoryOmission, withHistoryOmission } from './historyOmission';
+import { CACHED_PREVIEW_NOTICE } from './sealedRunRetirement';
 import { validSkillName } from '../tooling/skillReadEvidence';
 import { repairedCachedMarkdownImages } from './cachedMarkdownImages';
 import { persistedAsyncMetadata } from '../questions/asyncQuestionContract';
@@ -7,6 +9,7 @@ import { pruneUnownedRestoredLiveRows } from './transcriptChronology';
 import { validatedAbsorbedLiveIdentity } from './transcriptIdentityWall';
 import { inactiveMessageRecovery } from './messageRecovery';
 import { reconcileClaudeNativeLive } from './claudeNativeLiveConvergence';
+import { validatedMessageToolSend } from '../workspace/messageToolProgress';
 import { transcriptInternalEvent, transcriptInputAcceptedAt, transcriptInputReceiptRunId, transcriptCliProvenance, transcriptDisplayPosition, transcriptSessionIdentity } from '../workspace/transcriptMetadata';
 
 // This is a restart/offline preview, not canonical scrollback. Keeping the
@@ -35,7 +38,10 @@ export function serializedTranscriptCache(messages: WorkspaceMessage[], bounds: 
     if (retained.length && bytes + size > byteLimit) break;
     retained.push(safe); bytes += size;
   }
-  return JSON.stringify(retained.reverse());
+  const ordered = retained.reverse();
+  const first = ordered[0];
+  return JSON.stringify(retained.length < messages.length && first && first.role !== 'user' && first.role !== 'boundary' && !first.historyOmission
+    ? withHistoryOmission(ordered) : ordered);
 }
 
 export function parsedTranscriptCache(payload: string | null, messageLimit = CACHE_MESSAGE_LIMIT) {
@@ -54,7 +60,7 @@ export function parsedTranscriptCache(payload: string | null, messageLimit = CAC
 function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): WorkspaceMessage {
   const text = message.text.length <= textLimit
     ? message.text
-    : `${message.text.slice(0, textLimit)}\n… [cached preview truncated; canonical history is refreshing]`;
+    : `${message.text.slice(0, textLimit)}${CACHED_PREVIEW_NOTICE}`;
   // Tool output can contain arbitrary Markdown source with image-looking
   // paths. Canonical history will reconstruct genuine structured tool media;
   // never preserve older false-positive tool cards across launches.
@@ -62,6 +68,7 @@ function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): Workspa
   const absorbedLiveIdentity = validatedAbsorbedLiveIdentity(message.absorbedLiveIdentity, message);
   const recovery = inactiveMessageRecovery(message.recovery);
   const cliProvenance = transcriptCliProvenance(message.cliProvenance);
+  const historyOmission = validatedHistoryOmission(message.historyOmission, message.id);
   return {
     id: message.id,
     ...persistedAsyncMetadata(message as unknown as Record<string, unknown>),
@@ -79,9 +86,11 @@ function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): Workspa
     ...(message.role === 'user' && transcriptInputReceiptRunId(message.inputReceiptRunId) ? { inputReceiptRunId: message.inputReceiptRunId } : {}),
     ...(message.displayPosition ? { displayPosition: message.displayPosition } : {}),
     ...(cliProvenance ? { cliProvenance } : {}),
+    ...(cliProvenance?.kind === 'claude-native' && message.cliEndTurn === true ? { cliEndTurn: true as const } : {}),
+    ...(historyOmission ? { historyOmission } : {}),
     ...(message.stagedImagePlaceholder === true && message.role === 'user' && cliProvenance?.kind === 'claude-native' ? { stagedImagePlaceholder: true as const } : {}),
     ...(message.role === 'user' && message.stagedImageCounterpartId ? { stagedImageCounterpartId: message.stagedImageCounterpartId } : {}),
-    ...(message.source === 'live' && message.steerSealed ? { steerSealed: true } : {}),
+    ...(message.source === 'live' && message.steerSealed ? { steerSealed: true, ...(message.sealText ? { sealText: message.sealText } : {}) } : {}),
     ...(message.source === 'live' && message.role === 'assistant' && message.claudeNativeFullText
       && message.claudeNativeFullText.length <= textLimit ? { claudeNativeFullText: message.claudeNativeFullText } : {}),
     ...(message.idempotencyKey ? { idempotencyKey: message.idempotencyKey } : {}),
@@ -102,6 +111,7 @@ function parsedMessage(value: unknown): WorkspaceMessage[] {
   const transcriptSessionId = transcriptSessionIdentity(value.transcriptSessionId);
   const displayPosition = transcriptDisplayPosition(value.displayPosition);
   const cliProvenance = transcriptCliProvenance(value.cliProvenance);
+  const historyOmission = validatedHistoryOmission(value.historyOmission, value.id);
   const message: WorkspaceMessage = {
     id: value.id,
     ...persistedAsyncMetadata(value),
@@ -119,9 +129,11 @@ function parsedMessage(value: unknown): WorkspaceMessage[] {
     ...(value.role === 'user' && transcriptInputReceiptRunId(value.inputReceiptRunId) ? { inputReceiptRunId: value.inputReceiptRunId as string } : {}),
     ...(displayPosition ? { displayPosition } : {}),
     ...(cliProvenance ? { cliProvenance } : {}),
+    ...(cliProvenance?.kind === 'claude-native' && value.cliEndTurn === true ? { cliEndTurn: true as const } : {}),
+    ...(historyOmission ? { historyOmission } : {}),
     ...(value.stagedImagePlaceholder === true && value.role === 'user' && cliProvenance?.kind === 'claude-native' ? { stagedImagePlaceholder: true as const } : {}),
     ...(value.role === 'user' && typeof value.stagedImageCounterpartId === 'string' && value.stagedImageCounterpartId.length <= 2048 ? { stagedImageCounterpartId: value.stagedImageCounterpartId } : {}),
-    ...(source === 'live' && value.steerSealed === true ? { steerSealed: true } : {}),
+    ...(source === 'live' && value.steerSealed === true ? { steerSealed: true, ...cachedSealText(value.sealText, value.text) } : {}),
     ...(source === 'live' && value.role === 'assistant' && typeof value.claudeNativeFullText === 'string'
       && value.claudeNativeFullText.length <= CACHE_TEXT_LIMIT && value.claudeNativeFullText.endsWith(value.text)
       ? { claudeNativeFullText: value.claudeNativeFullText } : {}),
@@ -142,7 +154,7 @@ function parsedRecovery(value: unknown): WorkspaceMessage['recovery'] | undefine
 
 function parsedTool(value: unknown) {
   if (!record(value) || typeof value.name !== 'string' || typeof value.summary !== 'string') return undefined;
-  return { name: value.name, summary: value.summary, ...(validSkillName(value.skillName) ? { skillName: value.skillName } : {}), ...(value.resultSucceeded === true ? { resultSucceeded: true as const } : {}), ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}) };
+  return { name: value.name, summary: value.summary, ...(validSkillName(value.skillName) ? { skillName: value.skillName } : {}), ...(value.resultSucceeded === true ? { resultSucceeded: true as const } : {}), ...(typeof value.resultOf === 'string' && value.resultOf.length > 0 && value.resultOf.length <= 256 ? { resultOf: value.resultOf } : {}), ...(validatedMessageToolSend(value.messageSend) ? { messageSend: validatedMessageToolSend(value.messageSend)! } : {}), ...(typeof value.durationMs === 'number' ? { durationMs: value.durationMs } : {}) };
 }
 
 function parsedAttachment(value: unknown): WorkspaceAttachment[] {
@@ -161,4 +173,12 @@ function parsedAttachment(value: unknown): WorkspaceAttachment[] {
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function positiveBound(value: number | undefined, fallback: number) {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+/** Only a truncated seal needs its digest; a seal holding its whole text is compared directly. */
+function cachedSealText(value: unknown, text: unknown) {
+  const digest = value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const valid = (field: unknown): field is number => Number.isSafeInteger(field) && (field as number) >= 0;
+  return typeof text === 'string' && text.endsWith(CACHED_PREVIEW_NOTICE) && valid(digest.length) && valid(digest.hash) && valid(digest.check)
+    ? { sealText: { length: digest.length, hash: digest.hash, check: digest.check } } : {};
 }

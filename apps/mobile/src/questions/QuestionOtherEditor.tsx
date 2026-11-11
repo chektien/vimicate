@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { VimicateEditorView } from '../../modules/vimicate-editor';
 import { colors, type } from '../theme/tokens';
 import { QuestionOtherEditorOwner } from './questionOtherEditorOwner';
+import { useWorkspacePaneKey } from '../workspace/WorkspacePaneKeyContext';
+import type { HardwareKeyEvent } from '../../modules/vimicate-editor';
 
 export type QuestionOtherEditorProps = {
   value: string;
@@ -17,6 +19,7 @@ export type QuestionOtherEditorProps = {
 
 /** Mounted only while Other owns question keyboard focus, in both Vim modes. */
 export function QuestionOtherEditor(props: QuestionOtherEditorProps) {
+  const paneKeys = useWorkspacePaneKey();
   const ownerRef = useRef<QuestionOtherEditorOwner | null>(null);
   const callbacks = useRef(props);
   callbacks.current = props;
@@ -27,6 +30,7 @@ export function QuestionOtherEditor(props: QuestionOtherEditorProps) {
     ownerRef.current = new QuestionOtherEditorOwner(props.scope, props.value, props.maxLength, (previous?.state.authority ?? -1) + 1, previous?.clock);
   }
   const owner = ownerRef.current!;
+  useLayoutEffect(() => { paneKeys?.cancel(); return () => paneKeys?.cancel(); }, [owner, owner.state.mode, paneKeys?.cancel]);
   owner.observedValue = props.value;
   owner.maxLength = props.maxLength;
   const mounted = useRef(false);
@@ -42,6 +46,12 @@ export function QuestionOtherEditor(props: QuestionOtherEditorProps) {
     if (action === 'exit') callbacks.current.onExit();
   };
   const mode = owner.state.visualMode ? 'VISUAL' : owner.state.mode.toUpperCase();
+  const hardwareKey = (event: HardwareKeyEvent) => {
+    if (!active()) return;
+    update(() => owner.flushKeyText(event));
+    if (paneKeys?.route(event, owner.state.mode, () => update(() => { owner.closed = true; return 'exit'; }), props.scope)) return;
+    update(() => owner.key(event));
+  };
   const escape = () => update(() => owner.key({ key: 'escape', shift: false, control: false, option: false, command: false }));
   return <View style={styles.root} accessibilityLabel={props.accessibilityLabel}>
     <View style={styles.toolbar}>
@@ -60,7 +70,7 @@ export function QuestionOtherEditor(props: QuestionOtherEditorProps) {
       onEditorTap={({ nativeEvent }) => update(() => owner.tap(nativeEvent))}
       onTextChange={({ nativeEvent }) => update(() => owner.text(nativeEvent))}
       onSelectionChange={({ nativeEvent }) => update(() => owner.selection(nativeEvent))}
-      onHardwareKey={({ nativeEvent }) => update(() => owner.key(nativeEvent))} />
+      onHardwareKey={({ nativeEvent }) => hardwareKey(nativeEvent)} />
   </View>;
 }
 

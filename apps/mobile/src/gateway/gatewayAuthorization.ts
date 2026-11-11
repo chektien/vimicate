@@ -4,7 +4,10 @@ const OPTIONAL_OPERATOR_SCOPES = ['operator.approvals', 'operator.questions', 'o
 
 export function profileHasOperatorScope(profile: GatewayProfile | null, scope: string) {
   if (!profile) return false;
-  return (operatorScopesForProfile(profile) as string[]).includes(scope);
+  const scopes: string[] = operatorScopesForProfile(profile);
+  // The Gateway already authorizes questions under admin. Keep requested grants
+  // unchanged and recognize that implication only for this capability check.
+  return scopes.includes(scope) || scope === 'operator.questions' && scopes.includes('operator.admin');
 }
 
 export function operatorScopesForProfile(profile: GatewayProfile) {

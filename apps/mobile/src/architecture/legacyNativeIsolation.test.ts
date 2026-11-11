@@ -212,9 +212,9 @@ describe('RN architecture isolation invariants', () => {
     expect(history).toContain('createLatestHistoryActions(historyActionsContext)');
     expect(latest).toContain('const publication = latestHistoryRefreshAction(');
     expect(latest).toContain('const published = publication(currentTail)');
-    expect(latest).toContain("setHistoryMessages(sessionKey, publication, 'latest', ownsLatest)");
-    expect(history).toContain(".visible, 'older', ownsPublication)");
-    expect(history).not.toContain(".visible, 'older', ownsRequest)");
+    expect(latest).toContain("setHistoryMessages(sessionKey, publication, 'latest', ownsLatest, latest)");
+    expect(source('src/gateway/olderHistoryLoading.ts')).toContain(".visible, 'older', ownsPublication, batch.cursor)");
+    expect(source('src/gateway/olderHistoryLoading.ts')).not.toContain(".visible, 'older', ownsRequest");
     expect(latest).toContain('return published');
     expect(completion).toContain('hasRenderedAssistantFinalForRun');
     expect(completion).toContain("message.role === 'user' && message.runId === runId");
@@ -246,7 +246,7 @@ describe('RN architecture isolation invariants', () => {
     const view = source('src/gateway/sessionHistoryView.ts');
     const persistence = source('src/gateway/persistentHistoryReview.ts');
     expect(history).toContain('return threadEntryHistoryPresentation(restored)');
-    expect(history).toContain("reviewEntryIntent.current = 'deliberate'");
+    expect(source('src/gateway/olderHistoryLoading.ts')).toContain("reviewEntryIntent.current = 'deliberate'");
     expect(view).toContain("restored.reviewEntryIntent === 'deliberate'");
     expect(persistence).toContain("reviewEntryIntent: 'fallback'");
     // Thread entry passes its restored presentation and may reuse an unchanged tail.

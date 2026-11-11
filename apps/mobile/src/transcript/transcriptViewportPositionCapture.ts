@@ -1,3 +1,4 @@
+import { captureTranscriptSessionPixelAnchor, transcriptSessionPixelRestoreOffset } from './transcriptSessionPixelAnchor';
 import { transcriptReviewTargetVisible } from './transcriptReviewRestore';
 import { transcriptTargetOutsidePaintedViewport } from './transcriptViewportPolicy';
 import type { FlashListRef } from '@shopify/flash-list';
@@ -90,4 +91,38 @@ export function measuredViewportRowPosition<T>(owner: FlashListRef<T> | null, ta
   // fraction of the negative spare height of an oversized card.
   if (requestedPosition === 0 && layout.height >= viewportHeight) return (layout.y + owner.getFirstItemOffset() - offset) / viewportHeight;
   return transcriptIndexedViewPosition(layout, viewportHeight, offset, owner.getFirstItemOffset());
+}
+
+/** Session-return verification compares the actual source-point displacement. */
+export function measuredSessionPixelRestoreError<T>(owner: FlashListRef<T> | null, target: number, rowOffset: number,
+  metrics: { offset: number; viewportHeight: number; contentHeight: number }, observedScroll: boolean, painted = true, endAligned = false) {
+  const layout = owner?.getLayout(target);
+  const height = owner?.getWindowSize().height || metrics.viewportHeight;
+  if (!owner || !endAligned && !layout || height <= 0) return null;
+  const actual = mountedTranscriptNativeScrollOffset(owner)
+    ?? authoritativeTranscriptScrollOffset(owner.getAbsoluteLastScrollOffset(), metrics.offset, observedScroll);
+  const expected = endAligned ? Math.max(0, Math.max(metrics.contentHeight, owner.getChildContainerDimensions().height) - height) : transcriptSessionPixelRestoreOffset(layout!, rowOffset, height,
+    Math.max(metrics.contentHeight, owner.getChildContainerDimensions().height), owner.getFirstItemOffset());
+  const error = actual - expected;
+  // Estimates may guide a correction, but matching them without painted cells
+  // cannot release the source-point intent to lossy whole-row blank recovery.
+  return !painted && Math.abs(error) <= 0.5 ? null : error;
+}
+
+/** Offset, anchor and diagnostic provenance come from the same accepted read. */
+export function captureSessionReviewPixelSample<T>(owner: FlashListRef<T> | null, itemCount: number,
+  metrics: { offset: number }, observedScroll: boolean) {
+  const nativeOffset = mountedTranscriptNativeScrollOffset(owner);
+  const recyclerOffset = nativeOffset === null && owner ? owner.getAbsoluteLastScrollOffset() : NaN;
+  const offset = nativeOffset ?? (owner ? authoritativeTranscriptScrollOffset(recyclerOffset, metrics.offset, observedScroll) : metrics.offset);
+  const work = nativeOffset !== null ? 'native-offset'
+    : observedScroll && Number.isFinite(metrics.offset) || !Number.isFinite(recyclerOffset) ? 'observed-offset' : 'recycler-offset';
+  const anchor = captureTranscriptSessionPixelAnchor(owner, itemCount, offset);
+  return anchor ? { anchor, offset, work } : null;
+}
+
+/** Keep existing anchor-only callers on the same capture policy. */
+export function captureSessionReviewPixelAnchor<T>(owner: FlashListRef<T> | null, itemCount: number,
+  metrics: { offset: number }, observedScroll: boolean) {
+  return captureSessionReviewPixelSample(owner, itemCount, metrics, observedScroll)?.anchor ?? null;
 }

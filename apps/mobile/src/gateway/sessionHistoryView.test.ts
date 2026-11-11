@@ -16,7 +16,7 @@ const generation = {
 };
 const archive: ArchivedHistoryState = {
   identity: {
-    sessionKey: 'techbrief',
+    sessionKey: 'sample-review',
     currentSessionId: generation.sessionId,
     currentSessionStartedAtMs: generation.sessionStartedAtMs,
   },
@@ -28,10 +28,10 @@ const archive: ArchivedHistoryState = {
   nextArchivedIndex: -1,
   exhausted: true,
 };
-const cursor: HistoryCursor = { sessionKey: 'techbrief', nextOffset: null, hasMore: false, totalMessages: 0 };
+const cursor: HistoryCursor = { sessionKey: 'sample-review', nextOffset: null, hasMore: false, totalMessages: 0 };
 const review: WorkspaceMessage[] = [
-  { id: 'archived-prompt', role: 'user', text: 'Review the SOG brief', source: 'history', sessionKey: 'techbrief' },
-  { id: 'archived-answer', role: 'assistant', text: 'The brief is ready.', source: 'history', sessionKey: 'techbrief' },
+  { id: 'archive:00000000-0000-4000-a000-000000000148:prompt', role: 'user', text: 'Review the sample brief', source: 'history', sessionKey: 'sample-review' },
+  { id: 'archive:00000000-0000-4000-a000-000000000148:answer', role: 'assistant', text: 'The brief is ready.', source: 'history', sessionKey: 'sample-review' },
 ];
 
 function reviewView(overrides: Partial<SessionHistoryView> = {}): SessionHistoryView {
@@ -66,10 +66,10 @@ describe('per-session history review ownership', () => {
 
   it('restores a loaded archived review instead of an empty latest generation after a project round trip', () => {
     const cache = new SessionHistoryViewCache();
-    cache.store('techbrief', reviewView());
+    cache.store('sample-review', reviewView());
 
     const restored = restoredHistorySelection(
-      cache.restore('techbrief'),
+      cache.restore('sample-review'),
       generation,
       archive,
       review,
@@ -86,7 +86,7 @@ describe('per-session history review ownership', () => {
 
   it('preserves an intentional review across re-entry while keeping a nonempty current tail hidden', () => {
     const current: WorkspaceMessage[] = [
-      { id: 'current-answer', role: 'assistant', text: 'Current answer', source: 'history', sessionKey: 'techbrief' },
+      { id: 'current-answer', role: 'assistant', text: 'Current answer', source: 'history', sessionKey: 'sample-review' },
     ];
     const restored = restoredHistorySelection(reviewView(), generation, archive, review, current);
 
@@ -97,7 +97,7 @@ describe('per-session history review ownership', () => {
 
   it('reveals a current tail when the older window was restored only as an automatic fallback', () => {
     const current: WorkspaceMessage[] = [
-      { id: 'current-email', role: 'assistant', text: 'Current email triage', source: 'history', sessionKey: 'techbrief' },
+      { id: 'current-review', role: 'assistant', text: 'Current sample review', source: 'history', sessionKey: 'sample-review' },
     ];
     const fallback = {
       ...reviewView(),
@@ -112,7 +112,7 @@ describe('per-session history review ownership', () => {
 
   it('reveals a nonempty current tail on first entry when no in-process review exists', () => {
     const current: WorkspaceMessage[] = [
-      { id: 'current-answer', role: 'assistant', text: 'Current answer', source: 'history', sessionKey: 'techbrief' },
+      { id: 'current-answer', role: 'assistant', text: 'Current answer', source: 'history', sessionKey: 'sample-review' },
     ];
     const restored = restoredHistorySelection(undefined, generation, archive, [], current);
 
@@ -139,7 +139,7 @@ describe('per-session history review ownership', () => {
   it('invalidates a cached review when the immutable session generation changes', () => {
     const replacement = { sessionId: '00000000-0000-4000-8000-000000000136', sessionStartedAtMs: generation.sessionStartedAtMs + 10 };
     const replacementArchive: ArchivedHistoryState = {
-      identity: { sessionKey: 'techbrief', currentSessionId: replacement.sessionId, currentSessionStartedAtMs: replacement.sessionStartedAtMs },
+      identity: { sessionKey: 'sample-review', currentSessionId: replacement.sessionId, currentSessionStartedAtMs: replacement.sessionStartedAtMs },
       exhausted: false,
     };
     const restored = restoredHistorySelection(reviewView(), replacement, replacementArchive, review, []);

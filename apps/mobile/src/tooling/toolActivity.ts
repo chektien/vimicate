@@ -1,4 +1,5 @@
 import { skillNameFromArguments, successfulSkillReadResult } from './skillReadEvidence';
+import { messageToolSend, type MessageToolSend } from '../workspace/messageToolProgress';
 export const TOOL_SUMMARY_CHARACTER_LIMIT = 96;
 
 export type ToolSummaryPhase = 'start' | 'update' | 'result' | 'error' | 'unknown';
@@ -23,6 +24,7 @@ export type ToolActivity = {
   detail: string;
   skillName?: string;
   resultSucceeded?: true;
+  messageSend?: MessageToolSend;
 };
 
 type ToolSummaryInput = {
@@ -96,6 +98,7 @@ function toolActivityFromPart(part: Record<string, unknown>): ToolActivity {
   const failed = part.is_error === true || part.isError === true;
   const argumentsValue = kind === 'call' ? part.arguments ?? part.args ?? part.input : undefined;
   const skillName = kind === 'call' ? skillNameFromArguments(name, argumentsValue) : undefined;
+  const messageSend = kind === 'call' ? messageToolSend(name, argumentsValue) : undefined;
   const detailValue = kind === 'call' ? argumentsValue : part.content ?? part.text ?? part.result ?? part.output;
   return {
     kind,
@@ -103,6 +106,7 @@ function toolActivityFromPart(part: Record<string, unknown>): ToolActivity {
     callId,
     status: kind === 'call' ? 'running' : failed ? 'failed' : 'ok',
     ...(skillName ? { skillName } : {}),
+    ...(messageSend ? { messageSend } : {}),
     ...(kind === 'result' && !failed && successfulSkillReadResult(name, detailValue) ? { resultSucceeded: true as const } : {}),
     summary: conciseToolSummary({
       name,
@@ -434,6 +438,11 @@ function commandLikeKey(value: typeof semanticKeys[number]) { return value === '
 function stringValue(value: unknown) { return typeof value === 'string' ? value : ''; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/** The call a durable result row belongs to, so its live row can retire. */
+export function toolResultEvidence(activity: ToolActivity) {
+  return activity.kind === 'result' && activity.callId && activity.callId.length <= 256 ? { resultOf: activity.callId } : {};
+}
 
 export function toolSkillEvidence(activity: ToolActivity) {
   return { ...(activity.skillName ? { skillName: activity.skillName } : {}),

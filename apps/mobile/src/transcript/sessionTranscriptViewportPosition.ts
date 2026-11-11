@@ -4,17 +4,17 @@ import { transcriptLineAt, type TranscriptBuffer } from './transcriptVim';
 export type SessionTranscriptViewportPosition = {
   messageId: string;
   lineInMessage: number;
-  viewPosition: number;
-  viewportOwned: boolean;
+  endGap?: number;
+  rowOffset: number;
 };
 
 export function captureSessionTranscriptViewportPosition(
-  buffer: TranscriptBuffer, sourceRow: number, viewPosition: number | null | undefined, viewportOwned: boolean,
+  buffer: TranscriptBuffer, sourceRow: number, rowOffset: number | null | undefined,
 ): SessionTranscriptViewportPosition | null {
-  if (viewPosition === null || viewPosition === undefined || !Number.isFinite(viewPosition)) return null;
+  if (rowOffset === null || rowOffset === undefined || !Number.isFinite(rowOffset)) return null;
   const line = transcriptLineAt(buffer, sourceRow);
   return line ? { messageId: line.messageId, lineInMessage: line.lineInMessage,
-    viewPosition: Math.max(0, Math.min(1, viewPosition)), viewportOwned } : null;
+    rowOffset } : null;
 }
 
 export function resolveSessionTranscriptViewportPosition(buffer: TranscriptBuffer, position: SessionTranscriptViewportPosition | undefined) {
@@ -26,3 +26,11 @@ export function resolveSessionTranscriptViewportPosition(buffer: TranscriptBuffe
   const line = transcriptLineAt(buffer, row);
   return line?.messageId === position.messageId && line.lineInMessage === position.lineInMessage ? row : null;
 }
+
+/** The viewport publishes this only from its outgoing committed dataset. */
+export type SessionViewportCapture = { kind: 'tail' } | {
+  kind: 'anchor'; sourceRow: number; rowOffset: number; endGap: number; anchor?: Pick<SessionTranscriptViewportPosition, 'messageId' | 'lineInMessage'>;
+};
+export type SessionViewportEntry = { kind: 'tail' } | {
+  kind: 'anchor'; sourceRow: number; rowOffset: number;
+};

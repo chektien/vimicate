@@ -1,20 +1,24 @@
+import type { HistoryTransport } from './historyTransport';
 import { liveNarrationInsertionIndex } from './liveNarrationPlacement';
 import { type WorkspaceMessage } from '../workspace/workspaceTypes';
 import { authoritativeHistoryChronology } from '../workspace/historyMessageProjection';
+import { reconcileMessageToolProgress, retainingMessageToolProgress } from '../workspace/messageToolProgress';
 import { sharedNarrationDisplayOrder } from '../workspace/historyDisplayOrder';
-import { absorbedLiveMessageMatches, coalesceTranscriptIdentities, convergedTranscriptRepresentation, retainingAbsorbedLiveIdentity, transcriptPublicationIdentity } from './transcriptIdentityWall';
+import { coalesceTranscriptIdentities, convergedTranscriptRepresentation, retainingAbsorbedLiveIdentity, transcriptPublicationIdentity } from './transcriptIdentityWall';
 import { pruneUnownedRestoredLiveRows } from './transcriptChronology';
 import { correlateLiveAssistantsToCanonicalTurns, embeddedTimestampMilliseconds, liveAssistantHistoryPlacement, richerLiveAssistant, sameRunAssistant } from './liveAssistantHistoryPlacement';
 import { reconcileCompletePendingInputSnapshot, type PendingInputSnapshotReconciliation } from './pendingInputSnapshot';
 import { provenClaudeNativeLive, reconcileClaudeNativeLive } from './claudeNativeLiveConvergence';
 import { assistantTextIsGatewayIncomplete } from './messageCompleteness';
 import { retainedHistoryRecords } from './retainedHistoryRecords';
+import { insertAtPreviousPublicationPosition, livePublicationFollowsRunText, previousPublicationIndex, sameMeaning, sameSubmissionIdentity } from './publicationAnchors';
 
 export type HistoryCursor = {
   sessionKey: string;
   nextOffset: number | null;
   hasMore: boolean;
   totalMessages: number;
+  transport?: HistoryTransport | undefined;
 };
 
 export function historyCursorFromPayload(payload: Record<string, unknown>, sessionKey: string): HistoryCursor {
@@ -25,13 +29,6 @@ export function historyCursorFromPayload(payload: Record<string, unknown>, sessi
     hasMore: payload.hasMore === true && nextOffset !== null,
     totalMessages: finiteNumber(payload.totalMessages) ?? 0,
   };
-}
-
-export function refreshedHistoryCursor(previous: HistoryCursor | null, latest: HistoryCursor): HistoryCursor {
-  if (!previous || previous.sessionKey !== latest.sessionKey || !previous.hasMore || previous.nextOffset === null) return latest;
-  const latestBase = latest.nextOffset ?? 0;
-  const shifted = previous.nextOffset + Math.max(0, latest.totalMessages - previous.totalMessages);
-  return { ...latest, nextOffset: Math.max(latestBase, shifted), hasMore: latest.hasMore };
 }
 
 export function mergeLatestHistory(latest: WorkspaceMessage[], current: WorkspaceMessage[], sessionKey: string, pendingInputs?: PendingInputSnapshotReconciliation) {
@@ -50,7 +47,7 @@ export function mergeLatestHistory(latest: WorkspaceMessage[], current: Workspac
     // Keep the already published row key while the fresh page owns its slot.
     const presented = previous?.source === 'history' && previous.id !== message.id
       ? convergedTranscriptRepresentation(previous, message) : message;
-    return retainingAbsorbedLiveIdentity(previous, retainingRecoveredHistoryContent(previous, presented));
+    return retainingAbsorbedLiveIdentity(previous, retainingMessageToolProgress(previous, retainingRecoveredHistoryContent(previous, presented)));
   });
   const local = localCandidates.filter((message) => !localReconciliation.consumed.has(message));
   const structuredLiveCandidates = current.filter((message) => message.source === 'live' && message.sessionKey === sessionKey && message.role !== 'assistant');
@@ -60,20 +57,14 @@ export function mergeLatestHistory(latest: WorkspaceMessage[], current: Workspac
     [...retainedHistoryRecords(earlier, presentedLatest), ...presentedLatest].filter((message) => !richerLiveAssistant(message, liveAssistants, livePlacements)),
     (message) => message.source === 'history',
   );
-  const canonicalToolResults = new Set(canonicalHistory.flatMap((message) => {
-    const identity = canonicalToolResultIdentity(message);
-    return identity ? [identity] : [];
-  }));
+  const savedToolResults = savedToolResultIndex(canonicalHistory);
   // Live agent events collapse one tool execution into one row, while Codex
   // history persists the same execution as separate call/result rows. Once
   // the durable result exists, retaining the live aggregate duplicates every
   // completed tool and turns one terminal refresh into a large overlapping
   // list mutation. Both projections expose the exact tool-call id; reconcile
   // only that explicit identity and keep unmatched/streaming live detail.
-  const structuredLive = structuredLiveCandidates.filter((message) => {
-    const identity = liveToolCallIdentity(message);
-    return !identity || !canonicalToolResults.has(identity);
-  });
+  const structuredLive = structuredLiveCandidates.filter((message) => !savedToolResults.settles(message));
   // A refresh can re-derive a Claude run's footer from its live answer; that
   // projection is still the proof the run completed.
   const derivedFooters = current.filter(message => message.sessionKey === sessionKey && isSyntheticHistoryCompletion(message));
@@ -138,33 +129,38 @@ export function mergeOlderHistory(older: WorkspaceMessage[], current: WorkspaceM
 }
 
 function deduplicated(messages: WorkspaceMessage[]) {
-  return coalesceTranscriptIdentities(messages);
+  // A mirror's resolved role is part of its publication identity. Normalize
+  // overlapping pages before coalescing, not only during later chronology.
+  return coalesceTranscriptIdentities(reconcileMessageToolProgress(messages));
 }
 
-function sameMeaning(left: WorkspaceMessage, right: WorkspaceMessage) {
-  if (left.role !== right.role) return false;
-  // Explicit submissions can intentionally repeat the same prose and clock.
-  // Conflicting keys disprove this alias before any legacy content fallback.
-  if (left.idempotencyKey && right.idempotencyKey) return sameSubmissionIdentity(left.idempotencyKey, right.idempotencyKey);
-  return left.text === right.text && (!left.timestamp || !right.timestamp || left.timestamp === right.timestamp);
+/**
+ * The saved results that settle a live tool row. Codex history names the call
+ * in its record key. Other history names it on the result part, and a call id
+ * alone is not ownership there: the saved row must name the same run, or be a
+ * Claude CLI native record, whose call ids are unique to one call. Rows of
+ * different known generations never settle each other.
+ */
+function savedToolResultIndex(history: WorkspaceMessage[]) {
+  const keyed = new Set<string>();
+  const named = new Map<string, WorkspaceMessage[]>();
+  for (const row of history) {
+    if (row.role !== 'tool') continue;
+    const key = row.idempotencyKey?.match(/:tool:(.+):result$/i)?.[1];
+    if (key) keyed.add(key);
+    if (row.tool?.resultOf) named.set(row.tool.resultOf, [...(named.get(row.tool.resultOf) ?? []), row]);
+  }
+  return { settles(live: WorkspaceMessage) {
+    if (live.role !== 'tool' || live.source !== 'live' || !live.runId) return false;
+    const prefix = `live-tool-${live.runId}-`;
+    const call = live.id.startsWith(prefix) ? live.id.slice(prefix.length) : '';
+    if (!call) return false;
+    return keyed.has(call) || (named.get(call) ?? []).some(saved =>
+      (saved.runId ? saved.runId === live.runId : saved.cliProvenance?.kind === 'claude-native')
+      && !(saved.transcriptSessionId && live.transcriptSessionId && saved.transcriptSessionId !== live.transcriptSessionId));
+  } };
 }
 
-function sameSubmissionIdentity(left: string, right: string) {
-  const base = (value: string) => value.replace(/:(?:user|assistant)$/i, '');
-  return base(left) === base(right);
-}
-
-function canonicalToolResultIdentity(message: WorkspaceMessage) {
-  if (message.role !== 'tool' || !message.idempotencyKey) return '';
-  const match = message.idempotencyKey.match(/:tool:(.+):result$/i);
-  return match?.[1] ?? '';
-}
-
-function liveToolCallIdentity(message: WorkspaceMessage) {
-  if (message.role !== 'tool' || message.source !== 'live' || !message.runId) return '';
-  const prefix = `live-tool-${message.runId}-`;
-  return message.id.startsWith(prefix) ? message.id.slice(prefix.length) : '';
-}
 
 function reconcileLatestLocalRows(latest: WorkspaceMessage[], durable: WorkspaceMessage[], local: WorkspaceMessage[]) {
   const consumedDurable = new Set<WorkspaceMessage>();
@@ -213,11 +209,13 @@ function sameDurableUserIdentity(left: WorkspaceMessage, right: WorkspaceMessage
   return Boolean(left.idempotencyKey && right.idempotencyKey && sameSubmissionIdentity(left.idempotencyKey, right.idempotencyKey));
 }
 
+// The insertion passes below receive rows filtered from `previous`, the
+// mounted publication this merge started from. Every row therefore has a
+// previous index.
 function insertLocalPromptsAtPublishedPositions(canonical: WorkspaceMessage[], local: WorkspaceMessage[], previous: WorkspaceMessage[], replacements: ReadonlyMap<WorkspaceMessage, WorkspaceMessage>) {
   const result = [...canonical];
   for (const prompt of local) {
     const previousIndex = previous.indexOf(prompt);
-    if (previousIndex < 0) { result.push(prompt); continue; }
     // Latest Gateway history can canonicalize only the first of several
     // prompts submitted to one active run. Anchor each still-local prompt to
     // the nearest row that has already been published (including the
@@ -259,15 +257,13 @@ function insertLiveAssistantsAtChronologicalPositions(canonical: WorkspaceMessag
     if (hasComparableTimestamp) {
       const lastTimestampedIndex = result.findLastIndex((candidate) => embeddedTimestampMilliseconds(candidate.timestamp) !== null);
       result.splice(lastTimestampedIndex + 1, 0, message);
-    } else if (previousIndex < 0) result.push(message);
-    else insertAtPreviousPublicationPosition(result, message, previous, previousIndex, replacements);
+    } else insertAtPreviousPublicationPosition(result, message, previous, previousIndex, replacements);
   }
   return result;
 }
 
 function insertLiveDetailAtRunFinals(canonical: WorkspaceMessage[], detail: WorkspaceMessage[], previous: WorkspaceMessage[], replacements: ReadonlyMap<WorkspaceMessage, WorkspaceMessage>) {
   const result = [...canonical];
-  const beforeCounts = new Map<string, number>();
   const afterCounts = new Map<string, number>();
   const promptCounts = new Map<string, number>();
   // A terminal event can reach the client before the run's final tool/chat
@@ -285,7 +281,7 @@ function insertLiveDetailAtRunFinals(canonical: WorkspaceMessage[], detail: Work
     const sharedRunPromptCount = message.runId
       ? previous.filter((candidate) => candidate.role === 'user' && candidate.runId === message.runId).length
       : 0;
-    if (!terminalCompletion && previousIndex >= 0 && sharedRunPromptCount > 1) {
+    if (!terminalCompletion && sharedRunPromptCount > 1) {
       // Steering prompts accepted while one Gateway run is active share that
       // runId. Run-level anchoring cannot distinguish their already-visible
       // interleaving and used to regroup every preamble/tool before or after
@@ -310,6 +306,16 @@ function insertLiveDetailAtRunFinals(canonical: WorkspaceMessage[], detail: Work
       const runPromptIndex = message.runId
         ? result.findIndex((candidate) => candidate.role === 'user' && candidate.runId === message.runId)
         : -1;
+      if (runPromptIndex >= 0 && (previousIndex < previousPublicationIndex(previous, result[runPromptIndex]!, replacements)
+        || previous[previousIndex - 1]?.runId === message.runId && previous[previousIndex - 1]?.source === 'live' && livePublicationFollowsRunText(previous, previousIndex, message.runId))) {
+        // The run's only identified prompt was steered into it after this row
+        // was already visible: the prompt that started the run can reach
+        // history without a run identity. Anchoring below the steered prompt
+        // would lift it above everything published before it. A row published
+        // right after its run's live text likewise stays below that text.
+        insertAtPreviousPublicationPosition(result, message, previous, previousIndex, replacements);
+        continue;
+      }
       if (runPromptIndex >= 0) {
         // A canonical history assistant may not expose runId even though its
         // locally-authored prompt does. Late preamble/tool frames must remain
@@ -320,18 +326,18 @@ function insertLiveDetailAtRunFinals(canonical: WorkspaceMessage[], detail: Work
         promptCounts.set(message.runId!, count + 1);
         continue;
       }
-      if (previousIndex < 0) { result.push(message); continue; }
       // A local prompt may already have become a canonical history prompt.
       // Anchor against the nearest preceding row that has a published
       // counterpart, not merely the nearest row that was already history.
       insertAtPreviousPublicationPosition(result, message, previous, previousIndex, replacements);
       continue;
     }
-    const afterFinal = terminalCompletion;
-    const counts = afterFinal ? afterCounts : beforeCounts;
-    const count = counts.get(message.runId!) ?? 0;
-    result.splice(runFinalIndex + (afterFinal ? 1 + count : 0), 0, message);
-    counts.set(message.runId!, count + 1);
+    // Ordinary detail sits directly above the run's final. Completions stack
+    // below it in arrival order.
+    if (!terminalCompletion) { result.splice(runFinalIndex, 0, message); continue; }
+    const count = afterCounts.get(message.runId!) ?? 0;
+    result.splice(runFinalIndex + 1 + count, 0, message);
+    afterCounts.set(message.runId!, count + 1);
   }
   return result;
 }
@@ -357,59 +363,6 @@ function isSyntheticHistoryCompletion(message: WorkspaceMessage) {
     && message.id.startsWith('history-run-');
 }
 
-function insertAtPreviousPublicationPosition(result: WorkspaceMessage[], message: WorkspaceMessage, previous: WorkspaceMessage[], previousIndex: number, replacements: ReadonlyMap<WorkspaceMessage, WorkspaceMessage>) {
-  const anchorIndex = precedingPublishedAnchorIndex(result, previous, previousIndex, replacements);
-  let insertionIndex = Math.max(0, anchorIndex + 1);
-  while (insertionIndex < result.length && result[insertionIndex]?.source !== 'history') {
-    const candidatePreviousIndex = previous.indexOf(result[insertionIndex]!);
-    if (candidatePreviousIndex < 0 || candidatePreviousIndex >= previousIndex) break;
-    insertionIndex += 1;
-  }
-  result.splice(insertionIndex, 0, message);
-}
-
-function precedingPublishedAnchorIndex(result: WorkspaceMessage[], previous: WorkspaceMessage[], beforeIndex: number, replacements: ReadonlyMap<WorkspaceMessage, WorkspaceMessage>) {
-  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
-    const anchor = previous[index]!;
-    const replacement = replacements.get(anchor);
-    if (replacement) {
-      const replacementIndex = result.findIndex((candidate) => candidate.id === replacement.id);
-      if (replacementIndex >= 0) return replacementIndex;
-    }
-    // Prefer an exact surviving occurrence before the semantic fallback. With
-    // equal repeated prompts, scanning with the fallback first resolves every
-    // later local occurrence to the first canonical row even when its own
-    // exact local row is still present farther down the result.
-    const exactIndex = result.findIndex((candidate) => samePublicationIdentity(candidate, anchor));
-    if (exactIndex >= 0) return exactIndex;
-    const publishedIndex = result.findIndex((candidate) => samePublicationAnchor(candidate, anchor));
-    if (publishedIndex >= 0) return publishedIndex;
-  }
-  return -1;
-}
-
-function samePublicationIdentity(left: WorkspaceMessage, right: WorkspaceMessage) {
-  if (left.id === right.id) return true;
-  // Canonicalization retires the live answer's ID but retains its proven
-  // alias. A follow-up already painted after that answer must anchor to the
-  // replacement, not fall back to the preceding prompt while history lags.
-  if (absorbedLiveMessageMatches(left, right)) return true;
-  return Boolean(left.role === right.role
-    && left.idempotencyKey && right.idempotencyKey
-    && sameSubmissionIdentity(left.idempotencyKey, right.idempotencyKey));
-}
-
-function samePublicationAnchor(left: WorkspaceMessage, right: WorkspaceMessage) {
-  if (samePublicationIdentity(left, right)) return true;
-  // Older and cross-device history can omit the submission key. The latest
-  // page still consumes matching optimistic prompts in publication order, so
-  // an unmatched repeated prompt must be allowed to anchor to the canonical
-  // replacement of the preceding occurrence. Restrict the semantic fallback
-  // to a history/local pair: equal live narration or tool prose is not an
-  // identity and must never become a chronology anchor by text alone.
-  return left.source === 'history' && right.source === 'local' && sameMeaning(left, right);
-}
-
 function finiteNumber(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }

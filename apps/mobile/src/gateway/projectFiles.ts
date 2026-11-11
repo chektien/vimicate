@@ -13,6 +13,8 @@ export type ProjectFileList = {
   projectId: string;
   path: string;
   entries: ProjectFileEntry[];
+  directoryLabel?: string;
+  primaryRoot?: string;
 };
 
 export type ProjectFileContent = {
@@ -67,6 +69,13 @@ export function projectFileListFromPayload(value: unknown, expectedProjectId?: s
   if (payload.schemaVersion !== 1 || expectedProjectId !== undefined && projectId !== expectedProjectId
     || expectedPath !== undefined && parentPath !== expectedPath || !Array.isArray(payload.entries)
     || payload.entries.length > 4096) throw new Error('Invalid project file list response');
+  const directoryLabel = payload.directoryLabel;
+  if (directoryLabel !== undefined && (typeof directoryLabel !== 'string' || !directoryLabel || directoryLabel.length > 8192
+    || /[\u0000-\u001f\u007f]/u.test(directoryLabel))) throw new Error('Invalid directory label');
+  const primaryRoot = payload.primaryRoot;
+  if (primaryRoot !== undefined && (typeof primaryRoot !== 'string'
+    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}@[A-Za-z0-9][A-Za-z0-9.-]{0,63}$/u.test(primaryRoot)
+    || parentPath === primaryRoot || parentPath.startsWith(primaryRoot + '/'))) throw new Error('Invalid primary root');
   const names = new Set<string>();
   const entries = payload.entries.flatMap((candidate) => {
     const entry = record(candidate);
@@ -90,7 +99,7 @@ export function projectFileListFromPayload(value: unknown, expectedProjectId?: s
     return [{ name, path: childPath, kind: kind as ProjectFileEntry['kind'],
       ...(typeof entry.mimeType === 'string' ? { mimeType: entry.mimeType } : {}), size, mtimeMs }];
   });
-  return { projectId, path: parentPath, entries };
+  return { projectId, path: parentPath, entries, ...(typeof directoryLabel === 'string' ? { directoryLabel } : {}), ...(typeof primaryRoot === 'string' ? { primaryRoot } : {}) };
 }
 
 export function projectFileContentFromPayload(value: unknown, expectedProjectId?: string, expectedPath?: string): ProjectFileContent {

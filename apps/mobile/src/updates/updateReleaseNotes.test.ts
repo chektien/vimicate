@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { updateReleaseNotesFromManifest } from './updateReleaseNotes';
 
 describe('OTA update release notes', () => {
+  it('preserves the ordered notes of a synthetic update', () => {
+    const notes = { title: 'Sample update', fixes: ['Keep sample history visible', 'Retain sample progress markers'] };
+    expect(updateReleaseNotesFromManifest({ extra: { vimicateUpdate: notes } })).toEqual(notes);
+  });
   it('reads notes from a modern update manifest', () => {
     expect(updateReleaseNotesFromManifest({
       extra: {

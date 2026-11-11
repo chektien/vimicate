@@ -1,16 +1,55 @@
-import { describe, expect, it } from 'vitest';
-import { SessionSubmissionGate, SessionTailRevealRegistry, submissionOwnsSourceTailReveal } from './sessionSubmissionGate';
+import { describe, expect, it, vi } from 'vitest';
+import { SessionSubmissionGate, SessionTailRevealRegistry, SUBMISSION_ADMISSION_WINDOW_MS, submissionOwnsSourceTailReveal } from './sessionSubmissionGate';
 import { shouldRunTranscriptViewportWriter } from '../transcript/transcriptViewportPolicy';
 
 describe('session-keyed submission UI ownership', () => {
   it('blocks duplicate submits only inside the same session', () => {
     const gate = new SessionSubmissionGate();
-    expect(gate.acquire('a')).toBe(true);
-    expect(gate.acquire('a')).toBe(false);
-    expect(gate.acquire('b')).toBe(true);
-    gate.release('a');
-    expect(gate.acquire('a')).toBe(true);
+    const release = gate.acquire('a');
+    expect(release).toBeTypeOf('function');
+    expect(gate.acquire('a')).toBeNull();
+    expect(gate.acquire('b')).toBeTypeOf('function');
+    release!();
+    expect(gate.acquire('a')).toBeTypeOf('function');
     expect(gate.owns('b')).toBe(true);
+  });
+
+  // Physical iPad (10 Nov): a steer into a Claude CLI turn settles only when
+  // the run reaches its next tool boundary. Holding the thread for the whole
+  // send made Enter do nothing until then.
+  it('stops blocking the thread once a send outlives its admission window, without ending that send', () => {
+    vi.useFakeTimers();
+    try {
+      const gate = new SessionSubmissionGate();
+      const steer = gate.acquire('a')!;
+      vi.advanceTimersByTime(SUBMISSION_ADMISSION_WINDOW_MS - 1);
+      expect(gate.acquire('a')).toBeNull();
+      vi.advanceTimersByTime(1);
+      expect(gate.owns('a')).toBe(false);
+      const next = gate.acquire('a')!;
+      expect(next).toBeTypeOf('function');
+      // The earlier send settling late must not release the newer holder.
+      steer();
+      expect(gate.acquire('a')).toBeNull();
+      next();
+      expect(gate.owns('a')).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  // Independent review (10 Nov): attachments stay staged until acceptance, so a
+  // second send inside a still-pending one would carry them again.
+  it('holds the thread until settlement for a send that still owns staged attachments', () => {
+    vi.useFakeTimers();
+    try {
+      const gate = new SessionSubmissionGate();
+      const withAttachments = gate.acquire('a', false)!;
+      vi.advanceTimersByTime(SUBMISSION_ADMISSION_WINDOW_MS * 200);
+      expect(gate.acquire('a')).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+      withAttachments();
+      expect(gate.acquire('a')).toBeTypeOf('function');
+    } finally { vi.useRealTimers(); }
   });
 
   it('consumes a transcript tail reveal only for the session whose rows advanced', () => {

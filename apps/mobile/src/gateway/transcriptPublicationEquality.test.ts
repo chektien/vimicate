@@ -5,6 +5,13 @@ import { sameTranscriptPublication, sameWorkspaceMessageExceptText } from './tra
 const row: WorkspaceMessage = { id: 'answer', role: 'assistant', text: 'done', sessionKey: 'one', source: 'history', attachments: [{ id: 'image', filename: 'proof.png', mimeType: 'image/png', uri: 'https://example.test/proof.png', headers: { z: 'last', a: 'first' } }] };
 
 describe('transcript publication equality', () => {
+  it('publishes changed terminal and message-send evidence even when prose is unchanged', () => {
+    expect(sameTranscriptPublication([row], [{ ...row, cliEndTurn: true }])).toBe(false);
+    const call: WorkspaceMessage = { ...row, role: 'tool', tool: { name: 'message', summary: 'send', messageSend: { text: 'Checking.', final: false } } };
+    expect(sameTranscriptPublication([call], [{ ...call, tool: { ...call.tool!, messageSend: { text: 'Checking.', final: true } } }])).toBe(false);
+    expect(sameTranscriptPublication([call], [{ ...call, tool: { ...call.tool!, messageSend: { text: 'Different.', final: false } } }])).toBe(false);
+  });
+
   it('publishes synthesized-image provenance even when rendered text is unchanged', () => {
     expect(sameTranscriptPublication([row], [{ ...row, stagedImagePlaceholder: true }])).toBe(false);
     expect(sameTranscriptPublication([row], [{ ...row, stagedImageCounterpartId: 'imported' }])).toBe(false);

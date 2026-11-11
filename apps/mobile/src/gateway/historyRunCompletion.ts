@@ -34,7 +34,9 @@ export function withHistoryRunCompletions(input: WorkspaceMessage[]) {
     const endedAt = final?.role === 'assistant' ? timestampMilliseconds(final.timestamp) : null;
     // A still-streaming live answer is not a finished turn: windows merge live
     // rows, and a mid-run first-words row once produced "✓ done in 18s".
-    if (!alreadyCompleted && final?.role === 'assistant' && final.state !== 'streaming' && !final.asyncMessage && !final.asyncQuestion && startedAt !== null && endedAt !== null && endedAt >= startedAt) {
+    if (!alreadyCompleted && final?.role === 'assistant' && final.state !== 'streaming' && !final.asyncMessage && !final.asyncQuestion
+      && (final.cliProvenance?.kind !== 'claude-native' || final.cliEndTurn === true)
+      && startedAt !== null && endedAt !== null && endedAt >= startedAt) {
       output.push({
         id: `history-run-${final.id}`,
         role: 'run',

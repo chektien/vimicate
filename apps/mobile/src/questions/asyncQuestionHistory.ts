@@ -1,3 +1,4 @@
+import { compatibleQuestionGeneration } from './asyncQuestionReplyIdentity';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { matchesAsyncAnswer, type AsyncQuestion } from './asyncQuestionContract';
 export type AsyncQuestionHistoryEntry = { question: AsyncQuestion; message: WorkspaceMessage; boundary?: string; confirmedText?: string };
@@ -5,7 +6,7 @@ export type AsyncQuestionHistoryEntry = { question: AsyncQuestion; message: Work
  * transport acknowledgement as successful run or saved-answer authority. */
 export function asyncQuestionHistory(messages: WorkspaceMessage[]): AsyncQuestionHistoryEntry[] {
   const sessions = new Map<string, WorkspaceMessage[]>();
-  for (const message of messages) { if (!message.sessionKey) continue; const rows = sessions.get(message.sessionKey) ?? []; rows.push(message); sessions.set(message.sessionKey, rows); }
+  for (const message of messages) { if (!message.sessionKey) continue; const scope = JSON.stringify([message.sessionKey, message.transcriptSessionId]); const rows = sessions.get(scope) ?? []; rows.push(message); sessions.set(scope, rows); }
   return [...sessions.values()].flatMap(historyForSession);
 }
 function historyForSession(messages: WorkspaceMessage[]): AsyncQuestionHistoryEntry[] {
@@ -23,7 +24,7 @@ function historyForSession(messages: WorkspaceMessage[]): AsyncQuestionHistoryEn
     if (message.asyncQuestion && message.sessionKey) entries.set(message.asyncQuestion.itemId, { entry: { question: message.asyncQuestion, message }, index, ...(run ?? lastUserRun ? { origin: run ?? lastUserRun } : {}), ...(run ? { run } : {}) });
     if (message.role === 'user' && message.source === 'history' && !message.id.startsWith('pending-input:')) {
       const reply = message.asyncQuestionAnswerText ?? message.text;
-      const candidates = [...entries.values()].filter(({ entry }) => !entry.confirmedText && (!message.sessionKey || message.sessionKey === entry.message.sessionKey) && (!message.asyncQuestionReplyToId || message.asyncQuestionReplyToId === entry.message.id))
+      const candidates = [...entries.values()].filter(({ entry }) => !entry.confirmedText && compatibleQuestionGeneration(entry.message, message) && (!message.asyncQuestionReplyToId || message.asyncQuestionReplyToId === entry.message.id))
         .filter(({ entry }) => matchesAsyncAnswer(entry.question, reply) || Boolean(message.asyncQuestionReplyToId && reply.trim()));
       if (candidates.length === 1) candidates[0]!.entry.confirmedText = reply;
     }
@@ -38,9 +39,9 @@ function historyForSession(messages: WorkspaceMessage[]): AsyncQuestionHistoryEn
       if (recoveredAt !== undefined && recoveredAt > index && recoveredAt < s.index) return true;
       if (owning) {
         if (owning.settled === undefined || owning.settled <= index) return false;
-        return run ? Boolean(s.run && runs.get(s.run)!.first > owning.last) : s.start > owning.last;
+        return run ? Boolean(s.run && s.start > owning.last && runs.get(s.run)!.first > owning.last) : s.start > owning.last;
       }
-      return run ? Boolean(s.run && runs.get(s.run)!.first > index) : s.start > index;
+      return run ? Boolean(s.run && s.start > index && runs.get(s.run)!.first > index) : s.start > index;
     }).at(-1);
     return { ...entry, ...(boundary ? { boundary: boundary.key } : {}) };
   });

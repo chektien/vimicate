@@ -104,3 +104,41 @@ test('lifecycle readiness is bounded, cancellable and does not retry unrelated f
   await assert.rejects(updateThreadRegistryWhenReady({ update() { reads++; throw new Error('concurrent thread registry change'); } }, request, new AbortController().signal), /concurrent/);
   assert.equal(reads, 1);
 });
+
+test('project removal deletes exactly one projects.md section and nothing else', t => {
+  const f = fixture(t);
+  const md = '# projects\n\nHeader prose.\n\n## Alpha\n- id: alpha\n- repo: ~/repos/alpha/\n\n## Beta Tryout\n- id: beta\n- repo: ~/repos/beta/\n- notes:\n  - keep the folder\n\n## Gamma\n- id: gamma\n';
+  const file = path.join(f.root, 'projects.md');
+  fs.writeFileSync(file, md); fs.chmodSync(file, 0o644);
+  const folder = path.join(f.root, 'beta-folder'); fs.mkdirSync(folder);
+  const threadsBefore = f.bytes();
+  const sha = f.registry.read().projects.sha256;
+  const result = f.registry.removeProject({ contract: 'projects-md-v1', projectID: 'beta', expectedSha256: sha });
+  const after = '# projects\n\nHeader prose.\n\n## Alpha\n- id: alpha\n- repo: ~/repos/alpha/\n\n## Gamma\n- id: gamma\n';
+  assert.equal(fs.readFileSync(file, 'utf8'), after);
+  assert.equal(result.projects.markdown, after);
+  assert.equal(result.outcome, 'removed');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o644);
+  assert.ok(fs.existsSync(folder));
+  assert.equal(f.bytes(), threadsBefore);
+  assert.equal(f.registry.read().capabilities.projectRemoval, 'projects-md-v1');
+  const last = f.registry.removeProject({ contract: 'projects-md-v1', projectID: 'gamma', expectedSha256: result.projects.sha256 });
+  assert.equal(last.projects.markdown, '# projects\n\nHeader prose.\n\n## Alpha\n- id: alpha\n- repo: ~/repos/alpha/\n');
+});
+
+test('project removal fails closed on stale, unknown, duplicate, final or malformed requests', t => {
+  const f = fixture(t);
+  const file = path.join(f.root, 'projects.md');
+  fs.writeFileSync(file, '## A\n- id: a\n\n## B\n- id: dup\n\n## C\n- id: dup\n');
+  const sha = f.registry.read().projects.sha256, before = fs.readFileSync(file, 'utf8');
+  const remove = (projectID, expectedSha256 = sha, contract = 'projects-md-v1') => f.registry.removeProject({ contract, projectID, expectedSha256 });
+  assert.throws(() => remove('a', '0'.repeat(64)), /changed since it was read/);
+  assert.throws(() => remove('missing'), /not registered/);
+  assert.throws(() => remove('dup'), /more than once/);
+  assert.throws(() => remove('../a'), /invalid project removal/);
+  assert.throws(() => remove('a', sha, 'host-current-v1'), /contract/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+  fs.writeFileSync(file, '## Only\n- id: only\n');
+  assert.throws(() => remove('only', f.registry.read().projects.sha256), /last registered project/);
+  assert.deepEqual(fs.readdirSync(f.root).filter(name => name.endsWith('.tmp')), []);
+});

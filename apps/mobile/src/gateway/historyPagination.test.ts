@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { type WorkspaceMessage } from '../workspace/workspaceTypes';
 import { messagesFromPayload } from '../workspace/historyMessageProjection';
 import { upsertLiveMessage } from './gatewayEventProjection';
-import { historyCursorFromPayload, mergeLatestHistory, mergeOlderHistory, refreshedHistoryCursor } from './historyPagination';
+import { historyCursorFromPayload, mergeLatestHistory, mergeOlderHistory } from './historyPagination';
 import { parsedTranscriptCache, serializedTranscriptCache } from './persistentTranscriptCache';
 import { sameTranscriptPublication } from './transcriptPublicationEquality';
 
@@ -17,11 +17,9 @@ describe('history pagination owner', () => {
     expect(mergeLatestHistory([answer], [prompt], 's')).toEqual([prompt, answer]);
   });
 
-  it('reads bounded cursor metadata and shifts a progressed cursor after new rows arrive', () => {
-    const first = historyCursorFromPayload({ nextOffset: 80, hasMore: true, totalMessages: 200 }, 'one');
-    const progressed = { ...first, nextOffset: 160 };
-    const refreshed = historyCursorFromPayload({ nextOffset: 80, hasMore: true, totalMessages: 202 }, 'one');
-    expect(refreshedHistoryCursor(progressed, refreshed).nextOffset).toBe(162);
+  it('reads bounded cursor metadata from a history payload', () => {
+    expect(historyCursorFromPayload({ nextOffset: 80, hasMore: true, totalMessages: 202 }, 'one'))
+      .toEqual({ sessionKey: 'one', nextOffset: 80, hasMore: true, totalMessages: 202 });
   });
 
   it('keeps older history, a pending local turn and structured live detail on latest refresh', () => {

@@ -32,13 +32,14 @@ describe('native history continuity controls', () => {
     history.mockResolvedValueOnce(page([790, 792], 160)).mockResolvedValueOnce(page([747, 748, 786, 788], 240));
     const result = await run();
     expect(result?.messages.map(message => message.displayPosition?.rawSeq)).toEqual([747, 748, 786, 788, 790, 792, 804, 819, 826]);
-    expect(result?.cursor).toBe(completed.cursor);
+    expect(result?.cursor).toMatchObject(completed.cursor);
+    expect(result?.cursor.transport?.receipts).toHaveLength(2);
     expect(history.mock.calls).toEqual([[sessionKey, 80, 80], [sessionKey, 80, 160]]);
   });
 
   it.each(['overlap', 'generation', 'source'] as const)('does not invent a gap across %s', async kind => {
     const { history, retained, completed, run } = setup();
-    if (kind === 'overlap') retained[0]!.displayPosition!.rawSeq = 804;
+    if (kind === 'overlap') retained[0] = completed.messages[0]!;
     if (kind === 'generation') retained[0]!.transcriptSessionId = 'another-generation';
     if (kind === 'source') retained[0]!.displayPosition!.source = 'another-source';
     expect(await run()).toBe(completed);
@@ -67,7 +68,7 @@ describe('native history continuity controls', () => {
   it('rejects non-advancing pagination instead of repeatedly fetching it', async () => {
     const { history, run } = setup();
     history.mockResolvedValue(page([790, 792], 80));
-    await expect(run()).rejects.toThrow('did not advance');
+    await expect(run()).rejects.toThrow('invalid cursor');
     expect(history).toHaveBeenCalledOnce();
   });
 
@@ -76,7 +77,7 @@ describe('native history continuity controls', () => {
     history.mockImplementation(async (_key, _limit, offset) => page([790, 792], offset + 80));
     const result = await run();
     expect(result?.messages.map(message => message.displayPosition?.rawSeq)).toEqual([804, 819, 826]);
-    expect(result?.nativeHistoryFloor).toEqual({ source: 'sqlite', transcriptSessionId: generation, rawSeq: 804 });
+    expect(result?.nativeHistoryFloor).toMatchObject({ source: 'sqlite', transcriptSessionId: generation, rawSeq: 804 });
     expect(result?.cursor.nextOffset).toBe(80);
     expect(history).toHaveBeenCalledTimes(6);
   });
@@ -113,6 +114,8 @@ it.each([true, false])('preserves a retained live assistant canonical coordinate
   expect(merged.find(row => row.id === live.id)).toMatchObject({ ...live, displayPosition: canonical.displayPosition, transcriptSessionId: generation });
   const { history, completed } = setup();
   const client = { history, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient;
-  expect(await completedNativeHistoryContinuity(client, sessionKey, completed, merged, '', () => true)).toBe(completed);
-  expect(history).not.toHaveBeenCalled();
+  history.mockResolvedValueOnce(page([747, 803], 160));
+  const result = await completedNativeHistoryContinuity(client, sessionKey, completed, merged, '', () => true);
+  expect(result?.messages.some(row => row.id === 'native-803')).toBe(true);
+  expect(history).toHaveBeenCalledOnce();
 });

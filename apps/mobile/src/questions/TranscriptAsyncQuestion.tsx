@@ -17,7 +17,9 @@ export function TranscriptAsyncQuestion({ message, focused, fontScale, onFocus }
   const button = (label: string, kind: Parameters<typeof actions.action>[1]) => <Pressable accessibilityRole="button" accessibilityLabel={label} style={styles.button} hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }} onPress={() => { onFocus(); actions.action(record.id, kind); }}><Text style={styles.action}>{label}</Text></Pressable>;
   if (state !== 'pending') return <View style={styles.root} accessibilityLabel="Async question outcome">
     {fallback}
-    <Text accessibilityLiveRegion="polite" style={styles.text}>{state === 'history' ? 'No longer pending' : state === 'skipped' ? 'Skipped · work continues' : state === 'queued' ? 'Answer queued' : state === 'sending' ? 'Sending answer…' : state === 'failed' ? 'Answer not sent' : state === 'unconfirmed' ? 'Awaiting delivery confirmation' : 'Answer confirmed in saved history'}</Text>
+    {actions.storageError ? <Text accessibilityRole="alert" style={styles.text}>{actions.storageError}</Text> : null}
+    {actions.ui.errors[record.id] ? <Text accessibilityRole="alert" style={styles.text}>{actions.ui.errors[record.id]}</Text> : null}
+    <Text accessibilityLiveRegion="polite" style={styles.text}>{state === 'history' ? 'No longer pending' : state === 'skipped' ? 'Skipped · work continues' : state === 'queued' ? 'Answer queued' : state === 'sending' ? 'Sending answer…' : state === 'failed' ? 'Answer not confirmed' : state === 'unconfirmed' ? 'Awaiting delivery confirmation' : 'Answer confirmed in saved history'}</Text>
     {view.confirmedText || delivery?.text ? <Text style={styles.text}>{privateQuestionText(view.confirmedText ?? delivery!.text)}</Text> : null}
     <View style={styles.buttons}>{state === 'history' || state === 'skipped' ? button('Answer', 'reopen') : state === 'failed' || state === 'unconfirmed' ? button('Retry answer', 'retry') : null}{delivery && state !== 'confirmed' && state !== 'sending' ? button('Discard answer', 'discard') : null}</View>
   </View>;

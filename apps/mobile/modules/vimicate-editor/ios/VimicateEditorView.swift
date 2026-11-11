@@ -52,6 +52,8 @@ private struct ControlledEditorState: Decodable {
   let selectionStart: Int
   let selectionEnd: Int
   let scope: String?
+  /// The moving end of a Visual selection, which must stay in view.
+  let cursor: Int?
 }
 
 private struct ControlledNavigationCommand: Decodable {
@@ -483,6 +485,7 @@ final class VimicateEditorView: ExpoView, UITextViewDelegate {
   private var pendingCaretReveal: NSRange?
   private var pendingImmediateCaretReveal = false
   private var controlledSelection = NSRange(location: 0, length: 0)
+  private var controlledReveal = 0
   private var focusObservers: [NSObjectProtocol] = []
   private var observedTextInteractionRecognizers = Set<ObjectIdentifier>()
 
@@ -692,6 +695,9 @@ final class VimicateEditorView: ExpoView, UITextViewDelegate {
     let upper = max(lower, min(state.selectionEnd, length))
     let range = NSRange(location: lower, length: upper - lower)
     controlledSelection = range
+    // Reveal the end a Visual motion moves, not the selection start: extending
+    // a selection below the viewport otherwise leaves its moving end hidden.
+    controlledReveal = state.cursor.map { max(0, min($0, length)) } ?? lower
     let modeChanged = editor.vimMode != state.mode
     let textChanged = !editor.text.utf16.elementsEqual(state.text.utf16)
 
@@ -715,30 +721,11 @@ final class VimicateEditorView: ExpoView, UITextViewDelegate {
     editor.applyingControlledState = false
     if modeChanged { editor.cancelKeyRepeat() }
     editor.updateCursor()
-    if editor.cursorVisible { scheduleCaretReveal(range, immediately: textChanged) }
+    if editor.cursorVisible { scheduleCaretReveal(NSRange(location: controlledReveal, length: 0), immediately: textChanged) }
   }
   private func replaceControlledText(_ text: String) {
-    let previous = editor.text ?? ""
-    var start = previous.startIndex
-    var nextStart = text.startIndex
-    while start < previous.endIndex, nextStart < text.endIndex,
-          previous[start].unicodeScalars.elementsEqual(text[nextStart].unicodeScalars) {
-      previous.formIndex(after: &start)
-      text.formIndex(after: &nextStart)
-    }
-    var end = previous.endIndex
-    var nextEnd = text.endIndex
-    while end > start, nextEnd > nextStart {
-      let prior = previous.index(before: end)
-      let nextPrior = text.index(before: nextEnd)
-      guard previous[prior].unicodeScalars.elementsEqual(text[nextPrior].unicodeScalars) else { break }
-      end = prior
-      nextEnd = nextPrior
-    }
-    // A UITextView.text assignment rebuilds the document and transiently
-    // reveals its end before the controlled caret returns. Apply only the
-    // changed graphemes so TextKit retains layout and the reader's viewport.
-    editor.textStorage.replaceCharacters(in: NSRange(start..<end, in: previous), with: String(text[nextStart..<nextEnd]))
+    let change = ControlledTextReplacement.changedRange(from: editor.text ?? "", to: text)
+    editor.textStorage.replaceCharacters(in: change.range, with: change.replacement)
   }
   func setCaptureAllKeys(_ capture: Bool) {
     if editor.captureAllKeys != capture { editor.cancelKeyRepeat() }
@@ -769,7 +756,7 @@ final class VimicateEditorView: ExpoView, UITextViewDelegate {
     }
     applyingProps = false
     editor.updateCursor()
-    if visible { scheduleCaretReveal(NSRange(location: controlledSelection.location, length: 0)) }
+    if visible { scheduleCaretReveal(NSRange(location: controlledReveal, length: 0)) }
   }
   func setRepeatAuthority(_ authority: String) {
     guard authority != repeatAuthority else { return }
@@ -823,6 +810,7 @@ final class VimicateEditorView: ExpoView, UITextViewDelegate {
       }
     }
     controlledSelection = editor.selectedRange
+    controlledReveal = editor.selectedRange.location
     editor.updateCursor()
     var selectionEvent: [String: Any] = [
       "selectionStart": editor.selectedRange.location,
@@ -1058,7 +1046,7 @@ final class VimicateEditorView: ExpoView, UITextViewDelegate {
     editor.updateCursor()
     guard !applyingProps else { return }
     let userInitiated = CACurrentMediaTime() <= touchSelectionDeadline
-    if userInitiated { controlledSelection = textView.selectedRange }
+    if userInitiated { controlledSelection = textView.selectedRange; controlledReveal = textView.selectedRange.location }
     onSelectionChange([
       "selectionStart": textView.selectedRange.location,
       "selectionEnd": textView.selectedRange.location + textView.selectedRange.length,

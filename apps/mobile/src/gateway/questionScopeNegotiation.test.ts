@@ -51,6 +51,15 @@ it('connects with existing device grants before requesting an approval-bound upg
   await vi.waitFor(() => expect(requests.filter(r => r.method === 'device.scopes.requestUpgrade')).toHaveLength(2));
   expect(value.status).toBe('connected');
 });
+it('uses an existing admin grant for questions without upgrading or rotating the paired token', async () => {
+  const value = client(); const issued = vi.fn(); value.onIssuedDeviceToken = issued;
+  const scopes = ['operator.read', 'operator.write', 'operator.approvals', 'operator.admin'];
+  await value.connect({ endpoint: 'ws://qa.test', sessionKey: 'qa', credentialKind: 'deviceToken', credential: 'unchanged-test-token', scopes });
+  expect(value.status).toBe('connected'); expect(value.hasOperatorScope('operator.questions')).toBe(true);
+  expect(requests[0]?.params.scopes).toEqual(scopes);
+  expect(requests.some(r => r.method.startsWith('device.scopes.'))).toBe(false);
+  expect(issued).not.toHaveBeenCalled(); expect(value.questionScopeNotice).toBe('');
+});
 it('publishes only the identity-bound rotated token and reconnects with the approved scope', async () => {
   upgrade = 'approved'; const value = client(); const issued = vi.fn(); value.onIssuedDeviceToken = issued;
   await value.connect({ endpoint: 'ws://qa.test', sessionKey: 'qa', credentialKind: 'deviceToken', credential: 'old-test-token', scopes: ['operator.read', 'operator.write'] });

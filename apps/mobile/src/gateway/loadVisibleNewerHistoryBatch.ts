@@ -1,3 +1,4 @@
+import { recordHistoryTransport } from './historyTransport';
 import type { OpenClawClient } from './OpenClawClient';
 import { parseArchivedSegment, type ArchivedHistoryState } from './archivedHistory';
 import { registrySessionGeneration, sameSessionGeneration, type GatewaySessionGeneration } from './registrySessionIdentity';
@@ -10,6 +11,7 @@ import { addedOlderVisibleRowCount, OLDER_READ_LIMIT, OLDER_VISIBLE_ROW_TARGET, 
 export type NewerHistoryScan = { boundary: string; segment: number | null; offset: number; total: number };
 type Input = { client: OpenClawClient; sessionKey: string; path: string; visible: WorkspaceMessage[];
   cursor: HistoryCursor | null; archive: ArchivedHistoryState | null; context: OlderHistoryVisibleContext;
+  projectionContext?: (() => WorkspaceMessage[]) | undefined;
   generation?: GatewaySessionGeneration | null; scan: NewerHistoryScan | null; owns: () => boolean };
 
 /** Reverse the raw transport coordinate, never infer it from projected row counts. */
@@ -46,12 +48,13 @@ export async function loadVisibleNewerHistoryBatch(input: Input) {
       // that growth before locating it, rather than silently skipping records.
       const growth = Math.max(0, (total as number) - scan.total);
       if (scan.total >= 0 && growth) {
-        scan = { ...scan, offset: scan.offset + growth, total: total as number };
-        if (rewind?.cursor && scan.segment === null) rewind = { ...rewind, cursor: { ...rewind.cursor,
-          nextOffset: rewind.cursor.nextOffset === null ? null : rewind.cursor.nextOffset + growth, totalMessages: total as number } };
+        // A count change is not append-only proof. Re-witness the boundary
+        // through canonical pages instead of shifting any retained cursor.
+        scan = { ...scan, offset: total as number, total: total as number };
+        found = false; newer = []; rewind = null;
         return null;
       }
-      return { messages: input.client.decorateMessages(messagesFromPayload(payload, input.path), input.sessionKey), total: total as number,
+      return { payload, messages: input.client.decorateMessages(messagesFromPayload(payload, input.path, [...input.visible, ...(input.projectionContext?.() ?? [])]), input.sessionKey), total: total as number,
         end: rawPageEnd(payload, offset, limit) };
     }
     if (!archive?.segments || !archive.familyToken) throw new Error('Newer history archive authority is unavailable.');
@@ -72,9 +75,9 @@ export async function loadVisibleNewerHistoryBatch(input: Input) {
       || !Number.isSafeInteger(total) || (total as number) < 0 || (total as number) > 32768
       || (scan.total >= 0 && total !== scan.total)
       || !Array.isArray(payload.messages) || payload.messages.length > 512) throw new Error('Newer history archive page changed authority.');
-    const rows = messagesFromPayload({ ...payload, sessionKey: input.sessionKey }, input.path)
+    const rows = messagesFromPayload({ ...payload, sessionKey: input.sessionKey }, input.path, [...input.visible, ...newer, ...(input.projectionContext?.() ?? [])])
       .map(message => ({ ...message, id: `archive:${segment.sessionId}:${message.id}` }));
-    return { messages: input.client.decorateMessages(rows, input.sessionKey), total: total as number, end: rawPageEnd(payload, offset, limit) };
+    return { payload, messages: input.client.decorateMessages(rows, input.sessionKey), total: total as number, end: rawPageEnd(payload, offset, limit) };
   };
   while (input.owns() && reads < OLDER_READ_LIMIT) {
     if (scan.offset < 0) {
@@ -103,7 +106,7 @@ export async function loadVisibleNewerHistoryBatch(input: Input) {
     if (!found && index >= 0) {
       found = true;
       rewind = scan.segment === null
-        ? { cursor: { sessionKey: input.sessionKey, nextOffset: offset, hasMore: page.total > offset, totalMessages: page.total }, archive }
+        ? { cursor: recordHistoryTransport({ sessionKey: input.sessionKey, nextOffset: page.end < page.total ? page.end : null, hasMore: page.end < page.total, totalMessages: page.total }, offset, page.messages, page.payload), archive }
         : { cursor: input.cursor, archive: { ...archive!, nextArchivedIndex: scan.segment, exhausted: false,
           pageCursor: offset > 0 ? { segmentIndex: scan.segment, nextOffset: offset, totalRawRecords: page.total } : undefined } };
       newer = page.messages.slice(index + 1);

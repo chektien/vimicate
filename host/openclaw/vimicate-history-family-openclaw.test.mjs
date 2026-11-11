@@ -45,6 +45,55 @@ async function waitUntil(predicate, label) {
   assert.fail(`timed out waiting for ${label}`);
 }
 
+function observedCount(expected, label, timeoutMs = 5_000) {
+  let observed = 0;
+  let complete;
+  let timer;
+  const ready = new Promise((resolve, reject) => {
+    complete = resolve;
+    timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), timeoutMs);
+  });
+  // A later barrier may fail before this one is awaited. Its owning fixture
+  // still observes the rejection and disposes every deadline in finally.
+  ready.catch(() => {});
+  return {
+    ready,
+    observe() {
+      observed += 1;
+      if (observed === expected) {
+        clearTimeout(timer);
+        complete();
+      }
+    },
+    dispose() { clearTimeout(timer); }
+  };
+}
+
+test("count barriers observe delayed startup and reject missing admission", async () => {
+  const barrier = observedCount(2, "controlled delayed starts");
+  let admitted = false;
+  barrier.ready.then(() => { admitted = true; });
+  try {
+    // Retain the old iteration-count wait as a broken control. A legitimate
+    // scheduler can still be waiting on I/O after any number of event turns.
+    await assert.rejects(waitUntil(() => admitted, "controlled delayed starts"), /timed out/);
+    barrier.observe();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(admitted, false);
+    barrier.observe();
+    await barrier.ready;
+    assert.equal(admitted, true);
+  } finally {
+    barrier.dispose();
+  }
+  const missing = observedCount(1, "missing admission", 10);
+  try {
+    await assert.rejects(missing.ready, /timed out waiting for missing admission/);
+  } finally {
+    missing.dispose();
+  }
+});
+
 async function readDescriptorAtZero(file) {
   const handle = await fs.open(file, fsNative.constants.O_RDONLY);
   try {
@@ -56,6 +105,33 @@ async function readDescriptorAtZero(file) {
     await handle.close();
   }
 }
+
+test("closed-handle checks are independent of recycled descriptor aliases", async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "vimicate-fd-oracle-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "source"), other = path.join(root, "other");
+  await fs.writeFile(source, "original\n");
+  await fs.writeFile(other, "replacement\n");
+  const handle = await fs.open(source, fsNative.constants.O_RDONLY);
+  const fd = handle.fd;
+  await handle.close();
+  const replacements = [];
+  try {
+    // POSIX open returns the lowest unused descriptor. Fill any lower holes
+    // synchronously so this reuse is controlled, not dependent on I/O timing.
+    let replacement;
+    do {
+      replacement = fsNative.openSync(other, fsNative.constants.O_RDONLY);
+      replacements.push(replacement);
+    } while (replacement < fd);
+    assert.equal(replacement, fd);
+    assert.equal(await fs.readFile(`/dev/fd/${fd}`, "utf8"), "replacement\n");
+    assert.equal(handle.fd, -1);
+    await assert.rejects(handle.stat(), { code: "EBADF" });
+  } finally {
+    for (const replacement of replacements) fsNative.closeSync(replacement);
+  }
+});
 
 async function addFamily(files, familyKey, archivedSessionId, currentSessionId) {
   const archivedFilename =
@@ -356,6 +432,8 @@ test("archived projection cancellation settles while the canonical reader is pen
   const entered = new Promise((resolve) => { enteredResolve = resolve; });
   let releaseResolve;
   const release = new Promise((resolve) => { releaseResolve = resolve; });
+  const projected = observedCount(1, "the cancelled canonical reader to finish reading");
+  t.after(() => projected.dispose());
   const contract = await loadOpenClawHistoryFamilyContract({
     stateDir: files.stateDir,
     vimicateDir: files.vimicateDir,
@@ -364,6 +442,7 @@ test("archived projection cancellation settles while the canonical reader is pen
       enteredResolve();
       await release;
       assert.equal(await readDescriptorAtZero(descriptorPath), "archived\n");
+      projected.observe();
       return {
         sessionId: request.sessionId,
         sessionKey: request.stableSessionKey,
@@ -376,6 +455,15 @@ test("archived projection cancellation settles while the canonical reader is pen
     }
   });
   const census = await contract(censusParams());
+  const projectionHandles = new Map();
+  const open = fs.open.bind(fs);
+  const ownedSource = path.join(files.vimicateDir,
+    openClawHistoryFamilyHostFiles.ownedTranscripts, `${archivedId}.jsonl`);
+  t.mock.method(fs, "open", async (...args) => {
+    const handle = await open(...args);
+    if (args[0] === ownedSource) projectionHandles.set(handle.fd, handle);
+    return handle;
+  });
   const request = contract({
     contract: "archived-family-v1",
     mode: "page",
@@ -390,6 +478,15 @@ test("archived projection cancellation settles while the canonical reader is pen
     limit: 2
   }, { signal: controller.signal });
   await entered;
+  const pinnedHandle = projectionHandles.get(Number(path.basename(descriptorPath)));
+  assert.ok(pinnedHandle, "the canonical reader owns the captured descriptor");
+  const closed = observedCount(1, "the canonical projection descriptor to close");
+  t.after(() => closed.dispose());
+  const close = pinnedHandle.close.bind(pinnedHandle);
+  t.mock.method(pinnedHandle, "close", async () => {
+    await close();
+    closed.observe();
+  });
   controller.abort();
   await assert.rejects(request, /cancelled/);
   assert.equal(await readDescriptorAtZero(descriptorPath), "archived\n");
@@ -399,11 +496,12 @@ test("archived projection cancellation settles while the canonical reader is pen
   assert.notEqual(otherHandle.fd, Number(path.basename(descriptorPath)));
   await otherHandle.close();
   releaseResolve();
-  for (let attempt = 0; attempt < 1_000; attempt += 1) {
-    if (!await fs.stat(descriptorPath).then(() => true, () => false)) break;
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  await assert.rejects(fs.readFile(descriptorPath));
+  await projected.ready;
+  await closed.ready;
+  // The /dev/fd/<n> name is reusable immediately after close. Check the
+  // original handle's completed lifetime, not another open of that alias.
+  assert.equal(pinnedHandle.fd, -1);
+  await assert.rejects(pinnedHandle.stat(), { code: "EBADF" });
 });
 
 test("filesystem adapter rejects permissive secret permissions", async (t) => {
@@ -810,11 +908,15 @@ test("bounded scheduler discards queued hashes after every waiter cancels", asyn
   let restored = false;
   let started = 0;
   let closed = 0;
+  const activeHashes = observedCount(2, "the two active cancellation hashes");
+  const closedHashes = observedCount(2, "the cancelled active hashes to close");
+  const overflow = observedCount(1, "the finite pending hash bound");
   prototype.createReadStream = function (...args) {
     const stream = original.apply(this, args);
     started += 1;
+    activeHashes.observe();
     stream.pause();
-    stream.once("close", () => { closed += 1; });
+    stream.once("close", () => { closed += 1; closedHashes.observe(); });
     return stream;
   };
   t.after(() => {
@@ -830,24 +932,32 @@ test("bounded scheduler discards queued hashes after every waiter cancels", asyn
     if (/pending transcript revision work exceeds its bound/.test(String(error))) {
       assert.equal(error?.vimicateHistoryFamilyFailureKind, "transient");
       boundFailures += 1;
+      overflow.observe();
     }
     throw error;
   }));
   const settled = Promise.allSettled(pending);
-  await waitUntil(() => started === 2, "the two active cancellation hashes");
-  await waitUntil(() => boundFailures > 0, "the finite pending hash bound");
-
-  for (const request of requests) request.controller.abort();
-  const results = await settled;
-  await waitUntil(() => closed === 2, "the cancelled active hashes to close");
-  assert.ok(results.every((result) => result.status === "rejected"));
-  assert.ok(boundFailures > 0);
-  assert.equal(started, 2);
-
-  prototype.createReadStream = original;
-  restored = true;
-  const recovered = await contract(censusParams());
-  assert.equal(recovered.segments.length, 2);
+  try {
+    await activeHashes.ready;
+    await overflow.ready;
+    for (const request of requests) request.controller.abort();
+    const results = await settled;
+    await closedHashes.ready;
+    assert.ok(results.every((result) => result.status === "rejected"));
+    assert.ok(boundFailures > 0);
+    assert.equal(started, 2);
+    assert.equal(closed, 2);
+    prototype.createReadStream = original;
+    restored = true;
+    const recovered = await contract(censusParams());
+    assert.equal(recovered.segments.length, 2);
+  } finally {
+    for (const request of requests) request.controller.abort();
+    await settled;
+    for (const barrier of [activeHashes, closedHashes, overflow]) barrier.dispose();
+    prototype.createReadStream = original;
+    restored = true;
+  }
 });
 
 test("a late abort after warm-cache evidence prevents census publication", async (t) => {

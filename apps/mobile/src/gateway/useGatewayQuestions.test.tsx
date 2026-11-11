@@ -7,18 +7,44 @@ import { HistoryPublicationAuthority } from './historyPublicationAuthority';
 import type { OpenClawClient } from './OpenClawClient';
 import type { QuestionRecord } from '../questions/questionTypes';
 import type { WorkspaceMessage, WorkspaceProject } from '../workspace/workspaceTypes';
+import { profileHasOperatorScope } from './gatewayAuthorization';
 const record: QuestionRecord = { id: 'qa', sessionKey: 'qa', createdAtMs: 1, expiresAtMs: Date.now() + 90000, status: 'pending', questions: [{ questionId: 'pick', isOther: true, header: 'Pick', question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }] };
 const noMessages: never[] = []; const noProjects: never[] = [];
-function testOwner(request: ReturnType<typeof vi.fn>, messages: WorkspaceMessage[] = noMessages, projects: WorkspaceProject[] = noProjects) {
+function testOwner(request: ReturnType<typeof vi.fn>, messages: WorkspaceMessage[] = noMessages, projects: WorkspaceProject[] = noProjects, grantedScopes?: string[]) {
   let currentMessages = messages;
   let currentProjects = projects; let selectedKey = 'qa';
-  const client = { status: 'connected', connectionRevision: 1, hasOperatorScope: () => true, request } as unknown as OpenClawClient;
+  const client = { status: 'connected', connectionRevision: 1, hasOperatorScope: (scope: string) => grantedScopes === undefined || profileHasOperatorScope({ endpoint: 'ws://qa.test', credential: 'synthetic', credentialKind: 'deviceToken', sessionKey: 'qa', scopes: grantedScopes }, scope), request } as unknown as OpenClawClient;
   const authority = { current: new HistoryPublicationAuthority(true) };
   let value!: ReturnType<typeof useGatewayQuestions>;
   const root = createRoot(document.createElement('div'));
   function Component() { value = useGatewayQuestions(client, client.status, authority, currentMessages, selectedKey, currentProjects); return null; }
   return { client, authority, root, setMessages: (next: WorkspaceMessage[]) => { currentMessages = next; }, setProjects: (next: WorkspaceProject[]) => { currentProjects = next; }, select: (key: string) => { selectedKey = key; }, render: () => act(async () => root.render(<Component />)), value: () => value };
 }
+
+it.each([
+  { grant: 'admin', scopes: ['operator.read', 'operator.write', 'operator.approvals', 'operator.admin'], allowed: true },
+  { grant: 'questions', scopes: ['operator.read', 'operator.write', 'operator.questions'], allowed: true },
+  { grant: 'ordinary', scopes: ['operator.read', 'operator.write', 'operator.approvals'], allowed: false },
+])('recovers a missed broker question after reconnect under $grant authority without answering it', async ({ scopes, allowed }) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const base: WorkspaceProject = { id: 'root', sessionKey: 'root', name: 'root', path: '', branch: '', starred: true, threadCount: 1, state: 'idle', kind: 'project' };
+  const child: WorkspaceProject = { ...base, id: 'qa', sessionKey: 'qa', name: 'qa', kind: 'thread', rootSessionKey: 'root' };
+  let pending: QuestionRecord[] = [];
+  const request = vi.fn(async (_method: string) => ({ questions: pending }));
+  const test = testOwner(request, [], [base, child], scopes);
+  try {
+    await test.render(); expect(test.value().messages).toEqual([]);
+    test.client.status = 'disconnected'; await test.render();
+    pending = [record]; // Created while this client cannot receive the event.
+    (test.client as unknown as { connectionRevision: number }).connectionRevision++;
+    test.client.status = 'connected'; await test.render();
+    expect(test.value().messages.filter(message => message.question?.status === 'pending')).toHaveLength(allowed ? 1 : 0);
+    expect(test.value().projects[0]?.pendingQuestions?.total ?? 0).toBe(allowed ? 1 : 0);
+    expect(test.value().projects[1]?.pendingQuestions?.own ?? 0).toBe(allowed ? 1 : 0);
+    expect(request.mock.calls.map(call => call[0])).toEqual(allowed ? ['question.list', 'question.list'] : []);
+    expect(Boolean(test.value().notice)).toBe(!allowed);
+  } finally { await act(async () => test.root.unmount()); }
+});
 
 it('rolls up broker questions through answer failure, run changes, selection and reconnect reconciliation', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -34,16 +60,16 @@ it('rolls up broker questions through answer failure, run changes, selection and
     expect(test.value().projects[1]).toMatchObject({ runPhase: 'running', unread: false });
     await act(async () => { test.value().ui.choose(record, 0, 0); });
     await act(async () => { await test.value().ui.resolve(record); });
-    expect(test.value().ui.errors[record.id]).toContain('Answer not confirmed'); expect(count()).toBe(2);
+    expect(test.value().ui.errors[record.id]).toContain('Answer not confirmed'); expect(count()).toBe(1); expect(test.value().projects[0]?.questionDelivery?.failed).toBe(1);
     test.setProjects([base, { ...child, runPhase: 'failed' }]); test.select('qa'); await test.render();
-    expect(test.value().projects[1]).toMatchObject({ runPhase: 'failed', unread: false }); expect(count()).toBe(2);
+    expect(test.value().projects[1]).toMatchObject({ runPhase: 'failed', unread: false }); expect(count()).toBe(1);
     await act(async () => test.value().event({ event: 'question.resolved', payload: { id: record.id, status: 'answered', answers: { answers: { pick: ['A'] } } } }));
     expect(count()).toBe(1);
     pending = []; test.client.status = 'disconnected'; await test.render();
     (test.client as unknown as { connectionRevision: number }).connectionRevision++; test.client.status = 'connected'; await test.render();
     expect(count()).toBe(0); expect(test.value().projects[1]?.runPhase).toBe('failed');
     await act(async () => test.value().event({ event: 'question.requested', payload: second }));
-    expect(count()).toBe(0); // A resolved record cannot reopen from a replay.
+    expect(count()).toBe(1); // Pending-only omission is not authoritative cancellation. A later live requested event may restore actionability.
     await act(async () => test.value().clear()); expect(count()).toBe(0);
   } finally { await act(async () => test.root.unmount()); }
 });
@@ -166,4 +192,36 @@ it('preserves the interacting question through older-window loading, resolution 
     expect(test.value().ui.handleKey(test.value().messages[1]!.question!, key('j'))).toBe(false);
     expect(request.mock.calls.filter(([method]) => method === 'question.resolve')).toHaveLength(1);
   } finally { await act(async () => test.root.unmount()); }
+});
+
+it('clears only the admitted broker marker while delivery is held and recovers scene-retired ack through bounded hydration', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root: WorkspaceProject = { id: 'root', sessionKey: 'root', name: 'Root', path: '', branch: '', starred: false, threadCount: 1, state: 'running', kind: 'project' };
+  const child: WorkspaceProject = { ...root, id: 'qa', sessionKey: 'qa', name: 'Child', kind: 'thread', rootSessionKey: 'root' };
+  const sibling = { ...record, id: 'sibling' };
+  let finish!: (value: unknown) => void; let pending = [record, sibling];
+  const request = vi.fn((method: string) => method === 'question.list' ? Promise.resolve({ questions: pending }) : new Promise(resolve => { finish = resolve; }));
+  const test = testOwner(request, [], [root, child]);
+  try {
+    await test.render(); await act(async () => test.value().ui.choose(record, 0, 0));
+    let task!: Promise<void>; await act(async () => { task = test.value().ui.resolve(record); });
+    expect(test.value().projects[0]?.pendingQuestions?.total).toBe(1); expect(test.value().projects[0]?.questionDelivery?.sending).toBe(1);
+    test.authority.current.suspend(); test.authority.current.resume(); pending = [sibling];
+    await act(async () => { finish({ status: 'answered', answers: { answers: { pick: ['A'] } } }); await task; });
+    expect(test.value().projects[0]?.pendingQuestions?.total).toBe(1); expect(test.value().projects[0]?.questionDelivery?.unconfirmed).toBe(1);
+    const recovered = test.value().messages.find(m => m.question?.id === record.id)!;
+    expect(recovered.question).toMatchObject({ status: 'pending', pendingOmitted: true, answerDelivery: 'unconfirmed' }); expect(recovered.text).not.toContain('elsewhere');
+    expect(request.mock.calls.filter(([method]) => method === 'question.list')).toHaveLength(2);
+    await act(async () => test.value().event({ event: 'question.resolved', payload: { id: record.id, status: 'answered', answers: { answers: { pick: ['A'] } } } }));
+    expect(test.value().projects[0]?.questionDelivery).toBeUndefined(); expect(test.value().projects[0]?.pendingQuestions?.total).toBe(1);
+    test.setProjects([root, { ...child, sessionId: 'generation-a' }]); await test.render();
+    test.setProjects([root, { ...child, sessionId: 'generation-b' }]); await test.render();
+    expect(test.value().projects[0]?.pendingQuestions).toBeUndefined(); await act(async () => test.value().hydrate()); expect(test.value().projects[0]?.pendingQuestions).toBeUndefined();
+  } finally { await act(async () => test.root.unmount()); }
+});
+it('pending-only list omission reports unknown resolution, not cancellation or a remote answer', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let pending = [record]; const test = testOwner(vi.fn(async () => ({ questions: pending })));
+  try { await test.render(); pending = []; await act(async () => test.value().hydrate()); expect(test.value().messages[0]?.text).toBe('Question no longer pending'); expect(test.value().messages[0]?.question?.status).toBe('pending'); }
+  finally { await act(async () => test.root.unmount()); }
 });

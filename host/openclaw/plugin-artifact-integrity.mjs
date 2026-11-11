@@ -15,7 +15,10 @@ const LEGACY_PAYLOAD_FILES = Object.freeze([
   'vimicate-narration-page-views.mjs',
   'index.mjs', 'openclaw.plugin.json', 'package.json',
 ].sort());
-export const PLUGIN_PAYLOAD_FILES = Object.freeze([...LEGACY_PAYLOAD_FILES, 'LICENSE', 'THIRD_PARTY_NOTICES.md'].sort());
+const V2_PAYLOAD_FILES = Object.freeze([...LEGACY_PAYLOAD_FILES, 'LICENSE', 'THIRD_PARTY_NOTICES.md'].sort());
+const V3_PAYLOAD_FILES = Object.freeze([...V2_PAYLOAD_FILES,
+  'project-file-access.mjs', 'hosted-project-files.mjs', 'ssh-file-access.mjs'].sort());
+export const PLUGIN_PAYLOAD_FILES = Object.freeze([...V3_PAYLOAD_FILES, 'sqlite-history-profiles-october.mjs'].sort());
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const buildId = files => digest(JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))));
 async function safeBytes(root, name) {
@@ -40,16 +43,17 @@ export async function writeArtifactIntegrity(root) {
     sourceDirty = Boolean(execFileSync('git', ['status', '--porcelain', '--', '.'], { cwd: source, encoding: 'utf8', timeout: 5000 }).trim());
   }
   const files = await artifactHashes(root);
-  const manifest = { schemaVersion: 2, buildId: buildId(files), sourceRevision, sourceDirty, files };
+  const manifest = { schemaVersion: 4, buildId: buildId(files), sourceRevision, sourceDirty, files };
   await fs.writeFile(path.join(root, 'vimicate-build.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   return manifest;
 }
 export async function verifyArtifactIntegrity(root) {
   const manifest = JSON.parse(await safeBytes(root, 'vimicate-build.json'));
-  const payload = manifest.schemaVersion === 1 ? LEGACY_PAYLOAD_FILES : PLUGIN_PAYLOAD_FILES;
+  const payload = manifest.schemaVersion === 1 ? LEGACY_PAYLOAD_FILES : manifest.schemaVersion === 2 ? V2_PAYLOAD_FILES
+    : manifest.schemaVersion === 3 ? V3_PAYLOAD_FILES : PLUGIN_PAYLOAD_FILES;
   const gitIdentity = /^[a-f0-9]{40,64}$/.test(manifest.sourceRevision ?? '') && typeof manifest.sourceDirty === 'boolean';
-  const archiveIdentity = manifest.schemaVersion === 2 && manifest.sourceRevision === null && manifest.sourceDirty === null;
-  if (![1, 2].includes(manifest.schemaVersion) || !(gitIdentity || archiveIdentity) || !manifest.files
+  const archiveIdentity = manifest.schemaVersion >= 2 && manifest.sourceRevision === null && manifest.sourceDirty === null;
+  if (![1, 2, 3, 4].includes(manifest.schemaVersion) || !(gitIdentity || archiveIdentity) || !manifest.files
     || JSON.stringify(Object.keys(manifest.files).sort()) !== JSON.stringify(payload)) throw new Error('invalid plugin build manifest');
   const files = await artifactHashes(root, payload);
   if (manifest.buildId !== buildId(files) || Object.entries(files).some(([name, hash]) => manifest.files[name] !== hash)) {

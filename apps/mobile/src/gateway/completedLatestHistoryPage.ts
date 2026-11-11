@@ -1,3 +1,4 @@
+import { recordHistoryTransport } from './historyTransport';
 import { coalesceTranscriptIdentities } from './transcriptIdentityWall';
 import { historyCursorFromPayload } from './historyPagination';
 import { historyPageCompletesRun, runMissingCanonicalPrompt } from './historyTurnCompleteness';
@@ -13,12 +14,15 @@ export async function completedLatestHistoryPage(
   workspacePath: string,
   isCurrent: () => boolean,
   shouldLoadPromptContext: (messages: WorkspaceMessage[]) => boolean = () => true,
+  retainedRows: WorkspaceMessage[] | (() => WorkspaceMessage[]) = [],
 ) {
   if (!isCurrent()) return null;
+  const context = () => typeof retainedRows === 'function' ? retainedRows() : retainedRows;
   let page = firstPayload;
-  const publicCursor = historyCursorFromPayload(page, sessionKey);
+  let publicCursor = historyCursorFromPayload(page, sessionKey);
   let lookbackCursor = publicCursor;
-  let messages = client.decorateMessages(messagesFromPayload(page, workspacePath), sessionKey);
+  let messages = client.decorateMessages(messagesFromPayload(page, workspacePath, context()), sessionKey);
+  publicCursor = recordHistoryTransport(publicCursor, 0, messages, page);
   const pendingInputSnapshot = completePendingInputSnapshot(page, messages, sessionKey);
   let lookbackProblem = '';
   const missingRunId = runMissingCanonicalPrompt(messages);
@@ -26,8 +30,9 @@ export async function completedLatestHistoryPage(
   // reads. Reuse this projection, and leave final combined admission to it.
   if (!missingRunId || !shouldLoadPromptContext(messages)) return { messages, cursor: publicCursor, lookbackProblem, pendingInputSnapshot };
   for (let attempt = 0; attempt < 2 && lookbackCursor.hasMore && lookbackCursor.nextOffset !== null; attempt += 1) {
+    const requestedOffset = lookbackCursor.nextOffset;
     try {
-      page = await client.history(sessionKey, 80, lookbackCursor.nextOffset);
+      page = await client.history(sessionKey, 80, requestedOffset);
     } catch (error) {
       if (!isCurrent()) return null;
       // The required latest page already succeeded. Keep its rows (and any
@@ -38,7 +43,9 @@ export async function completedLatestHistoryPage(
     }
     if (!isCurrent()) return null;
     lookbackCursor = historyCursorFromPayload(page, sessionKey);
-    const older = client.decorateMessages(messagesFromPayload(page, workspacePath), sessionKey);
+    const older = client.decorateMessages(messagesFromPayload(page, workspacePath, [...context(), ...messages]), sessionKey);
+    const recorded = recordHistoryTransport(lookbackCursor, requestedOffset, older, page, publicCursor);
+    publicCursor = { ...publicCursor, transport: recorded.transport };
     messages = coalesceTranscriptIdentities([...older, ...messages]);
     if (historyPageCompletesRun(older, missingRunId)) break;
   }

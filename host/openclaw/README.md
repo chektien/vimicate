@@ -107,3 +107,36 @@ If compatibility or runtime fingerprint checks fail, stop and use the supported
 version. Do not edit compatibility metadata or bypass the checks to force an
 upgrade. The contributor setup creates fresh state and is not a history-migration
 tool.
+
+## Remote project folders
+
+The optional registry-owned `file-roots` section exposes read-only SSH folders
+through the existing Files RPCs. Without it, a project uses its Gateway-local
+`repo`. An explicit set replaces that fallback entirely.
+
+```markdown
+## Example
+- id: example
+- repo: ~/repos/example/
+- file-roots:
+  - repo@work-mac: ~/repos/example/
+  - research@gateway: ~/repos/example-research/
+```
+
+`gateway` means the Gateway machine. Other host names must already be registered
+SSH aliases with batch authentication and verified host keys. Clients cannot
+supply arbitrary hosts or filesystem roots. Each project accepts one to sixteen
+uniquely named roots. The first root is primary for repository-relative links.
+Qualified links use paths such as `repo@work-mac/docs/guide.md`.
+
+Files initially lists host-labelled folders without contacting their hosts.
+Opening one sends the packaged read-only helper over SSH stdin. No remote agent,
+mount or persistent helper is installed. Symlink confinement, type and byte
+limits, unchanged-file checks and versioned transfers apply on the owning host.
+An invalid mapping or offline host fails without a stale local fallback.
+
+Build the plugin from this source and complete the documented compatibility
+checks before selecting it. Preserve the prior plugin and registry together for
+rollback. Verify list, read, link resolution and original-file transfer using
+synthetic data before using real project content. An older plugin may ignore
+`file-roots`, so restoring only the plugin does not restore its access policy.

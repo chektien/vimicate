@@ -3,6 +3,9 @@ import { sameTranscriptPublication } from './transcriptPublicationEquality';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 
 export type OlderHistoryLoadResult = Readonly<{
+  continuation?: 'budget';
+  mutation?: 'prepend' | 'refresh' | 'unchanged' | 'scan' | 'partial';
+  boundaryMessageID?: string;
   committed: boolean;
   published: boolean;
   addedMessageCount: number;
@@ -31,7 +34,8 @@ export class HistoryPublicationReceiptOwner {
     if (revision !== pending.revision) return;
     this.pending = null;
     const beforeIDs = new Set(pending.before.map(message => message.id));
-    pending.resolve({ committed: true, published: !sameTranscriptPublication(pending.before, messages),
+    const mutation = historyPublicationMutation(pending.before, messages);
+    pending.resolve({ ...mutation, committed: true, published: !sameTranscriptPublication(pending.before, messages),
       addedMessageCount: messages.filter(message => !beforeIDs.has(message.id)).length });
   }
 
@@ -40,6 +44,23 @@ export class HistoryPublicationReceiptOwner {
     this.pending = null;
     pending?.resolve({ committed: false, published: false, addedMessageCount: 0 });
   }
+}
+
+
+/** A prepend preserves the original edge and every retained old row's order.
+ * Bounded newer-tail eviction is legal, but reordering is not a prepend. */
+export function historyPublicationMutation(before: readonly WorkspaceMessage[], after: readonly WorkspaceMessage[]): Pick<OlderHistoryLoadResult, 'mutation' | 'boundaryMessageID'> {
+  if (sameTranscriptPublication(before, after)) return { mutation: 'unchanged' };
+  const positions = new Map(before.map((row, index) => [row.id, index]));
+  const retained = after.filter(row => positions.has(row.id));
+  const omission = before.find(row => row.historyOmission)?.historyOmission;
+  const edge = omission ? before.find(row => row.id === omission.firstTailMessageId) : before[0];
+  const at = edge ? after.findIndex(row => row.id === edge.id) : -1;
+  const ordered = retained.every((row, index) => index === 0 || positions.get(retained[index - 1]!.id)! < positions.get(row.id)!);
+  const prefix = after.slice(0, at);
+  return edge && at > 0 && ordered && prefix.some(row => !positions.has(row.id))
+    && prefix.every(row => !positions.has(row.id) || row.id === omission?.promptMessageId)
+    ? { mutation: 'prepend', boundaryMessageID: edge.id } : { mutation: 'refresh' };
 }
 
 export function useHistoryPublicationReceipt(messages: readonly WorkspaceMessage[]) {

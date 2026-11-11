@@ -18,7 +18,7 @@ describe('session transcript dataset ownership', () => {
     expect(shell).toContain('datasetKey={gateway.messageSessionKey}');
     expect(shell).not.toContain('datasetKey={gateway.selectedKey}');
     expect(shell).toContain('onViewportReview={sessionTranscriptNavigation.onViewportReview}');
-    expect(pane).toContain('projectedNavigation.cursor.row, onViewportReview, viewportRowKeys, acknowledgeUserReachedEnd)');
+    expect(pane).toContain('projectedNavigation.cursor.row, onViewportReview, viewportRowKeys, acknowledgeUserReachedEnd, sessionPosition.options)');
     expect(pane).toContain('key={datasetKey}');
     expect(pane).toContain('new SessionTranscriptFoldCache()');
     expect(pane).toContain('expandedMessageCache.expanded(datasetKey)');

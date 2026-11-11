@@ -45,4 +45,20 @@ describe('controlled editor commit clock', () => {
     expect(stringify).toHaveBeenCalledTimes(1);
     stringify.mockRestore();
   });
+
+  // Extending a Visual selection below the composer must reveal its moving end.
+  // Revealing only the selection start leaves that end hidden.
+  it('names the moving end of a Visual selection so the editor keeps it in view', () => {
+    const clock = new EditorCommitClock();
+    const text = 'one\ntwo\nthree\nfour';
+    const down = clock.commit({ ...createPromptState(text), visualMode: 'line', visualAnchor: 0, visualCursor: 14, selection: { start: 0, end: 18 } });
+    expect(down).toMatchObject({ selectionStart: 0, selectionEnd: 18, cursor: 14 });
+    // In Visual line mode a motion within the last line leaves the range
+    // unchanged but still moves the end the editor must follow.
+    expect(clock.commit({ ...createPromptState(text), visualMode: 'line', visualAnchor: 0, visualCursor: 16, selection: { start: 0, end: 18 } }).revision).toBe(down.revision + 1);
+    const up = clock.commit({ ...createPromptState(text), visualMode: 'character', visualAnchor: 14, visualCursor: 2, selection: { start: 2, end: 15 } });
+    expect(up.cursor).toBe(2);
+    expect(JSON.parse(clock.serialized({ ...createPromptState(text), visualMode: 'character', visualAnchor: 14, visualCursor: 2, selection: { start: 2, end: 15 } })).cursor).toBe(2);
+    expect('cursor' in clock.commit({ ...createPromptState(text), selection: { start: 4, end: 4 } })).toBe(false);
+  });
 });

@@ -1,3 +1,5 @@
+import { reconcileHistoryCursor } from './historyTransport';
+import { canPageOlder } from './sessionHistoryView';
 import { describe, expect, it, vi } from 'vitest';
 import { type WorkspaceMessage } from '../workspace/workspaceTypes';
 import { messagesFromPayload } from '../workspace/historyMessageProjection';
@@ -37,10 +39,12 @@ function setup(mode: 'latest' | 'older' = 'latest') {
     archiveRecovery: { current: new HistoryArchiveRecovery() },
     latestTailCache: { current: new SessionHistoryCache() }, historyCache: { current: new SessionHistoryCache() },
     hydrateSharedNarration: vi.fn().mockResolvedValue([]),
-    setHistoryMessages: vi.fn((key, action, side, ownsPublication) => {
+    setHistoryMessages: vi.fn((key, action, side, ownsPublication, candidateCursor) => {
       const publication = authorizedHistoryStatePublication(key, context.selectedRef.current, sessionKey, ownsPublication, state.messages, action);
       if (!publication.owned) return;
       state.messages = publication.messages;
+      context.cursor.current = reconcileHistoryCursor(candidateCursor === undefined ? context.cursor.current : candidateCursor, state.messages, key);
+      state.canLoadOlder = canPageOlder(context.cursor.current, context.archive.current);
       context.historyCache.current.store(key, state.messages);
       if (side === 'latest') context.latestTailCache.current.store(key, state.messages);
     }),
@@ -54,6 +58,26 @@ function setup(mode: 'latest' | 'older' = 'latest') {
 }
 
 describe('latest history loading publication', () => {
+  it('reports only the live selected request and never clears its replacement on stale completion', async () => {
+    const { context, history, actions } = setup();
+    const loading = vi.fn(); context.onLatestLoading = loading;
+    let resolveFirst!: (payload: unknown) => void; let resolveSecond!: (payload: unknown) => void;
+    history.mockReset().mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve; }));
+    const first = actions.loadHistory(sessionKey, 'reveal-current');
+    await Promise.resolve();
+    expect(loading.mock.calls[0]![3]()).toBe(true);
+    context.historySelectionRevision.current += 1;
+    expect(loading.mock.calls[0]![3]()).toBe(false);
+    const second = actions.loadHistory(sessionKey, 'reveal-current'); await Promise.resolve();
+    expect(loading.mock.calls[1]![3]()).toBe(true);
+    resolveFirst(latest); await first;
+    expect(loading).toHaveBeenCalledTimes(2);
+    resolveSecond(latest); await second;
+    expect(loading).toHaveBeenCalledTimes(3);
+    expect(loading.mock.calls[2]!.slice(0, 3)).toEqual([sessionKey, second, false]);
+  });
+
   it('does not let a discarded publication suppress the next continuity bridge', async () => {
     const { context, state, history } = setup();
     const page = (seqs: number[], offset: number) => ({
@@ -268,8 +292,8 @@ describe('latest history loading publication', () => {
     if (action === 'loadHistory') await actions.loadHistory(sessionKey);
     else await actions.restoreLatestHistory();
 
-    expect(context.cursor.current?.nextOffset).toBe(2);
-    expect(state.canLoadOlder).toBe(true);
+    expect(context.cursor.current?.nextOffset).toBeNull();
+    expect(state.canLoadOlder).toBe(false);
     expect(history.mock.calls.map(call => call.slice(1))).toEqual([[80, 0], [80, 2]]);
     expect(state.messages.flatMap(message => message.displayPosition ? [message.displayPosition.rawSeq] : []))
       .toEqual([1, 2, 3, 4, 5]);
@@ -301,7 +325,7 @@ describe('latest history loading publication', () => {
     if (action === 'review') {
       expect(state.messages).toBe(review);
       expect(context.windowMode.current).toBe('older');
-      expect(context.cursor.current?.nextOffset).toBe(600);
+      expect(context.cursor.current?.nextOffset).toBe(500);
     } else {
       expect(state.messages).toEqual(published);
       expect(context.cursor.current?.nextOffset).toBe(80);

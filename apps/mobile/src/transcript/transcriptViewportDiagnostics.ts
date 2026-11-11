@@ -1,4 +1,7 @@
 export type TranscriptViewportDiagnosticEvent =
+  | 'session-capture'
+  | 'session-entry'
+  | 'session-lease-end'
   | 'blank-content'
   | 'blank-check'
   | 'blank-schedule'
@@ -17,6 +20,8 @@ export type TranscriptViewportDiagnosticEvent =
   | 'writer';
 
 export type TranscriptViewportDiagnosticFields = Readonly<{
+  rowOffset?: number;
+  endGap?: number;
   sourceCursor?: number;
   renderCursor?: number;
   requested?: number;
@@ -106,6 +111,8 @@ export function createTranscriptViewportDiagnostics(
       const parts = [
         event,
         `ds=${dataset}`,
+        ['rowOffset', finiteInteger(fields.rowOffset)],
+        ['endGap', finiteInteger(fields.endGap)],
         ['s', finiteInteger(fields.sourceCursor)],
         ['r', finiteInteger(fields.renderCursor)],
         ['q', finiteInteger(fields.requested)],

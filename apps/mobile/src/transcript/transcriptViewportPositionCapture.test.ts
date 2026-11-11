@@ -1,6 +1,6 @@
 import type { FlashListRef } from '@shopify/flash-list';
 import { describe, expect, it } from 'vitest';
-import { captureViewportRowPosition, measuredViewportRowPosition, mountedTranscriptNativeScrollOffset } from './transcriptViewportPositionCapture';
+import { captureSessionReviewPixelSample, captureViewportRowPosition, measuredViewportRowPosition, mountedTranscriptNativeScrollOffset } from './transcriptViewportPositionCapture';
 
 function ownerWithNativeHost(nativeHost: () => unknown) {
   return {
@@ -49,6 +49,8 @@ describe('transcript viewport position capture', () => {
 
   it('accepts a connected native offset of zero', () => {
     expect(mountedTranscriptNativeScrollOffset(ownerWithNativeScrollTop(0))).toBe(0);
+    expect(captureSessionReviewPixelSample(ownerWithNativeScrollTop(0), 1, { offset: 880.25 }, true))
+      .toMatchObject({ offset: 0, work: 'native-offset' });
   });
 
   it.each([
@@ -62,6 +64,10 @@ describe('transcript viewport position capture', () => {
 
     expect(mountedTranscriptNativeScrollOffset(owner)).toBeNull();
     expect(capture(owner)).toBeCloseTo(590.5 / 1_202, 6);
+    expect(captureSessionReviewPixelSample(owner, 1, { offset: 880.25 }, true))
+      .toMatchObject({ offset: 880.25, work: 'observed-offset' });
+    expect(captureSessionReviewPixelSample(owner, 1, { offset: 880.25 }, false))
+      .toMatchObject({ offset: 2_643.5, work: 'recycler-offset' });
   });
 
   it('falls back when reading the native host throws', () => {

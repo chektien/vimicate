@@ -8,6 +8,8 @@ export type ControlledEditorCommit = {
   mode: PromptState['mode'];
   selectionStart: number;
   selectionEnd: number;
+  /** The moving end of a Visual selection. The editor keeps it in view. */
+  cursor?: number;
 };
 
 /**
@@ -29,7 +31,8 @@ export class EditorCommitClock {
       && current.text === state.text
       && current.mode === state.mode
       && current.selectionStart === state.selection.start
-      && current.selectionEnd === state.selection.end) return current;
+      && current.selectionEnd === state.selection.end
+      && current.cursor === visualCursor(state)) return current;
 
     this.revision += 1;
     this.current = {
@@ -40,6 +43,7 @@ export class EditorCommitClock {
       mode: state.mode,
       selectionStart: state.selection.start,
       selectionEnd: state.selection.end,
+      ...(state.visualMode && state.visualCursor !== null ? { cursor: state.visualCursor } : {}),
     };
     return this.current;
   }
@@ -52,4 +56,10 @@ export class EditorCommitClock {
     }
     return this.serializedValue;
   }
+}
+
+/** Visual mode extends one end of the selection. Without it the editor would
+ * reveal the selection start and lose sight of the end being moved. */
+function visualCursor(state: PromptState) {
+  return state.visualMode && state.visualCursor !== null ? state.visualCursor : undefined;
 }

@@ -15,6 +15,7 @@ import { absorbedLiveMessageMatches, convergedTranscriptRepresentation } from '.
 import { canonicalIndexForFirstLiveFinal } from './liveAssistantHistoryPlacement';
 import { reconcileClaudeNativeLive } from './claudeNativeLiveConvergence';
 import { reconcileChatAfterRunDetail, uncoveredLiveChat } from './livePreambleChatConvergence';
+import { markToolBoundaryCandidate, upsertSealingToolBoundary } from './toolBoundaryLiveSeal';
 import { transcriptSessionIdentity } from '../workspace/transcriptMetadata';
 import { sessionApprovalMessage } from './sessionApprovalEvents';
 import { sessionFailureNotice, convergeSessionFailureNotice } from './sessionFailureNotice';
@@ -188,7 +189,7 @@ export function projectGatewayEvent(frame: GatewayFrame, selectedSessionKey: str
  */
 export function projectRegisteredGatewayEvent(
   frame: GatewayFrame,
-  projects: Array<Pick<WorkspaceProject, 'sessionKey' | 'path' | 'sessionId'>>,
+  projects: Array<Pick<WorkspaceProject, 'sessionKey' | 'path' | 'sessionId' | 'agentRuntime'>>,
 ) {
   const sessionKey = gatewayFrameSessionKey(frame);
   if (!sessionKey) return null;
@@ -196,7 +197,8 @@ export function projectRegisteredGatewayEvent(
   if (!owner) return null;
   const projected = projectGatewayEvent(frame, sessionKey, owner.path);
   const generation = projected?.message.transcriptSessionId;
-  return projected?.message.id.startsWith('session-failure:') && generation && owner.sessionId && generation !== owner.sessionId ? null : projected;
+  if (projected?.message.id.startsWith('session-failure:') && generation && owner.sessionId && generation !== owner.sessionId) return null;
+  return projected ? { ...projected, message: markToolBoundaryCandidate(projected.message, owner.agentRuntime) } : projected;
 }
 
 export function pendingApprovalMessages(payload: unknown, kind: 'exec' | 'plugin', selectedSessionKey: string) {
@@ -212,7 +214,8 @@ export function reconcilePendingApprovalMessages(current: WorkspaceMessage[], pe
   return reconcileApprovalAbsence(current, pending, sessionKey).messages;
 }
 
-export function upsertLiveMessage(messages: WorkspaceMessage[], message: WorkspaceMessage) {
+export function upsertLiveMessage(messages: WorkspaceMessage[], message: WorkspaceMessage): WorkspaceMessage[] {
+  if (message.toolBoundaryChatText !== undefined) return upsertSealingToolBoundary(messages, message, upsertLiveMessage);
   const chat = uncoveredLiveChat(message, messages);
   const covered = chat !== message && chat.text === '' && !chat.attachments?.length && message.role === 'assistant';
   const previous = covered ? messages.find(row => row.id === message.id && row.sessionKey === message.sessionKey

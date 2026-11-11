@@ -11,7 +11,7 @@
 const NON_STEERABLE_REASONS = ['tool_authority_mismatch', 'input_visibility_mismatch', 'run_not_ready', 'image_input_unsupported'] as const;
 type NonSteerableReason = typeof NON_STEERABLE_REASONS[number];
 export type GatewayQueueCandidate = { reason: NonSteerableReason; expectedActiveRunId: string; activeRunId: string };
-export type GatewayRequestFailure = Error & { reachedGateway?: boolean; gatewayCode?: string; activeRunInputNotice?: string; runTargetRefusal?: { reason: string; expectedActiveRunId: string }; queueCandidate?: GatewayQueueCandidate };
+export type GatewayRequestFailure = Error & { reachedGateway?: boolean; gatewayCode?: string; activeRunInputNotice?: string; runTargetRefusal?: { reason: string; expectedActiveRunId: string }; queueCandidate?: GatewayQueueCandidate; unsupportedActiveRunControl?: boolean };
 
 export function gatewayRequestFailure(message: string, reachedGateway: boolean): GatewayRequestFailure {
   return Object.assign(new Error(message), { reachedGateway });
@@ -19,6 +19,11 @@ export function gatewayRequestFailure(message: string, reachedGateway: boolean):
 
 export function gatewayRequestReachedGateway(error: unknown): boolean {
   return error instanceof Error && (error as GatewayRequestFailure).reachedGateway === true;
+}
+
+/** The Gateway's schema rejected the run-fence fields before dispatch. */
+export function gatewayUnsupportedActiveRunControl(error: unknown): boolean {
+  return error instanceof Error && (error as GatewayRequestFailure).unsupportedActiveRunControl === true;
 }
 
 export function gatewayRequestWasRefused(error: unknown): boolean {
@@ -34,6 +39,7 @@ export function gatewayResponseFailure(value: unknown): GatewayRequestFailure {
   const unsupportedControl = error.code === 'INVALID_REQUEST' && /invalid chat.send params/i.test(message) && /steerPolicy|expectedActiveRunId/.test(message);
   const failure = gatewayRequestFailure(unsupportedControl ? 'Gateway runtime update required for safe active-run controls. Your draft was kept.' : message, details.inputDisposition === 'unconfirmed');
   if (typeof error.code === 'string') failure.gatewayCode = error.code;
+  if (unsupportedControl) failure.unsupportedActiveRunControl = true;
   if (error.code === 'INVALID_REQUEST' && NON_STEERABLE_REASONS.includes(details.reason as NonSteerableReason) && details.inputDisposition === 'not-dispatched'
     && typeof details.expectedActiveRunId === 'string' && details.expectedActiveRunId.trim()
     && details.expectedActiveRunId === details.activeRunId) {

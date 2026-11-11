@@ -39,13 +39,18 @@ export class QuestionOtherEditorOwner {
     this.state = acceptNativeSelection(this.state, { start: event.selectionStart, end: event.selectionEnd }, event.userInitiated);
   }
 
-  key(event: HardwareKeyEvent): 'done' | 'exit' | null {
-    if (this.closed) return null;
+  flushKeyText(event: HardwareKeyEvent) {
+    if (this.closed) return;
     if (event.text !== undefined && event.textAuthority !== undefined) this.text({
       text: event.text, textAuthority: event.textAuthority,
       selectionStart: event.selectionStart ?? this.state.selection.start,
       selectionEnd: event.selectionEnd ?? this.state.selection.end,
     });
+  }
+
+  key(event: HardwareKeyEvent): 'done' | 'exit' | null {
+    if (this.closed) return null;
+    this.flushKeyText(event);
     const current = this.state;
     const key = normalizedHardwareKey(event);
     const escape = key === 'escape' || (event.control && key === '[');

@@ -210,6 +210,63 @@ it('keeps urgent inline session.message publication immediate with prior buffere
   await advance(81); expect(commits).toHaveLength(before);
 });
 
+const asyncReview = (key: string) => ({ id: `${key}-async`, role: 'assistant', runId: 'run', timestamp: now,
+  content: 'Does the revised sample work?', openclawAsyncDelivery: { itemId: `${key}-review`,
+    questions: [{ title: 'Does the revised sample work?', options: ['Looks good', 'Needs changes', 'Review later'] }] },
+  __openclaw: { runId: 'run', mirrorOrigin: 'codex-app-server' } });
+const pendingCount = (key: string) => gateway.projects.find(project => project.sessionKey === key)?.pendingQuestions?.own ?? 0;
+
+it('discovers an existing unanswered async review after cold start without selecting its thread or receiving events', async () => {
+  const unreadBefore = gateway.projects.find(project => project.sessionKey === 'b')?.unread;
+  let answered = false;
+  await act(async () => { await gateway.forget(); await drain(); });
+  probe.history.mockImplementation(async key => ({ sessionKey: key, sessionId: probe.rows.find(row => row.key === key)?.sessionId,
+    messages: [prompt(key), ...(key === 'b' ? [asyncReview(key), { id: 'final', role: 'assistant', runId: 'run', timestamp: now + 1,
+      content: 'Preview ready.', __openclaw: { runId: 'run', mirrorOrigin: 'codex-app-server', runTerminal: true } },
+    ...(answered ? [{ id: 'answer', role: 'user', timestamp: now + 2, content: '> Does the revised sample work?\n\nLooks good', __openclaw: { replyToId: 'b-async' } }] : [])] : [])] }));
+  await act(async () => { await gateway.connect({ endpoint: 'ws://fixture.invalid', sessionKey: 'a', credentialKind: 'token', credential: 'fixture' }); await drain(); });
+  expect(gateway.messageSessionKey).toBe('a');
+  expect(gateway.messages.some(row => row.asyncQuestion)).toBe(false);
+  expect(pendingCount('b')).toBe(1); expect(pendingCount('a')).toBe(0);
+  expect(gateway.projects.find(project => project.sessionKey === 'b')?.unread).toBe(unreadBefore);
+  expect(probe.patches.mock.calls.some(([params]) => params.key === 'b')).toBe(false);
+  answered = true; probe.rows[1]!.lastActivityAt = now + 2;
+  await act(async () => { await gateway.refresh(); await drain(); });
+  expect(pendingCount('b')).toBe(0); expect(gateway.messageSessionKey).toBe('a');
+  expect(probe.patches.mock.calls.some(([params]) => params.key === 'b')).toBe(false);
+});
+
+it('publishes an async review marker from canonical history after its same-run final and across selection', async () => {
+  let answered = false;
+  probe.history.mockImplementation(async key => ({ sessionKey: key, sessionId: probe.rows.find(row => row.key === key)?.sessionId,
+    messages: [prompt(key), ...(key === 'b' ? [asyncReview(key), { id: 'final', role: 'assistant', runId: 'run', timestamp: now + 1,
+      content: 'Updated preview, checks pass.', stopReason: 'stop', __openclaw: { runId: 'run', mirrorOrigin: 'codex-app-server', runTerminal: true } },
+    ...(answered ? [{ id: 'saved-answer', role: 'user', timestamp: now + 2, content: '> Does the revised sample work?\n\nLooks good',
+      __openclaw: { replyToId: 'b-async' } }] : [])] : [])] }));
+  await act(async () => { gateway.selectProject('b'); await drain(); });
+  const card = gateway.messages.find(row => row.asyncQuestion)!;
+  expect(gateway.asyncQuestions.view(card)?.state).toBe('pending');
+  expect(pendingCount('b')).toBe(1);
+  await act(async () => { gateway.selectProject('a'); await drain(); });
+  expect(pendingCount('b')).toBe(1); expect(pendingCount('a')).toBe(0);
+  answered = true;
+  probe.rows[1]!.lastActivityAt = now + 2;
+  await act(async () => { gateway.selectProject('b'); await drain(); });
+  await act(async () => { await gateway.refresh(); await drain(); });
+  expect(gateway.asyncQuestions.view(card)?.state).toBe('confirmed'); expect(pendingCount('b')).toBe(0);
+});
+
+it('publishes offscreen async markers from parked history and retires replacement generations', async () => {
+  // Hold canonical refresh so the live, registered origin is the only source.
+  probe.history.mockImplementation(() => new Promise(() => {}));
+  await emit({ event: 'session.message', payload: { sessionKey: 'b', sessionId: generations.b, runId: 'run', message: asyncReview('b') } });
+  expect(gateway.messageSessionKey).toBe('a'); expect(pendingCount('a')).toBe(0); expect(pendingCount('b')).toBe(1);
+  probe.rows[1]!.sessionId = '00000000-0000-4000-8000-000000000003';
+  probe.rows[1]!.sessionStartedAtMs = now + 100;
+  await act(async () => { await gateway.refresh(); await drain(); });
+  expect(pendingCount('b')).toBe(0);
+});
+
 it('cannot republish a drained review after the concrete generation changes', async () => {
   await emit(review()); await advance(100); await emit(question());
   probe.rows[0]!.sessionId = '00000000-0000-4000-8000-000000000003';

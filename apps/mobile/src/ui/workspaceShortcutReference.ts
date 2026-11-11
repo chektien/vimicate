@@ -63,7 +63,8 @@ export const workspaceShortcutReference = [
   ] },
   { title: 'Command bar & image viewer', bindings: [
     ['Enter · Tab (command bar)', 'Submit / complete the command'],
-    ['Up/Down (command bar)', 'Recall previous / next command'],
+    ['Up/Down · Tab/Shift-Tab (command bar)', 'Cycle completion options'],
+    ['Shift-Up/Down (command bar)', 'Recall previous / next command'],
     ['Left/Right · Home/End (command bar)', 'Move the command cursor'],
     ['Esc · Ctrl-[ (command bar)', 'Cancel without sending'],
     ['Esc · × (image viewer)', 'Close and return to the previous pane'],

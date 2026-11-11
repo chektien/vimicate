@@ -13,17 +13,22 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('../../modules/vimicate-editor', () => ({ VimicateEditorView: (props: VimicateEditorViewProps) => { native.props = props; return <pre>{props.editorState}</pre>; } }));
 import { QuestionOtherEditor, type QuestionOtherEditorProps } from './QuestionOtherEditor';
+import { WorkspacePaneKeyProvider } from '../workspace/WorkspacePaneKeyContext';
+
+const routePaneKey = vi.fn<NonNullable<React.ComponentProps<typeof WorkspacePaneKeyProvider>['value']>['route']>();
+const paneKeys = { route: routePaneKey, cancel: vi.fn() };
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 let props: QuestionOtherEditorProps;
 beforeEach(() => {
+  routePaneKey.mockReset().mockReturnValue(false);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   props = { value: '', scope: 'question-a/other/0', fontScale: 1, maxLength: 8000, accessibilityLabel: 'Channel other answer', onChange: vi.fn(), onDone: vi.fn(), onExit: vi.fn() };
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
-const render = (overrides: Partial<QuestionOtherEditorProps> = {}) => act(async () => { props = { ...props, ...overrides }; root.render(<QuestionOtherEditor {...props} />); });
+const render = (overrides: Partial<QuestionOtherEditorProps> = {}) => act(async () => { props = { ...props, ...overrides }; root.render(<WorkspacePaneKeyProvider value={paneKeys}><QuestionOtherEditor {...props} /></WorkspacePaneKeyProvider>); });
 const state = () => JSON.parse(native.props.editorState) as { text: string; mode: 'normal' | 'insert'; authority: number; revision: number; scope: string; selectionStart: number; selectionEnd: number };
 const input = (key: string, extras: Partial<HardwareKeyEvent> = {}): HardwareKeyEvent => ({ key, shift: false, command: false, control: false, option: false, ...extras });
 const key = (key: string, extras: Partial<HardwareKeyEvent> = {}) => act(async () => native.props.onHardwareKey?.({ nativeEvent: input(key, extras) }));
@@ -160,4 +165,26 @@ it('tapping a normal-mode answer enters insert at the touched caret', async () =
   await act(async () => native.props.onEditorTap?.({ nativeEvent: { selectionStart: 3, selectionEnd: 3 } }));
   expect(state()).toMatchObject({ mode: 'insert', selectionStart: 3, selectionEnd: 3 });
   expect(props.onDone).not.toHaveBeenCalled(); expect(props.onExit).not.toHaveBeenCalled();
+});
+
+it.each(['insert', 'normal'] as const)('offers pane chords to the workspace before local %s editing', async mode => {
+  await render({ value: 'draft' });
+  if (mode === 'normal') await key('escape');
+  routePaneKey.mockClear();
+  const prior = state();
+  routePaneKey.mockImplementation((event, currentMode, release) => {
+    expect(event).toMatchObject({ key: 'h', control: true });
+    expect(currentMode).toBe(mode);
+    if (mode === 'insert') expect(props.onChange).toHaveBeenLastCalledWith('draft!');
+    release();
+    return true;
+  });
+  const callback = native.props.onHardwareKey!;
+  const event = input('h', { control: true, text: 'draft!', selectionStart: 6, selectionEnd: 6, textAuthority: prior.authority });
+  await act(async () => { callback({ nativeEvent: event }); callback({ nativeEvent: event }); });
+  expect(routePaneKey).toHaveBeenCalledTimes(1);
+  expect(props.onExit).toHaveBeenCalledTimes(1);
+  expect(props.onDone).not.toHaveBeenCalled();
+  expect(state().text).toBe(mode === 'insert' ? 'draft!' : 'draft');
+  expect(native.props.focused).toBe(false);
 });

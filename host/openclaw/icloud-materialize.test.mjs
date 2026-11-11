@@ -33,3 +33,12 @@ test('other failures are not retried or downloaded', async () => {
     { materialize: async () => { materialized = true; } }), /unsupported file type/);
   assert.equal(materialized, false);
 });
+
+test('async hosted failures retain the same exact-path iCloud retry authority', async () => {
+  let calls = 0; const downloads = [];
+  const result = await readWithICloudMaterialization(async () => {
+    if (++calls < 3) throw Object.assign(new Error('placeholder'), { icloudPlaceholder: true, icloudPath: '/synthetic/confined.md' });
+    return 'ready';
+  }, { materialize: async file => downloads.push(file), sleep: async () => {}, now: () => 0 });
+  assert.equal(result, 'ready'); assert.deepEqual(downloads, ['/synthetic/confined.md']);
+});

@@ -4,6 +4,7 @@ import { withHistoryRunCompletions } from './historyRunCompletion';
 import { oversizedConversationMessage } from '../transcript/transcriptRowBudget';
 import { coalesceTranscriptIdentities } from './transcriptIdentityWall';
 import { historyMessageBytes, OLDER_REVIEW_BYTE_LIMIT } from './historyWindowBudget';
+import { reconcileHistoryOmissions, withHistoryOmission } from './historyOmission';
 import type { PendingInputSnapshotReconciliation } from './pendingInputSnapshot';
 
 export const MAX_VISIBLE_HISTORY_ROWS = 480;
@@ -14,7 +15,7 @@ export function latestHistoryWindow(latest: WorkspaceMessage[], current: Workspa
 }
 
 export function olderHistoryWindow(older: WorkspaceMessage[], current: WorkspaceMessage[], sessionKey: string, limit = MAX_VISIBLE_HISTORY_ROWS, retainThroughID?: string) {
-  const merged = withHistoryRunCompletions(mergeOlderHistory(older, current, sessionKey));
+  const merged = reconcileHistoryOmissions(older, current, withHistoryRunCompletions(mergeOlderHistory(older, current, sessionKey)));
   const bounded = boundedPresentationWindow(merged, 'older', limit);
   const boundary = retainThroughID ? merged.findIndex(row => row.id === retainThroughID) : -1;
   // A transport page is sized before admission. Its last indivisible raw
@@ -61,8 +62,12 @@ function boundedLatestPresentationWindow(messages: WorkspaceMessage[], limit: nu
   }
   if (start <= 0 || messages[start]?.role === 'user' || messages[start]?.role === 'boundary') return messages.slice(start);
 
+  // A complete newer turn is a stronger window boundary than a disconnected
+  // fragment of its predecessor, without spending additional row budget.
+  const fullTurn = messages.findIndex((message, index) => index > start && (message.role === 'user' || message.role === 'boundary'));
+  if (fullTurn >= 0) return messages.slice(fullTurn);
   const promptIndex = precedingUserTurnBoundary(messages, start);
-  if (promptIndex < 0) return messages.slice(start);
+  if (promptIndex < 0) return withHistoryOmission(messages.slice(start));
   const prompt = messages[promptIndex]!;
   const promptCost = transcriptPresentationRowCost(prompt);
   // Keep the accepted turn boundary and discard the oldest detail inside that
@@ -72,7 +77,7 @@ function boundedLatestPresentationWindow(messages: WorkspaceMessage[], limit: nu
     rows -= transcriptPresentationRowCost(messages[start]!);
     start += 1;
   }
-  return [prompt, ...messages.slice(start)];
+  return withHistoryOmission([prompt, ...messages.slice(start)], prompt.id);
 }
 
 function precedingUserTurnBoundary(messages: WorkspaceMessage[], start: number) {

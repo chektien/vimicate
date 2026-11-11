@@ -9,11 +9,6 @@
     "bytes": 27498,
     "plan": "Fixture data currently lives under src and remains covered; move by fixture scenario only when fixture work warrants it."
   },
-  "apps/mobile/src/gateway/historyPagination.ts": {
-    "lines": 304,
-    "bytes": 25362,
-    "plan": "Separate pure page reconciliation from request composition when pagination next changes."
-  },
   "apps/mobile/src/gateway/useGatewayHistory.ts": {
     "lines": 491,
     "bytes": 31851,

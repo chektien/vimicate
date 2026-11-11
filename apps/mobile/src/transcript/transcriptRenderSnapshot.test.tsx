@@ -7,6 +7,7 @@ import type { TranscriptRenderRow } from './transcriptRenderRows';
 
 type ListSnapshot = {
   data: TranscriptRenderRow[];
+  getItemType?: (item: TranscriptRenderRow, index: number) => string;
   extraData: unknown;
   onRefresh?: () => void;
   refreshing?: boolean;
@@ -36,6 +37,7 @@ vi.mock('./useTranscriptViewport', () => {
 });
 vi.mock('./TranscriptSourceRow', () => ({ TranscriptSourceRow: () => null }));
 vi.mock('../../modules/vimicate-diagnostics', () => ({ recordViewportDiagnostic: () => undefined }));
+import { TranscriptHistoryOmission } from './TranscriptHistoryOmission';
 import { TranscriptDateDivider } from './TranscriptDateDivider';
 import { TranscriptPane, type TranscriptPaneHandle } from './TranscriptPane';
 import { createTranscriptBuffer, createTranscriptVimState } from './transcriptVim';
@@ -86,6 +88,23 @@ describe('transcript recycler presentation snapshot', () => {
       expect(row(committed)?.compiled.source).toBe('Original answer');
     },
   );
+
+  it('separates question-cell measurements from ordinary lines using the same current presentation as rendering', async () => {
+    const messages = [answer('body', 'First line\nSecond line')];
+    await act(async () => root.render(<Scene messages={messages} />));
+    const initial = probe.committed!;
+    expect(initial.getItemType).toBeTypeOf('function');
+    const types = (snapshot: ListSnapshot) => snapshot.data.map((item, index) => snapshot.getItemType!(item, index));
+    expect(types(initial)).toEqual(['source', 'source']);
+    const updated = [{ ...messages[0]!, asyncQuestion: { itemId: 'optional', questions: [{ title: 'Optional question', options: ['Yes'] }] } }];
+    await act(async () => startTransition(() => root.render(<Scene messages={updated} suspend />)));
+    expect(probe.committed).toBe(initial);
+    expect(types(initial)).toEqual(['source', 'source']);
+    await act(async () => root.render(<Scene messages={updated} />));
+    expect(probe.committed!.data).toBe(initial.data);
+    expect(types(probe.committed!)).toEqual(['source', 'question']);
+    expect(types(initial)).toEqual(['source', 'source']);
+  });
 
   it('publishes fresh text on the next commit while preserving ordered-key topology', async () => {
     await act(async () => root.render(<Scene messages={[answer('same', 'Before')]} />));
@@ -198,4 +217,19 @@ it('does not activate the native pull-to-refresh control while loading forward h
   expect(probe.committed!.refreshing).toBe(false);
   expect(probe.committed!.onRefresh).toBeUndefined();
   await act(async () => { release(); await work; });
+});
+
+it('exposes a real-identity omission as an accessible older action without a canonical row', async () => {
+  const load = vi.fn();
+  const prompt = { ...answer('prompt', 'Context'), role: 'user' as const };
+  const tail = { ...answer('tail', 'Retained tail'), historyOmission: { promptMessageId: prompt.id, firstTailMessageId: 'tail' } };
+  await act(async () => root.render(<Scene messages={[prompt, tail]} canLoadOlder onLoadOlder={load} />));
+  const snapshot = probe.committed!;
+  expect(snapshot.data.map(row => row.message.id)).toEqual(['prompt', 'tail']);
+  const cell = snapshot.renderItem({ item: snapshot.data[0]!, index: 0, extraData: snapshot.extraData });
+  const fragment = cell?.props.children as React.ReactElement<{ children: React.ReactNode }>;
+  const action = React.Children.toArray(fragment.props.children)[1] as React.ReactElement<{ onLoadOlder: () => void }>;
+  expect(action.type).toBe(TranscriptHistoryOmission);
+  await act(async () => action.props.onLoadOlder());
+  expect(load).toHaveBeenCalledOnce();
 });

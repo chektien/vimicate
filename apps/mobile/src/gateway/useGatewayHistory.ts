@@ -1,11 +1,13 @@
+import { createOlderHistoryAction } from './olderHistoryLoading';
+import { reconcileHistoryCursor } from './historyTransport';
+import { useLatestLoading } from './useLatestLoading';
 import type { CanonicalHistoryFreshness } from './canonicalHistoryFreshness';
 import { useTranscriptPersistence } from './useTranscriptPersistence';
 import { createNewerHistoryAction } from './newerHistoryLoading';
 import { useHistoryPublicationReceipt } from './historyPublicationReceipt';
-import { loadVisibleOlderHistoryBatch } from './loadVisibleOlderHistoryBatch';
-import { OLDER_REVIEW_COST_LIMIT, type OlderHistoryVisibleContext } from './olderHistoryVisibleRows';
+import { type OlderHistoryVisibleContext } from './olderHistoryVisibleRows';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from 'react';
-import { archivedFamilyAuthorityInvalidated, archivedStateForProject, archiveIdentityTransition, type ArchivedHistoryState } from './archivedHistory';
+import { archivedStateForProject, archiveIdentityTransition, type ArchivedHistoryState } from './archivedHistory';
 import type { HistoryCursor } from './historyPagination';
 import { latestPresentationWindow } from './historyWindow';
 import type { OpenClawClient } from './OpenClawClient';
@@ -13,7 +15,7 @@ import { startupMessages, type WorkspaceMessage, type WorkspaceProject } from '.
 import { persistedTranscriptRestorePublication, SessionHistoryCache } from './sessionHistoryCache';
 import { loadHistoryReviewCache, loadTranscriptCache, saveHistoryReviewCache } from '../storage/workspaceStore';
 import { sameTranscriptPublication } from './transcriptPublicationEquality';
-import { authorizedHistoryStatePublication, reviewOmitsLatestMessages, latestSessionPublication, olderPageHistoryPublication, promptSubmissionHistoryPublication } from './historyReviewPublication';
+import { authorizedHistoryStatePublication, reviewOmitsLatestMessages, latestSessionPublication, promptSubmissionHistoryPublication } from './historyReviewPublication';
 import { createSessionMessagePublisher } from './sessionMessagePublication';
 import { sessionOwnsVisiblePublication } from './sessionPublicationOwnership';
 import { createLatestHistoryActions } from './latestHistoryLoading';
@@ -31,7 +33,7 @@ import { DeferredPromptRefusals, RefusalFilteredHistoryCache } from './deferredP
 
 const EMPTY_LATEST_MESSAGES: WorkspaceMessage[] = [];
 
-export function useGatewayHistory(client: OpenClawClient, selectedRef: { current: string }, onDetail: Dispatch<SetStateAction<string>>, initialSessionKey = '', initiallyActive = true, historyFreshness?: CanonicalHistoryFreshness, onLatestPublication?: (sessionKey: string, rows: WorkspaceMessage[]) => void) {
+export function useGatewayHistory(client: OpenClawClient, selectedRef: { current: string }, onDetail: Dispatch<SetStateAction<string>>, initialSessionKey = '', initiallyActive = true, historyFreshness?: CanonicalHistoryFreshness, onLatestPublication?: (sessionKey: string, rows: WorkspaceMessage[]) => void, projectionContext?: () => WorkspaceMessage[]) {
   const cursor = useRef<HistoryCursor | null>(null);
   const archive = useRef<ArchivedHistoryState | null>(null);
   const sessionGeneration = useRef<GatewaySessionGeneration | null>(null);
@@ -67,6 +69,7 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
   const [messageSessionKey, setMessageSessionKey] = useState(initialSessionKey);
   const latestMessages = useSyncExternalStore(latestTailCache.current.subscribe,
     () => latestTailCache.current.restore(messageSessionKey) ?? EMPTY_LATEST_MESSAGES);
+  const latest = useLatestLoading(publicationAuthority);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [canLoadOlder, setCanLoadOlder] = useState(false);
   const [canLoadNewer, setCanLoadNewer] = useState(false);
@@ -102,6 +105,7 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
 
   const suspendHistoryPublication = useCallback(() => {
     publicationAuthority.current?.suspend();
+    latest.clear();
     narrationHydration.current.retire();
     latestRequestRevision.current += 1;
     historySelectionRevision.current += 1;
@@ -212,7 +216,7 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
     setCanLoadOlder(canPageOlder(cursor.current, archive.current));
     clearPersistedHistoryReview(sessionKey);
   }, [clearPersistedHistoryReview, selectedRef, setHistoryProblem]);
-  const setHistoryMessages = useCallback((sessionKey: string, action: SetStateAction<WorkspaceMessage[]>, side: 'latest' | 'older', ownsPublication: () => boolean) => {
+  const setHistoryMessages = useCallback((sessionKey: string, action: SetStateAction<WorkspaceMessage[]>, side: 'latest' | 'older', ownsPublication: () => boolean, candidateCursor?: HistoryCursor | null) => {
     if (!publicationAuthority.current?.isActive) return;
     setMessageState((current) => {
       const publication = authorizedHistoryStatePublication(
@@ -225,6 +229,8 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
       );
       if (!publication.owned) return current;
       const next = publication.messages;
+      cursor.current = reconcileHistoryCursor(candidateCursor === undefined ? cursor.current : candidateCursor, next, sessionKey);
+      setCanLoadOlder(canPageOlder(cursor.current, archive.current));
       if (sameTranscriptPublication(current, next)) {
         if (side === 'older') persistHistoryReview(sessionKey, current);
         return current;
@@ -241,6 +247,7 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
   const resetHistory = useCallback((project: WorkspaceProject | undefined, registry: Record<string, unknown> | null, replacement: WorkspaceMessage[] = []) => {
     if (!publicationAuthority.current?.isActive) return;
     latestRequestRevision.current += 1;
+    latest.clear();
     const restoreRevision = ++historySelectionRevision.current;
     const restoreActivityRevision = publicationAuthority.current.capture();
     workspacePath.current = project?.path ?? '';
@@ -385,7 +392,9 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
   }, [hydrateSharedNarration, selectedRef, updateSessionMessages]);
 
   const historyActionsContext = {
+    projectionContext,
     client,
+    onLatestLoading: latest.report,
     historyFreshness,
     selectedRef,
     publicationAuthority,
@@ -412,110 +421,13 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
     persistHistoryReview,
     clearPersistedHistoryReview,
   };
-  const { loadHistory, restoreLatestHistory } = useMemo(() => createLatestHistoryActions(historyActionsContext), [clearPersistedHistoryReview, client, hydrateSharedNarration, onDetail, persistHistoryReview, persistLater, selectedRef, setHistoryMessages, setHistoryProblem]);
-  const loadNewerHistory = useMemo(() => createNewerHistoryAction({ ...historyActionsContext, sessionGeneration, receiptAfterCommit, setCanLoadNewer, loadHistory }), [clearPersistedHistoryReview, client, hydrateSharedNarration, loadHistory, onDetail, persistHistoryReview, persistLater, receiptAfterCommit, selectedRef, setHistoryMessages, setHistoryProblem]);
+  const { loadHistory, restoreLatestHistory } = useMemo(() => createLatestHistoryActions(historyActionsContext), [clearPersistedHistoryReview, client, projectionContext, hydrateSharedNarration, onDetail, persistHistoryReview, persistLater, selectedRef, setHistoryMessages, setHistoryProblem]);
+  const loadNewerHistory = useMemo(() => createNewerHistoryAction({ ...historyActionsContext, sessionGeneration, receiptAfterCommit, setCanLoadNewer, loadHistory }), [clearPersistedHistoryReview, client, projectionContext, hydrateSharedNarration, loadHistory, onDetail, persistHistoryReview, persistLater, receiptAfterCommit, selectedRef, setHistoryMessages, setHistoryProblem]);
 
-  const loadOlderHistory = useCallback(async (context: OlderHistoryVisibleContext = {}) => {
-    const current = cursor.current; const sessionKey = selectedRef.current;
-    if (!sessionKey || client.status !== 'connected' || !publicationAuthority.current?.isActive || olderRequest.current.isActive()) return;
-    const currentOffset = current?.nextOffset ?? null;
-    const hasCurrentPage = Boolean(current?.hasMore && currentOffset !== null && current.sessionKey === sessionKey);
-    if (!hasCurrentPage && (!archive.current || archive.current.exhausted || archive.current.identity.sessionKey !== sessionKey)) return;
-    const selectionRevision = windowMode.current === 'older'
-      ? historySelectionRevision.current : ++historySelectionRevision.current;
-    const requestRevision = ++latestRequestRevision.current;
-    const activityRevision = publicationAuthority.current.capture();
-    const request = olderRequest.current.begin(sessionKey, requestRevision); if (!request) return;
-    const ownsRequest = () => Boolean(publicationAuthority.current?.owns(activityRevision))
-      && olderRequest.current.owns(request, selectedRef.current, latestRequestRevision.current);
-    // Accepted pages belong to this review, not the next transport request.
-    // A deferred live refresh or another page may start before React commits
-    // this updater. Neither can revoke rows whose cursor already advanced.
-    // Explicit selection, submission, generation and scene changes still retire it.
-    const ownsPublication = () => Boolean(publicationAuthority.current?.owns(activityRevision))
-      && selectedRef.current === sessionKey && windowMode.current === 'older'
-      && selectionRevision === historySelectionRevision.current;
-    setLoadingOlder(true);
-    setHistoryProblem('');
-    historyFailure.current = null;
-    if (archive.current?.blocked) {
-      const { blocked: _blocked, ...retryableArchive } = archive.current;
-      archive.current = retryableArchive;
-    }
-    windowMode.current = 'older';
-    setCanLoadNewer(true);
-    reviewEntryIntent.current = 'deliberate';
-    let recoverLatest = false;
-    try {
-      const batch = await loadVisibleOlderHistoryBatch({ client, sessionKey,
-        path: workspacePath.current, visible: historyCache.current.restore(sessionKey) ?? [],
-        narration: narrationHydration.current.cache(sharedNarration.current), cursor: cursor.current,
-        archive: archive.current, context, owns: ownsRequest });
-      if (!ownsRequest()) return;
-      if (batch.problem && (!batch.older.length || archivedFamilyAuthorityInvalidated(batch.problem))) throw batch.problem;
-      cursor.current = batch.cursor;
-      archive.current = batch.archive;
-      if (batch.older.length) {
-        setHistoryMessages(sessionKey, (rows) => olderPageHistoryPublication(
-          rows,
-          latestTailCache.current.restore(sessionKey) ?? [],
-          batch.older,
-          sessionKey,
-          narrationHydration.current.cache(sharedNarration.current),
-          true,
-          OLDER_REVIEW_COST_LIMIT,
-        ).visible, 'older', ownsPublication);
-      }
-      if (batch.problem) {
-        const problem = batch.problem instanceof Error ? batch.problem.message : 'older history failed';
-        historyFailure.current = 'older';
-        if (!cursor.current?.hasMore && archive.current) archive.current = { ...archive.current, blocked: problem };
-        setHistoryProblem(problem);
-        onDetail(problem);
-      } else if (!hasCurrentPage) onDetail(batch.older.length
-        ? `loaded ${batch.older.length} older archived transcript rows` : 'archived history exhausted');
-      setCanLoadOlder(Boolean(cursor.current?.hasMore || (archive.current && !archive.current.exhausted && !archive.current.blocked)));
-      if (!batch.older.length) return undefined;
-      const receipt = receiptAfterCommit(ownsPublication);
-      return { publication: receipt.publication.then(result => ({
-        ...result, addedVisibleRowCount: result.published ? batch.addedVisibleRowCount : 0,
-      })) };
-    } catch (error) {
-      if (!ownsRequest()) return;
-      if (archive.current && archivedFamilyAuthorityInvalidated(error)) {
-        // `/new` can make the stable route's previous archive family obsolete
-        // before the sessions/registry subscription publishes its successor.
-        // This is an authority transition, not a retryable page error. Do not
-        // persist the pane in failed older mode: retain the mounted rows until
-        // canonical latest history atomically replaces them.
-        cursor.current = null;
-        archive.current = null;
-        historyFailure.current = null;
-        archiveRecovery.current.request(sessionKey);
-        reviewEntryIntent.current = null;
-        setCanLoadOlder(false);
-        setHistoryProblem('');
-        clearPersistedHistoryReview(sessionKey);
-        onDetail('session generation changed; restoring latest transcript');
-        recoverLatest = true;
-        return;
-      }
-      const problem = error instanceof Error ? error.message : 'older history failed';
-      historyFailure.current = 'older';
-      if (!hasCurrentPage && archive.current) archive.current = { ...archive.current, blocked: problem };
-      setCanLoadOlder(Boolean(cursor.current?.hasMore));
-      setHistoryProblem(problem);
-      persistHistoryReview(sessionKey, historyCache.current.restore(sessionKey) ?? []);
-      onDetail(problem);
-    } finally {
-      if (olderRequest.current.finish(request)) {
-        setLoadingOlder(false);
-        const deferredSession = deferredLatestRefresh.current.consume(selectedRef.current);
-        if (deferredSession) void loadHistory(deferredSession);
-        else if (recoverLatest && selectedRef.current === sessionKey) void loadHistory(sessionKey);
-      }
-    }
-  }, [clearPersistedHistoryReview, client, loadHistory, onDetail, persistHistoryReview, receiptAfterCommit, selectedRef, setHistoryMessages, setHistoryProblem]);
+  const loadOlderHistory = useMemo(() => createOlderHistoryAction({ ...historyActionsContext,
+    narrationHydration, sharedNarration, receiptAfterCommit, setCanLoadNewer, loadHistory }),
+  [clearPersistedHistoryReview, client, projectionContext, hydrateSharedNarration, loadHistory, onDetail,
+    persistHistoryReview, persistLater, receiptAfterCommit, selectedRef, setHistoryMessages, setHistoryProblem]);
 
   const retryHistory = useCallback(async (context: OlderHistoryVisibleContext = {}) => {
     if (!publicationAuthority.current?.isActive) return;
@@ -523,5 +435,5 @@ export function useGatewayHistory(client: OpenClawClient, selectedRef: { current
     else if (selectedRef.current) await loadHistory(selectedRef.current);
   }, [loadHistory, loadOlderHistory, selectedRef]);
 
-  return { messages, messageSessionKey, subscribeLatestHistory: latestTailCache.current.subscribe, latestMessages, hasNewerHistory: windowMode.current === 'older' && (canLoadNewer || reviewOmitsLatestMessages(windowMode.current, messages, latestMessages)), updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication };
+  return { messages, messageSessionKey, historyLoading: loadingOlder || latest.sessionKey === messageSessionKey, subscribeLatestHistory: latestTailCache.current.subscribe, latestMessages, hasNewerHistory: windowMode.current === 'older' && (canLoadNewer || reviewOmitsLatestMessages(windowMode.current, messages, latestMessages)), updateSessionMessages, preparePromptSubmission, rejectPromptSubmission, sessionMessages, visibleSessionMessages, loadingOlder, canLoadOlder, historyProblem, configureArchive, resetHistory, ownsSession, loadHistory, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refreshSharedNarration, suspendHistoryPublication, resumeHistoryPublication };
 }

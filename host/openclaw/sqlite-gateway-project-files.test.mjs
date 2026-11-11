@@ -6,7 +6,7 @@ import test from 'node:test';
 import { registerVimicateSqliteGateway } from './sqlite-gateway-plugin.mjs';
 
 test('consolidated plugin exposes confined project file reads at operator.read scope', async t => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vimicate-project-rpc-')));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), '.vimicate-project-rpc-')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const vimicateDir = path.join(root, 'vimicate');
   const project = path.join(root, 'project');

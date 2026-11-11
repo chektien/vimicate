@@ -3,6 +3,36 @@ import type { CommandSession, SearchSession } from '../ui/WorkspaceCommandBar';
 import { workspaceCommandLineActions } from './workspaceCommandLineActions';
 
 describe('workspace command-line actions', () => {
+  it('cycles visible completions with arrows, reserving Shift-arrows for history', () => {
+    const commandRef: { current: CommandSession | null } = { current: { query: 'model open', nativeEventCount: 7 } };
+    const actions = workspaceCommandLineActions({
+      commandRef, searchRef: { current: null }, commands: [],
+      modelChoices: ['openai/first', 'openai/second'], historyRef: { current: ['status'] },
+      setCommand(value) { commandRef.current = typeof value === 'function' ? value(commandRef.current) : value; },
+      setSearch() {},
+    });
+    const key = (key: string, shift = false) => ({ key, shift, control: false, option: false, command: false, isRepeat: false });
+    expect(actions.handleKey(key('down'))).toBe('none');
+    expect(commandRef.current).toMatchObject({ query: 'model openai/first', nativeEventCount: 7, completion: { index: 0, seed: 'open' } });
+    actions.handleKey(key('down'));
+    expect(commandRef.current?.query).toBe('model openai/second');
+    actions.handleKey(key('down'));
+    expect(commandRef.current?.query).toBe('model openai/first');
+    actions.handleKey(key('up'));
+    expect(commandRef.current?.query).toBe('model openai/second');
+    expect(actions.handleKey(key('enter'))).toBe('submit');
+    actions.handleKey(key('up', true));
+    expect(commandRef.current).toMatchObject({ query: 'status', completion: undefined });
+    actions.handleKey(key('down', true));
+    expect(commandRef.current?.query).toBe('model openai/second');
+    actions.updateQuery('model no-match', 8);
+    actions.handleKey(key('down'));
+    expect(commandRef.current?.query).toBe('model no-match');
+    actions.updateQuery('model open', 9);
+    actions.handleKey(key('up'));
+    expect(commandRef.current).toMatchObject({ query: 'model openai/second', nativeEventCount: 9 });
+  });
+
   it('routes paste and native text changes to the active colon command', () => {
     let command: CommandSession | null = { query: 'model ' };
     let search: SearchSession | null = null;

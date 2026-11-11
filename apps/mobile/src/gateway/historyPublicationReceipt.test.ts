@@ -10,19 +10,19 @@ it('waits for the matching React publication commit, not transport completion', 
   owner.commit(ticket.revision - 1, [row('top')]);
   await Promise.resolve(); expect(settled).toBe(false);
   owner.commit(ticket.revision, [row('older'), row('top')]);
-  await expect(ticket.publication).resolves.toEqual({ committed: true, published: true, addedMessageCount: 1 });
+  await expect(ticket.publication).resolves.toMatchObject({ committed: true, published: true, addedMessageCount: 1 });
 });
 it('recognizes extensions of a stable identity as loaded history', async () => {
   const owner = new HistoryPublicationReceiptOwner();
   const ticket = owner.stage([row('tool', 'partial')], () => true);
   owner.commit(ticket.revision, [row('tool', 'partial\nolder detail')]);
-  await expect(ticket.publication).resolves.toEqual({ committed: true, published: true, addedMessageCount: 0 });
+  await expect(ticket.publication).resolves.toMatchObject({ committed: true, published: true, addedMessageCount: 0 });
 });
 it('settles a genuine no-op only on commit', async () => {
   const owner = new HistoryPublicationReceiptOwner();
   const ticket = owner.stage([row('top')], () => true);
   owner.commit(ticket.revision, [row('top')]);
-  await expect(ticket.publication).resolves.toEqual({ committed: true, published: false, addedMessageCount: 0 });
+  await expect(ticket.publication).resolves.toMatchObject({ committed: true, published: false, addedMessageCount: 0 });
 });
 it.each(['authority', 'unmount', 'superseded'])('retires a receipt on %s without leaking its waiter', async (reason) => {
   const owner = new HistoryPublicationReceiptOwner(); let owns = true;
@@ -31,4 +31,24 @@ it.each(['authority', 'unmount', 'superseded'])('retires a receipt on %s without
   else if (reason === 'unmount') owner.retire();
   else { const second = owner.stage([row('top')], () => true); owner.retire(); await second.publication; }
   await expect(ticket.publication).resolves.toEqual({ committed: false, published: false, addedMessageCount: 0 });
+});
+it('does not call a reordered publication a verified prepend', async () => {
+  const owner = new HistoryPublicationReceiptOwner();
+  const ticket = owner.stage([row('a'), row('b')], () => true);
+  owner.commit(ticket.revision, [row('older'), row('b'), row('a')]);
+  await expect(ticket.publication).resolves.toMatchObject({ mutation: 'refresh' });
+});
+it('recognizes a verified prepend with bounded newer-tail eviction', async () => {
+  const owner = new HistoryPublicationReceiptOwner();
+  const ticket = owner.stage([row('edge'), row('middle'), row('tail')], () => true);
+  owner.commit(ticket.revision, [row('older'), row('edge'), row('middle')]);
+  await expect(ticket.publication).resolves.toMatchObject({ mutation: 'prepend', boundaryMessageID: 'edge' });
+});
+it('uses the real retained tail instead of detached prompt context as a recovered interval boundary', async () => {
+  const owner = new HistoryPublicationReceiptOwner();
+  const prompt = { ...row('prompt'), role: 'user' as const };
+  const tail = { ...row('tail'), historyOmission: { promptMessageId: prompt.id, firstTailMessageId: 'tail' } };
+  const ticket = owner.stage([prompt, tail], () => true);
+  owner.commit(ticket.revision, [prompt, row('recovered'), tail]);
+  await expect(ticket.publication).resolves.toMatchObject({ mutation: 'prepend', boundaryMessageID: tail.id });
 });

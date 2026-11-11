@@ -9,7 +9,7 @@ import { documentTypes } from './project-file-primitives.mjs';
 const BINARY_LIMIT = 8 * 1024 * 1024;
 
 function fixture(t) {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vimicate-file-locations-')));
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), '.vimicate-file-locations-')));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const homeDir = path.join(base, 'home');
   const vimicateDir = path.join(homeDir, '.vimicate');

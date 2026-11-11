@@ -5,6 +5,7 @@ import { privateQuestionText } from '../questions/asyncQuestionContract';
 import { sealLiveChatForSteer } from './steerLiveSeal';
 import { requestGatewayStop } from './gatewayStopRequest';
 import { activeRunSendControl } from './gatewaySendControl';
+import { gatewaySteerOutcomeNotice } from './gatewaySteerOutcome';
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import * as Crypto from 'expo-crypto';
 import type { GatewayPromptAttachment, PromptAttachment } from '../prompt/promptAttachments';
@@ -16,7 +17,7 @@ import { promptWithProjectContext } from './projectPromptContext';
 import { isRecoverableRunInterruption } from './runLifecycle';
 import { commandListText, healthcheckText, sessionStatusText, workspaceContextText } from './sessionCommandProjection';
 import { sessionSubmissionDisposition, type SessionRunRegistry } from './sessionRunRegistry';
-import { closeWorkspaceThread, createWorkspaceThread } from './workspaceThreadActions';
+import { closeWorkspaceThread, createWorkspaceThread, removeWorkspaceProject } from './workspaceThreadActions';
 import { approvalCommandResolution } from './approvalCommand';
 import type { ApprovalDecisionHandler } from './useGatewayApprovalDecision';
 import { gatewayCommandIsRunSafe, gatewayCommandRunsDisconnected, shouldRefreshHistoryAfterCommand } from './gatewayCommandPolicy';
@@ -75,6 +76,7 @@ export function useGatewaySubmission(options: Options) {
     const { sceneRetired, awaitOwned } = submissionScene(ownsScene);
     const { commandText, commandToken, typedCommand, interrupt, commandArguments, modelIntent, locallyHandled } = submissionCommandInput(body, Boolean(delivery));
     const sessionKey = targetSessionKey.trim();
+    const railCommand = typedCommand === ':close-thread' || typedCommand === ':remove-project';
     const setOwnedDetail = (detail: string, owner = sessionKey) => {
       if (ownsScene() && sessionOwnsDetailPublication(owner, selectedRef.current)) setDetail(detail);
     };
@@ -179,9 +181,9 @@ export function useGatewaySubmission(options: Options) {
         acceptThreadRegistryMutation(result.registryPayload, result.selectedKey);
         if (acceptedRunId) { runRegistry.current.registerRun(runSessionKey, acceptedRunId); persistRuns(); preserveRun = true; startRunMonitor(acceptedRunId, runSessionKey); }
         launchGuardedBackgroundTask(() => loadSessions(false, result.selectedKey, false), (error) => setOwnedDetail(error instanceof Error ? error.message : 'thread refresh failed', result.selectedKey)); appendIfSelected(result.message);
-      } else if (typedCommand === ':close-thread') {
-        const result = await awaitOwned(closeWorkspaceThread(client, projects, sessionKey, registrySnapshot.current ?? {}, Boolean(activeRunAtInvocation), commandArguments));
-        runSessionKey = result.selectedKey;
+      } else if (railCommand) { // :close-thread or :remove-project
+        const result = await awaitOwned((typedCommand === ':close-thread' ? closeWorkspaceThread : removeWorkspaceProject)(client, projects, sessionKey, registrySnapshot.current ?? {}, Boolean(activeRunAtInvocation), commandArguments));
+        runSessionKey = result.selectedKey || sessionKey;
         acceptThreadRegistryMutation(result.registryPayload, result.selectedKey);
         launchGuardedBackgroundTask(() => loadSessions(false, result.selectedKey, false), (error) => setOwnedDetail(error instanceof Error ? error.message : 'thread refresh failed', result.selectedKey)); appendIfSelected(result.message);
         setDetail(result.message);
@@ -218,14 +220,14 @@ export function useGatewaySubmission(options: Options) {
           // steering. It must not replace the shared turn that was already
           // active; live lifecycle/history remains owned by that turn.
           preserveRun = true;
-          if (selectedRef.current === sessionKey) setDetail(followupRunId ? queuedPromptAcceptedNotice : 'prompt accepted while run active');
+          if (selectedRef.current === sessionKey) setDetail(followupRunId ? queuedPromptAcceptedNotice : gatewaySteerOutcomeNotice(payload));
         } else runRegistry.current.observePhase(sessionKey, 'uncertain');
         // Live subscribed rows exclusively own an active transcript. A
         // canonical refresh here can lag the stream and alternate the list
         // between two valid-but-different snapshots until completion.
         publishSelectedRun(); return true;
       }
-      const mutationRefreshesInBackground = typedCommand === ':new-thread' || typedCommand === ':close-thread';
+      const mutationRefreshesInBackground = typedCommand === ':new-thread' || railCommand;
       if (!mutationRefreshesInBackground && shouldRefreshHistoryAfterCommand(runRegistry.current.isBusy(runSessionKey))) await awaitOwned(loadHistory(runSessionKey));
       return true;
     } catch (error) {
@@ -245,7 +247,7 @@ export function useGatewaySubmission(options: Options) {
       if (acceptedRunId && runRegistry.current.runFor(runSessionKey) === acceptedRunId && isRecoverableRunInterruption(error)) { preserveRun = true; if (selectedRef.current === runSessionKey) setDetail('run interrupted; waiting to reconnect'); return true; }
       // Unknown delivery keeps the row. Only definite refusal restores the draft.
       const promptReachedGateway = promptRowStands && gatewayRequestReachedGateway(error);
-      if (typedCommand === ':close-thread' || selectedRef.current === sessionKey || selectedRef.current === runSessionKey) {
+      if (railCommand || selectedRef.current === sessionKey || selectedRef.current === runSessionKey) {
         setDetail(promptReachedGateway ? 'prompt sent; reconnecting for its answer' : error instanceof Error ? error.message : 'send failed');
       }
       if (!acceptedRunId && !promptReachedGateway) {

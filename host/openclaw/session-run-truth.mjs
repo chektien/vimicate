@@ -48,6 +48,47 @@ const PROFILES = {
     'run-state-C8aVTQMT.mjs': 'b11e705666e5f5ca52f3d373d77d99d189b774ecf382c4ec330a5307d9cfc795',
     'agent-run-registry-fu4Yij2z.mjs': 'b8204a43f641a5c78a41200a979bc16ac5d335af05f6fa3a04d999e4616187d7',
   }, names: ['sessions-read-DaqLIW6z.mjs', 'reply-run-registry.registry-P4L3EVyw.mjs', 'agent-run-registry-fu4Yij2z.mjs'], contextKeys: ['u', 'm'] },
+  '2026.10.10': {
+  "pins": {
+    "sessions-read-BSqkIDDT.mjs": "9eef254172c87c5bb4d1d563f0e5a55e9310bd0f5e5f0f38f3b15b8b4b3a710c",
+    "reply-run-registry.registry-AU46m76C.mjs": "a7e1c1965373c611b83e1d6002966880df944c295e68e928a1970cc82a909e44",
+    "reply-run-registry.state-Cbu_mr1k.mjs": "65dee666e8319b5c6af92e73bf9e14b6a79bd5f9defe04d2f1f55e7829ec6227",
+    "run-state-0vqQz4hS.mjs": "c24361ea31d353abcad4f10cd3c790a7361cd445f21da82b4cac64258ebb27c5",
+    "agent-run-registry-Dvv4_0by.mjs": "9a4a059d0d7a3e7aa038cb15b3212e6c4188738e8edbe15219819c9b92ef7564"
+  },
+  "names": [
+    "sessions-read-BSqkIDDT.mjs",
+    "reply-run-registry.registry-AU46m76C.mjs",
+    "agent-run-registry-Dvv4_0by.mjs"
+  ],
+  "contextKeys": [
+    "u",
+    "m"
+  ],
+  "attachedBackend": ["reply-run-registry.state-Cbu_mr1k.mjs", "h"]
+},
+  '2026.11.1': {
+  "pins": {
+    "sessions-read-8WZVwcoa.mjs": "18cd9519c887dda62c6e7624f98f7afd10f41ee78f576190362d79898a2b2fa1",
+    "reply-run-registry.registry-BlzIDIz-.mjs": "b79235432b7d0d7abd5530afdfd54ab8f5bb5e1740f9b76d68759aa8498a2a9c",
+    "reply-run-registry.state-BOesaMPG.mjs": "57e5eb71ce43d1e64db1b679e7d7f6eadac399b9340a7e2d8e52cceadfaa3a97",
+    "run-state-DCOv0i_E.mjs": "c77b1b29a9fe3429c3a3a2a6edb0383fb0ed04bd488caefbcd05b0684433b9d8",
+    "agent-run-registry-BBn72PQp.mjs": "4bcf9f868f516c7174461cfd12d445599c965de2a568eec144eed3c5e52cc0c5"
+  },
+  "names": [
+    "sessions-read-8WZVwcoa.mjs",
+    "reply-run-registry.registry-BlzIDIz-.mjs",
+    "agent-run-registry-BBn72PQp.mjs"
+  ],
+  "contextKeys": [
+    "u",
+    "m"
+  ],
+  "attachedBackend": [
+    "reply-run-registry.state-BOesaMPG.mjs",
+    "h"
+  ]
+},
 };
 export async function loadSessionRunTruthRuntime(packageRoot) {
   const root = await fs.realpath(packageRoot);
@@ -68,9 +109,11 @@ export async function loadSessionRunTruthRuntime(packageRoot) {
   const load = name => nativeRequire(path.join(root, 'dist', name));
   const [{ t: handlers }, { g: registry }, contexts] = await Promise.all(profile.names.map(load));
   const [getAgentRunContext, hasLiveAgentRunContext] = profile.contextKeys.map(key => contexts[key]);
+  const getAttachedBackend = profile.attachedBackend ? load(profile.attachedBackend[0])[profile.attachedBackend[1]] : undefined;
   if (typeof handlers?.['sessions.describe'] !== 'function' || typeof registry?.resolveCurrentMessageInjectionTarget !== 'function'
-    || typeof getAgentRunContext !== 'function' || typeof hasLiveAgentRunContext !== 'function') throw new Error('Active-run identity read ports unavailable.');
-  return { describe: handlers['sessions.describe'], registry, runContexts: { getAgentRunContext, hasLiveAgentRunContext } };
+    || typeof getAgentRunContext !== 'function' || typeof hasLiveAgentRunContext !== 'function'
+    || (profile.attachedBackend && typeof getAttachedBackend !== 'function')) throw new Error('Active-run identity read ports unavailable.');
+  return { describe: handlers['sessions.describe'], registry, runContexts: { getAgentRunContext, hasLiveAgentRunContext }, getAttachedBackend };
 }
 
 /**
@@ -88,14 +131,23 @@ export function scheduledRunOrigin(runContexts, runId, sessionKey, sessionId) {
 }
 
 /**
- * The attached owner that native strict steering names in run_not_ready. It is
+ * The attached execution owner, including while injection is unavailable. It is
  * current, open, not aborting and owned by the described concrete generation.
  * It is never a steering target and never replaces activeRunId.
  */
-export function attachedCurrentRunId(registry, key, sessionId) {
+export function attachedCurrentRunId(registry, key, sessionId, getAttachedBackend) {
   if (typeof registry?.resolveCurrentInterruptTarget !== 'function' || typeof registry.get !== 'function'
     || typeof sessionId !== 'string' || !sessionId.trim()) return '';
   const operation = registry.get(key);
+  if (getAttachedBackend) {
+    // Native 10.10 interrupt targets are opaque operation handles. The pinned
+    // backend read port supplies identity without interpreting that handle.
+    if (!operation || operation.sessionId !== sessionId || operation.result != null
+      || operation.abortSignal?.aborted !== false) return '';
+    const backend = getAttachedBackend(operation);
+    const runId = typeof backend?.runId === 'string' ? backend.runId.trim() : '';
+    return runId && registry.get(key) === operation && getAttachedBackend(operation) === backend ? runId : '';
+  }
   const target = registry.resolveCurrentInterruptTarget(key);
   const runId = typeof target?.runId === 'string' ? target.runId.trim() : '';
   if (!operation || !runId || target.isCurrent?.() !== true || registry.get(key) !== operation
@@ -103,7 +155,7 @@ export function attachedCurrentRunId(registry, key, sessionId) {
   return runId;
 }
 
-export function createSessionRunTruthReader({ describe, registry, runContexts }) {
+export function createSessionRunTruthReader({ describe, registry, runContexts, getAttachedBackend }) {
   return async options => {
     const { params, respond } = options;
     const key = params?.sessionKey;
@@ -121,7 +173,7 @@ export function createSessionRunTruthReader({ describe, registry, runContexts })
       const target = registry.resolveCurrentMessageInjectionTarget(key);
       const runId = typeof target?.runId === 'string' ? target.runId.trim() : '';
       const origin = scheduledRunOrigin(runContexts, runId, key, session.sessionId);
-      const attachedRunId = attachedCurrentRunId(registry, key, session.sessionId);
+      const attachedRunId = attachedCurrentRunId(registry, key, session.sessionId, getAttachedBackend);
       // No injection target is not proof of idle. The runtime may be active
       // but not currently steerable, so never erase its busy state in that case.
       respond(true, { session: { key, ...(typeof session.sessionId === 'string' && session.sessionId.trim() ? { sessionId: session.sessionId } : {}), hasActiveRun: runId ? true : session.hasActiveRun,

@@ -35,7 +35,10 @@ export function serializedHistoryReview(view: SessionHistoryView, messages: Work
     version: VERSION,
     generation: view.generation,
     archive: view.archive,
-    cursor: view.cursor,
+    // Process-local membership receipts are not durable transport authority.
+    // A current-generation cold review explicitly revalidates its edge.
+    cursor: view.cursor ? { sessionKey: view.cursor.sessionKey, nextOffset: view.cursor.nextOffset,
+      hasMore: view.cursor.hasMore, totalMessages: view.cursor.totalMessages } : null,
     historyFailure: view.historyFailure === 'older' ? 'older' : null,
     historyProblem: view.historyProblem.slice(0, MAX_DETAIL_LENGTH),
     messages: boundedMessages,

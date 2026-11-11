@@ -15,6 +15,7 @@ const probe = vi.hoisted(() => ({
   restores: 0, promptSending: false,
   prompt: {} as Parameters<typeof import('../prompt/PromptPane').PromptPane>[0],
   renderNativePrompt: false, nativeEditorState: '', nativeNavigationCommand: '',
+  questionEditor: null as null | import('../../modules/vimicate-editor/src/VimicateEditor.types').VimicateEditorViewProps,
   attachmentPayloads: vi.fn<() => Promise<import('../prompt/promptAttachments').GatewayPromptAttachment[]>>(), attachmentClear: vi.fn(),
   transmittedAttachments: [] as import('../prompt/promptAttachments').GatewayPromptAttachment[][],
   promptAttachments: [] as Parameters<typeof import('../prompt/PromptPane').PromptPane>[0]['attachments'],
@@ -28,11 +29,13 @@ const probe = vi.hoisted(() => ({
   storage: new Map<string, string>(),
   commandHistory: [] as string[],
   paired: false, registry: null as Record<string, unknown> | null,
-  historyReply: null as null | ((key: string, limit: number, offset: number) => Record<string, unknown>),
+  registryMutation: null as null | ((payload: Record<string, unknown>, key: string) => void),
+  historyReply: null as null | ((key: string, limit: number, offset: number) => Record<string, unknown> | Promise<Record<string, unknown>>),
   renders: 0,
   isPad: true, viewport: { width: 1200, height: 900 },
   hardwareKey: null as null | ((event: { key: string; control?: boolean; command?: boolean; shift?: boolean; isRepeat?: boolean }) => void),
   scrolls: [] as number[],
+  nativeGeometry: false, nativeOffset: 0, nativeExtraHeight: 0,
   offsets: [] as number[], renderRows: false, flashProps: {} as Record<string, unknown>,
   sessions: [] as Record<string, unknown>[],
   requests: [] as Record<string, unknown>[],
@@ -55,7 +58,12 @@ vi.mock('react-native', async () => {
 vi.mock('react-native-safe-area-context', async () => ({ SafeAreaView: (await import('react-native')).View, useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('../../modules/vimicate-editor', async () => {
   const { createElement } = await import('react');
-  return { PromptDropSurface: ({ children }: { children: import('react').ReactNode }) => createElement('div', null, children), default: { setClipboardText: vi.fn() }, VimicateEditorView: ({ editorState, navigationCommand }: { editorState: string; navigationCommand?: string }) => {
+  return { PromptDropSurface: ({ children }: { children: import('react').ReactNode }) => createElement('div', null, children), default: { setClipboardText: vi.fn() }, VimicateEditorView: (props: import('../../modules/vimicate-editor/src/VimicateEditor.types').VimicateEditorViewProps) => {
+    const { editorState, navigationCommand } = props;
+    if (props.repeatAuthority?.startsWith('[')) {
+      probe.questionEditor = props;
+      return createElement('div', { 'data-testid': 'question-editor' });
+    }
     probe.nativeEditorState = editorState;
     probe.nativeNavigationCommand = navigationCommand ?? '';
     return createElement('div', { 'data-testid': 'native-editor' });
@@ -77,6 +85,12 @@ vi.mock('../gateway/useGatewayHistory', async (importOriginal) => {
     const history = actual.useGatewayHistory(...args);
     probe.updateMessages = history.updateSessionMessages;
     return history;
+  } };
+});
+vi.mock('../gateway/useGatewayThreadRegistryMutation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../gateway/useGatewayThreadRegistryMutation')>();
+  return { useGatewayThreadRegistryMutation: (...args: Parameters<typeof actual.useGatewayThreadRegistryMutation>) => {
+    const accept = actual.useGatewayThreadRegistryMutation(...args); probe.registryMutation = accept; return accept;
   } };
 });
 vi.mock('expo-secure-store', () => ({ AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 'fixture', getItemAsync: async () => null, setItemAsync: async () => {}, deleteItemAsync: async () => {} }));
@@ -133,20 +147,38 @@ vi.mock('../storage/workspaceStore', () => ({
 vi.mock('../prompt/usePromptAttachmentController', () => ({ usePromptAttachmentController: () => ({ attachments: probe.promptAttachments, snapshot: () => probe.promptAttachments, isImporting: () => false, payloads: probe.attachmentPayloads, clear: probe.attachmentClear }) }));
 vi.mock('../updates/useAppUpdateNotice', () => ({ useAppUpdateNotice: () => ({ showNotes: probe.showUpdateNotes }) }));
 vi.mock('@shopify/flash-list', async () => {
-  const { createElement, forwardRef, useImperativeHandle, useLayoutEffect } = await import('react');
+  const { createElement, forwardRef, useImperativeHandle, useLayoutEffect, useRef } = await import('react');
   return { FlashList: forwardRef((props: Record<string, unknown>, ref) => {
     probe.renders += 1;
-    useLayoutEffect(() => { probe.flashProps = props; });
+    const committed = useRef(props);
+    useLayoutEffect(() => { probe.flashProps = props; committed.current = props; });
     useImperativeHandle(ref, () => ({
-      getLayout: () => undefined, getAbsoluteLastScrollOffset: () => 0,
-      getWindowSize: () => ({ width: 900, height: 500 }), getChildContainerDimensions: () => ({ height: 2000 }), getFirstItemOffset: () => 0,
-      scrollToIndex: async ({ index }: { index: number }) => { probe.scrolls.push(index); }, scrollToOffset: async ({ offset }: { offset: number }) => { probe.offsets.push(offset); },
+      getLayout: (index: number) => probe.nativeGeometry ? { x: 0, y: index * 20, width: 900, height: 20 } : undefined, getAbsoluteLastScrollOffset: () => probe.nativeGeometry ? probe.nativeOffset : 0,
+      getWindowSize: () => ({ width: 900, height: 500 }), getChildContainerDimensions: () => ({ height: probe.nativeGeometry ? (committed.current.data as unknown[]).length * 20 + probe.nativeExtraHeight : 2000 }), getFirstItemOffset: () => 0,
+      scrollToIndex: async ({ index }: { index: number }) => { probe.scrolls.push(index); }, scrollToOffset: async ({ offset }: { offset: number }) => { probe.offsets.push(offset); if (probe.nativeGeometry) {
+        probe.nativeOffset = offset;
+        const count = (committed.current.data as unknown[]).length;
+        (committed.current.onScroll as (event: unknown) => void)({ nativeEvent: { contentOffset: { y: offset }, contentSize: { height: count * 20 + probe.nativeExtraHeight }, layoutMeasurement: { height: 500 } } });
+        (committed.current.onViewableItemsChanged as (event: unknown) => void)({ viewableItems: Array.from({ length: count }, (_, index) => ({ index })).filter(item => item.index >= Math.floor(offset / 20) && item.index <= Math.floor((offset + 500) / 20)), changed: [] });
+      } },
     }), []);
     return createElement('div', { 'data-testid': 'transcript' }, String((props.data as unknown[]).length), props.ListFooterComponent as React.ReactNode, probe.renderRows ? (props.data as unknown[]).map((_, index) => createElement('span', { key: index }, (props.renderItem as (input: { index: number }) => React.ReactNode)({ index }))) : null);
   }) };
 });
 vi.mock('../transcript/openTranscriptLink', () => ({ openTranscriptLink: probe.nativeLink, transcriptLinkAccessibilityHint: () => 'Native file handling', transcriptLinkAccessibilityLabel: () => 'Open link' }));
-vi.mock('../transcript/TranscriptSourceRow', async () => { const { createElement } = await import('react'); const { useTranscriptLinkOpener } = await import('../transcript/TranscriptLinkOpener'); return { TranscriptSourceRow: ({ row, onPress }: { row: { sourceRow: number }; onPress: () => void }) => { probe.transcriptLinkOpener = useTranscriptLinkOpener(); return createElement('button', { 'data-testid': `row-${row.sourceRow}`, onClick: onPress }); } }; });
+vi.mock('../transcript/TranscriptSourceRow', async () => {
+  const { createElement } = await import('react'); const { useTranscriptLinkOpener } = await import('../transcript/TranscriptLinkOpener');
+  const { TranscriptQuestion } = await import('../questions/TranscriptQuestion');
+  const { TranscriptAsyncQuestion } = await import('../questions/TranscriptAsyncQuestion');
+  return { TranscriptSourceRow: (props: React.ComponentProps<typeof import('../transcript/TranscriptSourceRow').TranscriptSourceRow>) => {
+    probe.transcriptLinkOpener = useTranscriptLinkOpener();
+    const { row, onPress, fontScale } = props;
+    const focused = props.focused && props.navigation.cursor.row === row.sourceRow;
+    if (row.lastInMessage && row.message.question) return createElement(TranscriptQuestion, { record: row.message.question, onFocus: onPress, focused, fontScale });
+    if (row.lastInMessage && row.message.asyncQuestion) return createElement(TranscriptAsyncQuestion, { message: row.message, onFocus: onPress, focused, fontScale });
+    return createElement('button', { 'data-testid': `row-${row.sourceRow}`, onClick: onPress });
+  } };
+});
 vi.mock('../gateway/PairingBar', () => ({ PairingBar: ({ paneControls, helpControl }: { paneControls?: React.ReactNode; helpControl?: React.ReactNode }) => <>{helpControl}{paneControls}</> }));
 vi.mock('../prompt/PromptPane', async (importOriginal) => {
   const { createElement, useLayoutEffect } = await import('react');
@@ -174,6 +206,7 @@ vi.mock('../ui/PaneFontPinchSurface', async () => ({ PaneFontPinchSurface: (awai
 vi.mock('./BottomSafeAreaChrome', async () => ({ BottomSafeAreaChrome: (await import('react-native')).View }));
 
 import { AppShell } from './AppShell';
+import { recordViewportDiagnostic } from '../../modules/vimicate-diagnostics';
 import { acceptNativeText, createPromptState } from '../prompt/vimPromptCore';
 import { promptWithProjectContext } from '../gateway/projectPromptContext';
 const expectedPromptBody = (body: string) => promptWithProjectContext(body, (probe.gateway.projects as WorkspaceProject[]).find(project => project.sessionKey === 'agent:test:main'));
@@ -188,9 +221,11 @@ beforeEach(() => {
   probe.showUpdateNotes.mockClear(); probe.nativeLink.mockReset(); probe.transcriptLinkOpener = null;
   probe.sharedResolve.mockReset(); probe.sharedList.mockReset(); probe.sharedRead.mockReset(); probe.locatedRequest.mockReset();
   probe.gateway = {}; probe.rail = {}; probe.header = {}; probe.paneControls = {}; probe.projectFiles = null; probe.mediaViewer = null; probe.storage.clear(); probe.commandHistory = []; probe.paired = false; probe.registry = null; probe.appStateListeners.clear();
-  probe.client = null; probe.questionScope = false; probe.questionRecords = [];
+  probe.registryMutation = null; probe.client = null; probe.questionScope = false; probe.questionRecords = [];
+  probe.questionEditor = null;
   probe.isPad = true; probe.viewport = { width: 1200, height: 900 };
   probe.renders = 0; probe.restores = 0; probe.promptSending = false; probe.renderNativePrompt = false; probe.nativeEditorState = ''; probe.nativeNavigationCommand = '';
+  probe.nativeGeometry = false; probe.nativeOffset = 0; probe.nativeExtraHeight = 0;
   probe.hardwareKey = null; probe.scrolls = []; probe.offsets = []; probe.renderRows = false; probe.flashProps = {};
   probe.sessions = [{ key: 'agent:test:main', displayName: 'test' }];
   probe.requests = []; probe.sends = []; probe.promptAttachments = []; probe.historyReply = null;
@@ -213,6 +248,73 @@ function rows(count: number): WorkspaceMessage[] {
 }
 
 describe('AppShell React commit convergence', () => {
+  it.each(['selection', 'refresh', 'registry'] as const)('seeds a returning thread from its painted viewport after non-rail %s', async route => {
+    probe.nativeGeometry = true;
+    const a = 'agent:test:main'; const b = 'agent:test:other';
+    const sessions = [{ key: a, displayName: 'test' }, { key: b, displayName: 'other' }];
+    probe.sessions = sessions;
+    probe.historyReply = sessionKey => ({ sessionKey, messages: Array.from({ length: sessionKey === a ? 100 : 20 }, (_, index) => ({ id: `${sessionKey}-${index}`, role: 'assistant', content: `line ${index}` })) });
+    await act(async () => root.render(<AppShell />));
+    await act(async () => { await (probe.gateway.connect as (profile: unknown) => Promise<void>)({ url: 'ws://fixture.invalid', token: 'fixture' }); });
+    const sample = (offset: number) => {
+      probe.nativeOffset = offset;
+      (probe.flashProps.onScroll as (event: unknown) => void)({ nativeEvent: { contentOffset: { y: offset }, contentSize: { height: (probe.flashProps.data as unknown[]).length * 20 }, layoutMeasurement: { height: 500 } } });
+      (probe.flashProps.onViewableItemsChanged as (event: unknown) => void)({ viewableItems: [{ index: Math.floor(offset / 20) }], changed: [] });
+    };
+    await act(async () => { (probe.flashProps.onScrollBeginDrag as () => void)(); sample(210.5); });
+    if (route === 'refresh') {
+      probe.sessions = [sessions[1]!];
+      await act(async () => { await (probe.gateway.refresh as () => Promise<void>)(); });
+      expect(probe.gateway.messageSessionKey).toBe(b);
+      probe.sessions = sessions;
+      await act(async () => { await (probe.gateway.refresh as () => Promise<void>)(); });
+    } else if (route === 'registry') await act(async () => probe.registryMutation!({}, b));
+    else await act(async () => { (probe.gateway.selectProject as (key: string) => void)(b); });
+    expect(probe.gateway.messageSessionKey).toBe(b);
+    await act(async () => { (probe.gateway.selectProject as (key: string) => void)(a); });
+    expect(probe.gateway.messageSessionKey).toBe(a);
+    expect(probe.flashProps.initialScrollIndex).toBe(10);
+    expect(probe.flashProps.initialScrollIndex).not.toBe((probe.flashProps.data as unknown[]).length - 1);
+  });
+
+  it('wires current-selection history loading through AppShell while a session lease holds delayed end growth', async () => {
+    probe.nativeGeometry = true;
+    const frames = new Map<number, FrameRequestCallback>(); let next = 0; let now = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++next, callback); return next; });
+    vi.stubGlobal('cancelAnimationFrame', (frame: number) => frames.delete(frame));
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const tick = async () => { now += 100; await act(async () => { const queued = [...frames.values()]; frames.clear(); queued.forEach(callback => callback(now)); }); };
+    const a = 'agent:test:main'; const b = 'agent:test:other';
+    const payload = (sessionKey: string) => ({ sessionKey, messages: Array.from({ length: 80 }, (_, index) => ({ id: `${sessionKey}-${index}`, role: 'assistant', content: `line ${index}` })) });
+    probe.sessions = [{ key: a, displayName: 'test' }, { key: b, displayName: 'other' }];
+    probe.historyReply = payload;
+    await act(async () => root.render(<AppShell />));
+    await act(async () => { await (probe.gateway.connect as (profile: unknown) => Promise<void>)({ url: 'ws://fixture.invalid', token: 'fixture' }); });
+    const publish = (offset: number) => {
+      const height = (probe.flashProps.data as unknown[]).length * 20 + probe.nativeExtraHeight;
+      probe.nativeOffset = offset;
+      (probe.flashProps.onLayout as (event: unknown) => void)({ nativeEvent: { layout: { height: 500 } } });
+      (probe.flashProps.onContentSizeChange as (width: number, height: number) => void)(900, height);
+      (probe.flashProps.onScroll as (event: unknown) => void)({ nativeEvent: { contentOffset: { y: offset }, contentSize: { height }, layoutMeasurement: { height: 500 } } });
+      (probe.flashProps.onViewableItemsChanged as (event: unknown) => void)({ viewableItems: [{ index: 79 }], changed: [] });
+    };
+    await act(async () => { (probe.flashProps.onScrollBeginDrag as () => void)(); publish(1100); });
+    await act(async () => { (probe.rail.onSelect as (key: string) => void)(b); });
+    await act(async () => { (probe.rail.onSelect as (key: string) => void)(a); });
+    let resolve!: (value: Record<string, unknown>) => void;
+    probe.historyReply = key => key === a ? new Promise(done => { resolve = done; }) : payload(key);
+    let refresh!: Promise<void>;
+    await act(async () => { refresh = (probe.gateway.retryHistory as () => Promise<void>)(); publish(1100); });
+    const historyWasPending = probe.gateway.historyLoading === true;
+    for (let i = 0; i < 40; i++) await tick();
+    probe.nativeExtraHeight = 280;
+    await act(async () => { resolve(payload(a)); await refresh; publish(probe.nativeOffset); });
+
+    for (let i = 0; i < 12; i++) await tick();
+    expect({ historyWasPending, historyPending: probe.gateway.historyLoading === true, offset: probe.nativeOffset }).toEqual({ historyWasPending: true, historyPending: false, offset: 1380 });
+    clock.mockRestore();
+  });
+
   it('bridges Ctrl-U/D to scoped native prompt paging without editing text or undo', async () => {
     probe.renderNativePrompt = true;
     await act(async () => root.render(<AppShell fixtureMessages={rows(20)} />));
@@ -312,6 +414,98 @@ describe('AppShell React commit convergence', () => {
     await act(async () => probe.hardwareKey!({ key: 'enter' }));
     expect(probe.requests.filter(row => row.method === 'question.resolve')).toEqual([{ method: 'question.resolve', id: question.id, answers: { answers: { route: ['Two'] } }, resolvedBy: 'Vimicate' }]);
     expect((probe.gateway.messages as WorkspaceMessage[]).find(row => row.question)?.text).toBe('Question answered · Two');
+    expect(probe.sends).toEqual([]);
+  });
+
+  async function openInlineQuestion(kind: 'broker' | 'async', twoFields = false) {
+    probe.renderRows = true; probe.questionScope = true;
+    probe.registry = { projects: { markdown: '## Test\n- id: test\n- backend: openclaw\n- session: agent:test:main' } };
+    await act(async () => root.render(<AppShell />));
+    await act(async () => { await (probe.gateway.connect as (profile: unknown) => Promise<void>)({ url: 'ws://fixture.invalid', token: 'fixture' }); });
+    let record: import('../questions/questionTypes').QuestionRecord;
+    const asyncUI = () => (probe.gateway.asyncQuestions as ReturnType<typeof import('../gateway/useAsyncGatewayQuestions').useAsyncGatewayQuestions>).ui;
+    if (kind === 'broker') {
+      record = { id: 'inline-pane', sessionKey: 'agent:test:main', createdAtMs: Date.now(), expiresAtMs: Date.now() + 60000, status: 'pending', questions: [{ questionId: 'route', header: 'Route', question: 'Route', options: [{ label: 'One' }], isOther: true }] };
+      if (twoFields) record.questions.push({ questionId: 'second', header: 'Second', question: 'Second', options: [{ label: 'One' }], isOther: true });
+      probe.questionRecords = [record];
+      await act(async () => probe.client!.onEvent!({ event: 'question.requested', payload: record }));
+    } else {
+      await act(async () => probe.updateMessages!('agent:test:main', [{ id: 'inline-source', role: 'assistant', text: 'Route', source: 'history', sessionKey: 'agent:test:main', runId: 'inline-origin', asyncMessage: true, asyncQuestion: { itemId: 'inline-item', questions: [{ title: 'Route', options: ['One'] }, ...(twoFields ? [{ title: 'Second', options: ['One'] }] : [])] } }]));
+      const owner = probe.gateway.asyncQuestions as ReturnType<typeof import('../gateway/useAsyncGatewayQuestions').useAsyncGatewayQuestions>;
+      record = owner.view((probe.gateway.messages as WorkspaceMessage[]).find(row => row.asyncQuestion)!)!.record;
+    }
+    const controls = () => kind === 'broker' ? probe.gateway.questions as import('../questions/QuestionContext').QuestionActions : asyncUI();
+    const open = async () => { await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Edit Route other answer"]')!.click()); };
+    await open();
+    expect(probe.questionEditor).not.toBeNull();
+    const nativeKey = async (key: string, control = false, snapshot = false) => {
+      const editor = probe.questionEditor!; const state = JSON.parse(editor.editorState);
+      await act(async () => editor.onHardwareKey?.({ nativeEvent: { key, control, shift: false, command: false, option: false,
+        ...(snapshot ? { text: 'retained draft', selectionStart: 14, selectionEnd: 14, textAuthority: state.authority } : {}) } }));
+    };
+    return { record, controls, open, nativeKey };
+  }
+
+  for (const kind of ['broker', 'async'] as const) for (const mode of ['insert', 'normal'] as const) {
+    it.each([['h', 'projects'], ['j', 'prompt'], ['k', 'transcript'], ['l', 'transcript']] as const)(`routes ${kind} ${mode} inline Ctrl-%s through the actual workspace`, async (key, target) => {
+      const question = await openInlineQuestion(kind);
+      await question.nativeKey('escape', false, true);
+      if (mode === 'insert') await question.nativeKey('i');
+      const stale = probe.questionEditor!;
+      await question.nativeKey(key, true);
+      expect(probe.prompt.focusedPane).toBe(target);
+      if (key === 'l') expect(probe.projectFiles?.focused).toBe(true);
+      expect(container.querySelector('[data-testid="question-editor"]')).toBeNull();
+      expect(question.controls().textEditing).toBeNull();
+      expect(Object.values(question.controls().draft(question.record).text)).toEqual(['retained draft']);
+      expect(probe.prompt.state.text).toBe('');
+      const focusAfter = probe.prompt.focusedPane;
+      await act(async () => stale.onHardwareKey?.({ nativeEvent: { key: 'j', control: true, shift: false, command: false, option: false } }));
+      expect(probe.prompt.focusedPane).toBe(focusAfter);
+      if (key === 'l') await act(async () => probe.hardwareKey!({ key: 'h', control: true }));
+      await act(async () => probe.hardwareKey!({ key: 'k', control: true }));
+      expect(container.querySelector('[data-testid="question-editor"]')).toBeNull();
+      expect(probe.requests.filter(row => row.method === 'question.resolve')).toEqual([]);
+      expect(probe.sends).toEqual([]);
+      await question.open();
+      expect(JSON.parse(probe.questionEditor!.editorState).text).toBe('retained draft');
+    });
+  }
+
+  it.each(['broker', 'async'] as const)('keeps Ctrl-W prefix local until the %s inline normal editor chooses a pane', async kind => {
+    const question = await openInlineQuestion(kind);
+    await question.nativeKey('escape', false, true);
+    await question.nativeKey('w', true);
+    expect(question.controls().textEditing).toBe(question.record.id);
+    expect(container.querySelector('[data-testid="question-editor"]')).not.toBeNull();
+    await question.nativeKey('h');
+    expect(probe.prompt.focusedPane).toBe('projects');
+    expect(question.controls().textEditing).toBeNull();
+    expect(Object.values(question.controls().draft(question.record).text)).toEqual(['retained draft']);
+    expect(probe.sends).toEqual([]);
+  });
+
+  it.each(['broker', 'async'] as const)('discards a pending pane prefix when the %s answer field changes within one card', async kind => {
+    const question = await openInlineQuestion(kind, true);
+    await question.nativeKey('escape'); await question.nativeKey('w', true);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Edit Second other answer"]')!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Other answer normal mode"]')!.click());
+    await question.nativeKey('h');
+    expect(probe.prompt.focusedPane).toBe('transcript');
+    expect(container.querySelector('[data-testid="question-editor"]')).not.toBeNull();
+    expect(question.controls().textEditing).toBe(question.record.id);
+    expect(probe.sends).toEqual([]);
+  });
+
+  it.each(['broker', 'async'] as const)('clears the %s inline Ctrl-W prefix across toolbar mode transitions', async kind => {
+    const question = await openInlineQuestion(kind);
+    await question.nativeKey('escape'); await question.nativeKey('w', true);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Other answer insert mode"]')!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Other answer normal mode"]')!.click());
+    await question.nativeKey('h');
+    expect(probe.prompt.focusedPane).toBe('transcript');
+    expect(container.querySelector('[data-testid="question-editor"]')).not.toBeNull();
+    expect(question.controls().textEditing).toBe(question.record.id);
     expect(probe.sends).toEqual([]);
   });
 
@@ -546,13 +740,30 @@ describe('AppShell React commit convergence', () => {
     expect(probe.rail.focusedKey).toBe(childKey);
   });
 
+  it('cycles command options through native completion and hardware arrows without running them', async () => {
+    await act(async () => root.render(<AppShell />));
+    await act(async () => probe.hardwareKey?.({ key: ':' }));
+    await act(async () => probe.hardwareKey?.({ key: 'down' }));
+    expect(probe.commandBar.command?.query).toBe('approvals');
+    await act(async () => probe.hardwareKey?.({ key: 'down' }));
+    expect(probe.commandBar.command?.query).toBe('approve');
+    await act(async () => probe.commandBar.onComplete(true));
+    expect(probe.commandBar.command?.query).toBe('approvals');
+    await act(async () => probe.commandBar.onQueryChange('upda'));
+    await act(async () => probe.hardwareKey?.({ key: 'down' }));
+    expect(probe.commandBar.command?.query).toBe('update-notes');
+    expect(probe.showUpdateNotes).not.toHaveBeenCalled();
+    await act(async () => probe.hardwareKey?.({ key: 'enter' }));
+    expect(probe.showUpdateNotes).toHaveBeenCalledOnce();
+  });
+
   it('recalls submitted colon commands through native and hardware routes without executing them', async () => {
     await act(async () => root.render(<AppShell />));
     for (const key of [':', ...'update-notes', 'enter', ':', ...'noh', 'enter', ':', ...'unfinished']) await act(async () => { probe.hardwareKey?.({ key }); });
     expect(probe.showUpdateNotes).toHaveBeenCalledOnce();
     await act(async () => probe.commandBar.onHistory(-1));
     expect(probe.commandBar.command?.query).toBe('noh');
-    await act(async () => probe.hardwareKey?.({ key: 'up' }));
+    await act(async () => probe.hardwareKey?.({ key: 'up', shift: true }));
     expect(probe.commandBar.command?.query).toBe('update-notes');
     expect(probe.showUpdateNotes).toHaveBeenCalledOnce();
     await act(async () => probe.commandBar.onHistory(1));

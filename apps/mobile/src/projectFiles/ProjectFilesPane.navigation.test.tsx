@@ -440,3 +440,10 @@ it('coalesces repeated Enter during original download and cancels when Files clo
   await act(async () => finish({ filename: entry.name, mimeType: entry.mimeType, dataBase64: 'AA==' }));
   expect(probe.share).not.toHaveBeenCalled();
 });
+
+it('shows the admitted remote host and real folder instead of a local path with virtual components', async () => {
+  const filesPort: ProjectFilesPort = { listDirectory: async ({ projectId, path }) => ({ projectId, path, entries: [], directoryLabel: 'work-mac:~/repos/example/docs' }), readFile: vi.fn() };
+  await act(async () => root.render(<Harness rootPath="~/repos/retired" filesPort={filesPort} width={260} />));
+  await act(async () => probe.controller!.openFilePath('repo@work-mac/docs/guide.md'));
+  expect(node.querySelector('[aria-label="Project path work-mac:~/repos/example/docs"]')?.textContent).toBe('work-mac:~/repos/example/docs');
+});

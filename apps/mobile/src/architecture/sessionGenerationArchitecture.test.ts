@@ -33,9 +33,10 @@ describe('stable-key session generation architecture', () => {
   it('recovers an archive request rejected across /new without stranding successor rows in the hidden tail', () => {
     const history = source('src/gateway/useGatewayHistory.ts');
     const latest = source('src/gateway/latestHistoryLoading.ts');
-    const rejection = history.indexOf('archivedFamilyAuthorityInvalidated(error)');
-    const request = history.indexOf('archiveRecovery.current.request(sessionKey)', rejection);
-    const reload = history.indexOf('void loadHistory(sessionKey)', request);
+    const older = source('src/gateway/olderHistoryLoading.ts');
+    const rejection = older.indexOf('archivedFamilyAuthorityInvalidated(error)');
+    const request = older.indexOf('archiveRecovery.current.request(sessionKey)', rejection);
+    const reload = older.indexOf('void loadHistory(sessionKey)', request);
     const consume = latest.indexOf('archiveRecovery.current.consume(sessionKey)');
     const publish = latest.indexOf("windowMode.current = 'latest';", consume);
 

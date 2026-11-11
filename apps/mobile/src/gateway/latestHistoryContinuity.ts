@@ -1,3 +1,5 @@
+import { recordHistoryTransport } from './historyTransport';
+import { transcriptPublicationIdentity } from './transcriptIdentityWall';
 import type { OpenClawClient } from './OpenClawClient';
 import { historyCursorFromPayload, mergeOlderHistory, type HistoryCursor } from './historyPagination';
 import { type WorkspaceMessage } from '../workspace/workspaceTypes';
@@ -29,6 +31,7 @@ export async function completedNativeHistoryContinuity<T>(
   workspacePath: string,
   owns: () => boolean,
   bridgeRetainedTail = true,
+  projectionContext?: (() => WorkspaceMessage[]) | undefined,
 ): Promise<CompletedLatestHistory<T> | null> {
   if (!owns()) return null;
   const edge = nativeContinuityEdge(retained, completed.messages, sessionKey);
@@ -40,15 +43,17 @@ export async function completedNativeHistoryContinuity<T>(
 
   let messages = completed.messages;
   let pageCursor = completed.cursor;
+  let transport = completed.cursor.transport;
   for (let pageCount = 0; pageCount < MAX_CONTINUITY_PAGES && pageCursor.hasMore && pageCursor.nextOffset !== null; pageCount += 1) {
     const offset = pageCursor.nextOffset;
     const payload = await client.history(sessionKey, 80, offset);
     if (!owns()) return null;
-    const older = client.decorateMessages(messagesFromPayload(payload, workspacePath), sessionKey);
+    const older = client.decorateMessages(messagesFromPayload(payload, workspacePath, [...retained, ...messages, ...(projectionContext?.() ?? [])]), sessionKey);
+    const next = recordHistoryTransport(historyCursorFromPayload(payload, sessionKey), offset, older, payload, { ...pageCursor, transport });
+    transport = next.transport;
     messages = mergeOlderHistory(older, messages, sessionKey);
-    if (nativeEdgeReached(messages, edge)) return { ...completed, messages };
-    const next = historyCursorFromPayload(payload, sessionKey);
-    if (!next.hasMore || next.nextOffset === null) return { ...completed, messages };
+    if (nativeEdgeReached(messages, edge)) return { ...completed, messages, cursor: { ...completed.cursor, transport } };
+    if (!next.hasMore || next.nextOffset === null) return freshNativeWindow({ ...completed, messages, cursor: { ...completed.cursor, transport } }, sessionKey, edge);
     if (next.nextOffset <= offset) throw new Error('history continuity page did not advance');
     pageCursor = next;
   }
@@ -59,49 +64,54 @@ export async function completedNativeHistoryContinuity<T>(
     // Keep the original cursor so the omitted span remains pageable.
     return freshNativeWindow(completed, sessionKey, edge);
   }
-  return { ...completed, messages };
+  return { ...completed, messages, cursor: { ...completed.cursor, transport } };
 }
 
 function freshNativeWindow<T>(completed: CompletedLatestHistory<T>, sessionKey: string, edge: NativeContinuityEdge): CompletedLatestHistory<T> {
   const rawSeq = Math.min(...completed.messages.filter(message => message.source === 'history'
     && message.sessionKey === sessionKey && message.transcriptSessionId === edge.transcriptSessionId
     && message.displayPosition?.source === edge.source).map(message => message.displayPosition!.rawSeq));
-  return { ...completed, nativeHistoryFloor: { source: edge.source, transcriptSessionId: edge.transcriptSessionId, rawSeq } };
+  return { ...completed, nativeHistoryFloor: { source: edge.source, transcriptSessionId: edge.transcriptSessionId, rawSeq, members: completed.messages.map(transcriptPublicationIdentity) } };
 }
 
 type NativeContinuityEdge = {
   source: string;
   transcriptSessionId: string;
-  retainedRawSeq: number;
+  members: Set<string>;
 };
 
 function nativeContinuityEdge(retained: WorkspaceMessage[], latest: WorkspaceMessage[], sessionKey: string): NativeContinuityEdge | null {
   const first = latest.find(message => message.source === 'history' && message.sessionKey === sessionKey
     && message.transcriptSessionId && message.displayPosition);
   if (!first?.transcriptSessionId || !first.displayPosition) return null;
-  const retainedRawSeq = retained.reduce((maximum, message) => (message.source === 'history' || message.source === 'live')
-    && message.sessionKey === sessionKey
-    && message.transcriptSessionId === first.transcriptSessionId
-    && message.displayPosition?.source === first.displayPosition!.source
-      ? Math.max(maximum, message.displayPosition.rawSeq) : maximum, -1);
-  return retainedRawSeq >= 0 && retainedRawSeq + 1 < first.displayPosition.rawSeq
-    ? { source: first.displayPosition.source, transcriptSessionId: first.transcriptSessionId, retainedRawSeq }
-    : null;
+  const nativeRetained = retained.filter(message => (message.source === 'history' || message.source === 'live')
+    && message.sessionKey === sessionKey && message.transcriptSessionId === first.transcriptSessionId
+    && message.displayPosition?.source === first.displayPosition!.source);
+  const members = new Set(nativeRetained.map(nativeWitness));
+  return members.size && !latest.some(message => members.has(nativeWitness(message)))
+    ? { source: first.displayPosition.source, transcriptSessionId: first.transcriptSessionId, members } : null;
 }
 
 function nativeEdgeReached(messages: WorkspaceMessage[], edge: NativeContinuityEdge) {
   return messages.some(message => message.source === 'history'
     && message.transcriptSessionId === edge.transcriptSessionId
     && message.displayPosition?.source === edge.source
-    && message.displayPosition.rawSeq <= edge.retainedRawSeq + 1);
+    && edge.members.has(nativeWitness(message)));
 }
 
-export type NativeHistoryFloor = { source: string; transcriptSessionId: string; rawSeq: number };
+export type NativeHistoryFloor = { source: string; transcriptSessionId: string; rawSeq: number; members?: string[] };
 
 /** Applied to the current tail at publication time, never by clearing a cache. */
 export function retainedNativeHistoryWindow(messages: WorkspaceMessage[], sessionKey: string, floor?: NativeHistoryFloor) {
   if (!floor) return messages;
   return messages.filter(message => !(message.source === 'history' && message.sessionKey === sessionKey
     && message.transcriptSessionId === floor.transcriptSessionId && message.displayPosition?.source === floor.source
-    && message.displayPosition.rawSeq < floor.rawSeq));
+    && (floor.members ? !floor.members.includes(transcriptPublicationIdentity(message)) : message.displayPosition.rawSeq < floor.rawSeq)));
+}
+
+/** Native position is a scoped record witness, never a transport offset. */
+function nativeWitness(message: WorkspaceMessage) {
+  return message.displayPosition && message.transcriptSessionId
+    ? `${message.sessionKey}\0${message.transcriptSessionId}\0${message.displayPosition.source}\0${message.displayPosition.rawSeq}`
+    : transcriptPublicationIdentity(message);
 }

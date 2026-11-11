@@ -12,6 +12,7 @@ function sameWorkspaceMessage(left: WorkspaceMessage, right: WorkspaceMessage) {
   return left === right || (left.text === right.text
     && left.chatCumulativeText === right.chatCumulativeText
     && left.claudeNativeFullText === right.claudeNativeFullText
+    && left.cliEndTurn === right.cliEndTurn
     && left.terminalReplyText === right.terminalReplyText
     && sameWorkspaceMessageExceptText(left, right));
 }
@@ -42,6 +43,8 @@ export function sameWorkspaceMessageExceptText(left: WorkspaceMessage, right: Wo
     && left.idempotencyKey === right.idempotencyKey
     && left.absorbedLiveIdentity?.messageId === right.absorbedLiveIdentity?.messageId
     && left.absorbedLiveIdentity?.runId === right.absorbedLiveIdentity?.runId
+    && left.historyOmission?.firstTailMessageId === right.historyOmission?.firstTailMessageId
+    && left.historyOmission?.promptMessageId === right.historyOmission?.promptMessageId
     && left.toolGroup?.count === right.toolGroup?.count
     && left.toolGroup?.lastMessageId === right.toolGroup?.lastMessageId
     && sameTool(left.tool, right.tool)
@@ -54,7 +57,8 @@ function sameTool(left: WorkspaceMessage['tool'], right: WorkspaceMessage['tool'
   return left === right || Boolean(left && right
     && left.name === right.name
     && left.summary === right.summary
-    && left.skillName === right.skillName && left.resultSucceeded === right.resultSucceeded
+    && left.skillName === right.skillName && left.resultSucceeded === right.resultSucceeded && left.resultOf === right.resultOf
+    && left.messageSend?.text === right.messageSend?.text && left.messageSend?.final === right.messageSend?.final
     && left.durationMs === right.durationMs);
 }
 

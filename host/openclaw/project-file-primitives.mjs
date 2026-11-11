@@ -138,17 +138,28 @@ export function classified(name, stat, includeDocuments) {
 export function parseProjects(markdown) {
   const projects = [];
   let current = null;
+  let inRoots = false;
   const finish = () => {
     if (current?.id && current.repo) projects.push(current);
   };
   for (const line of markdown.split(/\r?\n/u)) {
     if (/^##\s+.+?\s*$/u.test(line)) {
       finish();
-      current = {};
+      current = {}; inRoots = false;
       continue;
     }
     if (!current) continue;
-    const field = line.match(/^\s*-\s+(id|repo|default-executor):\s*(.*?)\s*$/iu);
+    if (/^- file-roots:\s*$/u.test(line)) {
+      check(current.fileRoots === undefined, 'duplicate file-roots section');
+      current.fileRoots = []; inRoots = true; continue;
+    }
+    if (inRoots && /^  \S/u.test(line)) {
+      const root = line.match(/^  - ([a-zA-Z0-9][a-zA-Z0-9._-]{0,63})@([a-zA-Z0-9][a-zA-Z0-9.-]{0,63}):\s+(.+?)\s*$/u);
+      check(root, 'invalid file-roots entry');
+      current.fileRoots.push({ name: `${root[1]}@${root[2]}`, host: root[2], rootPath: root[3] }); continue;
+    }
+    if (line.trim()) inRoots = false;
+    const field = line.match(/^-\s+(id|repo|default-executor):\s*(.*?)\s*$/iu);
     if (!field) continue;
     current[field[1].toLocaleLowerCase('en-US')] = field[2].trim();
   }

@@ -122,6 +122,34 @@ it('fences an explicit interrupt without enabling strict steering or losing atta
   client.disconnect(); await expect(pending).rejects.toSatisfy(gatewayRequestReachedGateway);
 });
 
+it('falls back to native steering once a Gateway rejects the run-fence fields, then stays native', async () => {
+  const { client, socket } = connectedClient();
+  const reply = (frame: unknown) => (socket.onmessage as (event: { data: string }) => void)({ data: JSON.stringify(frame) });
+  const fenced = { queueMode: 'steer', steerPolicy: 'require-active', expectedActiveRunId: 'active-run' } as const;
+  const first = client.send('qa', 'steer me', [], 'submission', fenced);
+  expect(JSON.parse(socket.sent[0]!).params).toMatchObject({ steerPolicy: 'require-active', expectedActiveRunId: 'active-run' });
+  reply({ type: 'res', id: 'request-one', ok: false, error: { code: 'INVALID_REQUEST', message: "invalid chat.send params: at root: unexpected property 'steerPolicy'" } });
+  await vi.waitFor(() => expect(socket.sent).toHaveLength(2));
+  const retry = JSON.parse(socket.sent[1]!).params;
+  expect(retry).toMatchObject({ queueMode: 'steer', message: 'steer me', idempotencyKey: 'submission' });
+  expect(retry).not.toHaveProperty('steerPolicy'); expect(retry).not.toHaveProperty('expectedActiveRunId');
+  reply({ type: 'res', id: 'request-one', ok: true, payload: { runId: 'active-run', status: 'in_flight' } });
+  await expect(first).resolves.toMatchObject({ runId: 'active-run' });
+  void client.send('qa', 'again', [], 'second', fenced).catch(() => undefined);
+  expect(JSON.parse(socket.sent[2]!).params).not.toHaveProperty('steerPolicy');
+  expect(() => client.send('qa', 'stale', [], 'third', { ...fenced, expectedActiveRunId: ' ' })).toThrow('Refresh this thread');
+  expect(socket.sent).toHaveLength(3);
+  client.disconnect();
+});
+
+it('never downgrades a fenced interrupt when the Gateway rejects its run fence', async () => {
+  const { client, socket } = connectedClient();
+  const pending = client.send('qa', 'correction', [], 'interrupt-one', { queueMode: 'interrupt', expectedActiveRunId: 'cron-run' });
+  const check = expect(pending).rejects.toThrow('Gateway runtime update required');
+  (socket.onmessage as (event: { data: string }) => void)({ data: JSON.stringify({ type: 'res', id: 'request-one', ok: false, error: { code: 'INVALID_REQUEST', message: "invalid chat.send params: unexpected property 'expectedActiveRunId'" } }) });
+  await check; expect(socket.sent).toHaveLength(1); client.disconnect();
+});
+
 it('refuses an empty run fence before writing a frame', () => {
   const { client, socket } = connectedClient();
   expect(() => client.send('qa', 'correction', [], 'interrupt-one', { queueMode: 'interrupt', expectedActiveRunId: '' })).toThrow('Refresh this thread');

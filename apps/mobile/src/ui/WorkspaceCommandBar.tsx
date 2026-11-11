@@ -1,8 +1,9 @@
 import type { ModelChoice } from '../gateway/modelMatching';
+import { useEffect, useRef } from 'react';
 import type { CommandHistorySelection } from '../keyboard/commandHistory';
 import { FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { VimicateCommandInputView } from '../../modules/vimicate-editor';
-import { commandCompletionOptions, type CommandCompletionState } from '../gateway/commandCompletion';
+import { commandCompletionOptions, type CommandCompletionOption, type CommandCompletionState } from '../gateway/commandCompletion';
 import type { GatewayCommand } from '../gateway/gatewayCommands';
 import { colors, space, type } from '../theme/tokens';
 import type { WorkspaceFocus } from '../workspace/focusRouting';
@@ -21,29 +22,48 @@ type Props = {
 
 export function WorkspaceCommandBar({ search, command, commands, modelChoices, onQueryChange, onSubmit, onCancel, onComplete, onHistory, onSelectCompletion }: Props) {
   const { width, height } = useWindowDimensions();
+  const list = useRef<FlatList<CommandCompletionOption>>(null);
+  const offer = command ? commandCompletionOptions(commands, command, { models: modelChoices }) : null;
+  const cycle = command?.completion;
+  const selectedValue = cycle && cycle.query === command?.query ? command.query.slice(cycle.start, cycle.end) : undefined;
+  const selectedIndex = offer?.options.findIndex((option) => option.value === selectedValue) ?? -1;
+  const optionsKey = offer?.options.map((option) => option.value).join('\n') ?? '';
+  const scrollToSelection = () => {
+    if (selectedIndex >= 0) list.current?.scrollToIndex({ index: selectedIndex, animated: false, viewPosition: 0.5 });
+  };
+  useEffect(() => {
+    if (selectedIndex >= 0) list.current?.scrollToIndex({ index: selectedIndex, animated: false, viewPosition: 0.5 });
+    else list.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [selectedIndex, optionsKey]);
   if (!search && !command) return null;
   const softwareKeyboardEnabled = search?.softwareKeyboardEnabled ?? command?.softwareKeyboardEnabled ?? false;
   const touchLayout = width < 600 || softwareKeyboardEnabled;
-  const offer = command ? commandCompletionOptions(commands, command, { models: modelChoices }) : null;
   return <View style={styles.root}>
     {command && offer ? <>
       {offer.options.length ? <FlatList scrollsToTop={false}
-        // Reset the scroll when filtering changes, without remounting the native input.
-        key={command.query}
+        ref={list}
         accessibilityLabel="Command completion options"
         data={offer.options}
+        extraData={selectedValue}
         keyExtractor={(option) => option.value}
         keyboardDismissMode="none"
         keyboardShouldPersistTaps="always"
         showsVerticalScrollIndicator
         persistentScrollbar
         style={{ maxHeight: Math.min(132, height * 0.2) }}
+        onContentSizeChange={scrollToSelection}
+        onScrollToIndexFailed={({ index, averageItemLength }) => {
+          // Admit unmeasured wrapped rows, then align the selection after layout.
+          list.current?.scrollToOffset({ offset: index * averageItemLength, animated: false });
+        }}
         renderItem={({ item }) => <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Complete ${item.label}`}
           accessibilityHint="Fills the command without running it"
+          accessibilityState={{ selected: item.value === selectedValue }}
+          onLayout={item.value === selectedValue ? scrollToSelection : undefined}
           onPress={() => onSelectCompletion(item.value, command)}
-          style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.option, (pressed || item.value === selectedValue) && styles.pressed]}
         >
           <Text style={styles.optionLabel}>{item.label}</Text>
           {item.description ? <Text style={styles.description}>{item.description}</Text> : null}
@@ -67,7 +87,7 @@ export function WorkspaceCommandBar({ search, command, commands, modelChoices, o
         mostRecentEventCount={search?.nativeEventCount ?? command?.nativeEventCount ?? 0}
         style={[styles.input, touchLayout && styles.touchInput]}
       />
-      {!touchLayout ? <Text style={styles.description}>{command ? 'Tab complete · ↑↓ history · ' : ''}Esc cancel · ↵ {search ? 'search' : 'run'}</Text> : null}
+      {!touchLayout ? <Text style={styles.description}>{command ? '↑↓ / Tab complete · Shift-↑↓ history · ' : ''}Esc cancel · ↵ {search ? 'search' : 'run'}</Text> : null}
       {touchLayout ? <>
         <Pressable accessibilityRole="button" accessibilityLabel={search ? 'Cancel search' : 'Cancel command'} onPress={onCancel} style={styles.action}>
           <Text style={styles.description}>Cancel</Text>

@@ -146,7 +146,6 @@ function untimestampedLiveAssistantHasPlacementAuthority(
 ) {
   if (message.runId && authoritativeLatest.some((candidate) => candidate.runId === message.runId
     && (candidate.role === 'user' || candidate.role === 'assistant' || candidate.role === 'run'))) return true;
-  if (previousIndex < 0) return true;
   for (let index = previousIndex - 1; index >= 0; index -= 1) {
     const role = previous[index]?.role;
     if (role === 'user') return true;

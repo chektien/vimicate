@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import * as Crypto from 'expo-crypto';
-import { type WorkspaceMessage } from '../workspace/workspaceTypes';
+import { type WorkspaceMessage, type WorkspaceProject } from '../workspace/workspaceTypes';
 import { authoritativeHistoryChronology } from '../workspace/historyMessageProjection';
-import type { GatewayStatus } from './OpenClawClient';
+import type { GatewayStatus, OpenClawClient } from './OpenClawClient';
 import type { HistoryPublicationAuthority } from './historyPublicationAuthority';
 import type { useGatewaySubmission } from './useGatewaySubmission';
 import { AsyncQuestionOwner, type AsyncAnswerDelivery } from '../questions/asyncQuestionOwner';
@@ -13,7 +13,10 @@ import type { HardwareKeyEvent } from '../../modules/vimicate-editor';
 import { normalizedHardwareKey } from '../keyboard/hardwareKey';
 import { coalesceTranscriptIdentities } from './transcriptIdentityWall';
 import { loadValue, saveValue } from '../storage/workspaceStore';
-export function useAsyncGatewayQuestions({ messages, latestMessages: tail, endpoint, status, authority, submit }: { messages: WorkspaceMessage[]; latestMessages?: WorkspaceMessage[] | null; endpoint: string; status: GatewayStatus; authority: MutableRefObject<HistoryPublicationAuthority>; submit: MutableRefObject<ReturnType<typeof useGatewaySubmission>> }) {
+import { messagesOwnedBySessionGeneration } from './sessionGenerationPublication';
+import { useAsyncQuestionDiscovery } from './useAsyncQuestionDiscovery';
+export type AsyncQuestionWorkspaceHistory = { client?: OpenClawClient; selectedSessionKey?: string; projects: WorkspaceProject[]; subscribe: (listener: () => void) => () => void; sessionMessages: (key: string) => WorkspaceMessage[] };
+export function useAsyncGatewayQuestions({ messages, latestMessages: tail, endpoint, status, authority, submit, workspaceHistory }: { messages: WorkspaceMessage[]; latestMessages?: WorkspaceMessage[] | null; endpoint: string; status: GatewayStatus; authority: MutableRefObject<HistoryPublicationAuthority>; submit: MutableRefObject<ReturnType<typeof useGatewaySubmission>>; workspaceHistory?: AsyncQuestionWorkspaceHistory }) {
   const owner = useMemo(() => new AsyncQuestionOwner(), [endpoint]); const ownerRef = useRef(owner); ownerRef.current = owner;
   const scope = endpoint ? `async-questions:v1:${endpoint}` : ''; const scopeRef = useRef(scope); scopeRef.current = scope;
   const [revision, setRevision] = useState(0); const [loaded, setLoaded] = useState<AsyncQuestionOwner | null>(null);
@@ -30,7 +33,24 @@ export function useAsyncGatewayQuestions({ messages, latestMessages: tail, endpo
   const publish = useCallback(() => { if (alive.current && ownerRef.current === owner && authority.current.isActive) setRevision(value => value + 1); }, [authority, owner]);
   const combined = useMemo(() => tail && tail !== messages ? authoritativeHistoryChronology(coalesceTranscriptIdentities([...messages, ...tail])) : messages, [messages, tail]);
   const latestMessages = useRef(combined); latestMessages.current = combined;
-  useEffect(() => { const before = owner.revision; owner.observe(combined); if (before !== owner.revision) publish(); }, [combined, owner, publish]);
+  const projects = workspaceHistory?.projects; const subscribe = workspaceHistory?.subscribe; const sessionMessages = workspaceHistory?.sessionMessages;
+  const observeDiscovery = useCallback((rows: WorkspaceMessage[]) => {
+    const before = owner.revision; owner.observe(rows); if (before !== owner.revision) publish();
+  }, [owner, publish]);
+  const selectedSessionKey = workspaceHistory?.selectedSessionKey;
+  const discovery = useAsyncQuestionDiscovery(workspaceHistory?.client, status, endpoint, projects, selectedSessionKey, authority, observeDiscovery);
+  useEffect(() => {
+    const observe = () => {
+      if (!authority.current.isActive) return;
+      const before = owner.revision;
+      // The existing bounded history owner supplies parked live and canonical
+      // tails. Do not scan transcripts or invent a background broker feed.
+      for (const project of projects ?? []) owner.observe(authoritativeHistoryChronology(sessionMessages?.(project.sessionKey) ?? []));
+      owner.observe(combined);
+      if (before !== owner.revision) publish();
+    };
+    observe(); return subscribe?.(observe);
+  }, [authority, combined, owner, projects, publish, sessionMessages, subscribe]);
   useEffect(() => {
     if (loaded === owner) return;
     let cancelled = false; const epoch = owner.epoch; setTextEditing(null); setOtherFocus(null);
@@ -50,7 +70,7 @@ export function useAsyncGatewayQuestions({ messages, latestMessages: tail, endpo
       await saveValue(scope, owner.serialize()); if (!owns() || !authority.current.isActive) return;
       const accepted = await submit.current(delivery.text, [], delivery.sessionKey, [], { idempotencyKey: delivery.id, ...(delivery.sourceMessageId ? { replyToId: delivery.sourceMessageId } : {}), onState: state => { if (owns()) { owner.delivery(id, state); publish(); } } });
       if (owns() && !accepted && delivery.state === 'queued') { owner.delivery(id, 'failed'); publish(); }
-    } catch { if (owns()) { owner.delivery(id, 'failed'); setErrors(current => ({ ...current, [id]: 'Answer not sent. Retry this existing answer.' })); publish(); } }
+    } catch { if (owns()) { owner.delivery(id, 'failed'); setErrors(current => ({ ...current, [id]: 'Answer not confirmed. Retry this existing answer.' })); publish(); } }
     finally { active.current.delete(delivery); }
   }, [authority, loaded, owner, publish, scope, status, submit]);
   useEffect(() => { if (status !== 'connected' || loaded !== owner || !authority.current.isActive) return; for (const [id, delivery] of owner.queued()) void dispatch(id, delivery); }, [authority, dispatch, loaded, owner, revision, status]);
@@ -83,8 +103,16 @@ export function useAsyncGatewayQuestions({ messages, latestMessages: tail, endpo
     else owner[kind](id); publish();
   }, [dispatch, owner, publish]);
   const editing = useCallback((record: QuestionRecord, active: boolean) => setTextEditing(current => active ? record.id : current === record.id ? null : current), []);
-  const clear = useCallback(() => { interactionRef.current = null; setInteraction(null); const current = ownerRef.current; current.clear(); if (scopeRef.current) void saveValue(scopeRef.current, '[]').catch(() => {}); setTextEditing(null); setOtherFocus(null); setRevision(value => value + 1); }, []);
-  return { view: (message: WorkspaceMessage) => owner.view(message), handleKey, clear, action, loaded: loaded === owner, storageError: errors.storage, ui: {
+  const clear = useCallback(() => { discovery.retire(); interactionRef.current = null; setInteraction(null); const current = ownerRef.current; current.clear(); if (scopeRef.current) void saveValue(scopeRef.current, '[]').catch(() => {}); setTextEditing(null); setOtherFocus(null); setRevision(value => value + 1); }, [discovery]);
+  const acceptsGeneration = useCallback((message: WorkspaceMessage) => {
+    const project = projects?.find(project => project.sessionKey === message.sessionKey);
+    if (!project) return false;
+    if (message.transcriptSessionId && project.sessionId) return message.transcriptSessionId === project.sessionId;
+    return messagesOwnedBySessionGeneration([message], project.sessionId ? { sessionId: project.sessionId, sessionStartedAtMs: project.sessionStartedAtMs ?? 0 } : null).length > 0;
+  }, [projects]);
+  const pendingCounts = useMemo(() => owner.pendingCounts(acceptsGeneration), [owner, acceptsGeneration, revision, factRevision]);
+  const deliveryCounts = useMemo(() => owner.deliveryCounts(acceptsGeneration), [owner, acceptsGeneration, revision, factRevision]);
+  return { discover: discovery.refresh, projectionContext: useCallback(() => owner.projectionContext(), [owner]), pendingCounts, deliveryCounts, view: (message: WorkspaceMessage) => owner.view(message), handleKey, clear, action, loaded: loaded === owner, storageError: errors.storage, ui: {
     drafts: {}, busy: [], errors, consumeOtherFocus, otherFocus, textEditing, interaction, interact, leave, returnRevision, targetRevision, draft: (record: QuestionRecord) => owner.draft(record), resolve,
     editing, skip: (record: QuestionRecord) => { interact(null); owner.skip(record.id); publish(); },
     choose: (record: QuestionRecord, question: number, option: number) => { interact(record.id); owner.choose(record, question, option); owner.update(record, focusQuestionSubmit(record, owner.draft(record))); publish(); },

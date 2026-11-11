@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { questionNeedsOtherSurface, type QuestionRecord } from '../questions/questionTypes';
-import type { WorkspaceMessage } from '../workspace/workspaceTypes';
+import { questionNeedsOtherSurface, type QuestionAnswers, type QuestionRecord } from '../questions/questionTypes';
+import type { WorkspaceProject, WorkspaceMessage } from '../workspace/workspaceTypes';
 const identity = z.string().trim().min(1).max(512);
 const questionId = z.string().regex(/^[a-z][a-z0-9_]*$/).max(128);
 const answersSchema = z.object({ answers: z.record(questionId, z.array(z.string().max(65536)).max(4)) });
@@ -30,12 +30,30 @@ export function questionRecordFromPayload(value: unknown): QuestionRecord | null
 /** One connection-owned bounded registry; resolved events have no session field. */
 export class GatewayQuestionOwner {
   private records = new Map<string, { record: QuestionRecord; revision: number }>();
+  private sessions = new Map<string, string>();
+  private sessionStarts = new Map<string, number>();
+  private retired = new Set<string>();
   revision = 0; epoch = 0;
+  reconcileSessions(projects: WorkspaceProject[]) {
+    for (const project of projects) {
+      if (!project.sessionId) continue;
+      if (project.sessionStartedAtMs) this.sessionStarts.set(project.sessionKey, project.sessionStartedAtMs);
+      const old = this.sessions.get(project.sessionKey);
+      this.sessions.set(project.sessionKey, project.sessionId);
+      if (old && old !== project.sessionId) for (const [id, value] of this.records) if (value.record.sessionKey === project.sessionKey) { this.records.delete(id); this.retired.add(id); this.revision++; }
+      if (project.sessionStartedAtMs) for (const [id, value] of this.records) if (value.record.sessionKey === project.sessionKey && value.record.createdAtMs < project.sessionStartedAtMs) { this.records.delete(id); this.retired.add(id); this.revision++; }
+    }
+    while (this.retired.size > 128) this.retired.delete(this.retired.values().next().value!);
+    while (this.sessions.size > 512) { const key = this.sessions.keys().next().value!; this.sessions.delete(key); this.sessionStarts.delete(key); }
+  }
+  admit(id: string, sessionKey: string, answers: QuestionAnswers) { const record = this.get(id, sessionKey); if (record?.status !== 'pending' || record.pendingOmitted) return; const submittedAnswers = record.submittedAnswers ?? answers; this.put({ ...record, submittedAnswers, answerDelivery: 'sending' }); return submittedAnswers; }
+  delivery(id: string, sessionKey: string, state: 'failed' | 'unconfirmed') { const record = this.get(id, sessionKey); if (record?.status === 'pending' && record.answerDelivery) this.put({ ...record, answerDelivery: state }); }
+
   ids() { return new Set(this.records.keys()); }
   snapshot() { return [...this.records.values()].map(value => value.record); }
-  clear() { this.records.clear(); this.epoch++; this.revision++; }
+  clear() { this.records.clear(); this.sessions.clear(); this.sessionStarts.clear(); this.retired.clear(); this.epoch++; this.revision++; }
   forSession(sessionKey: string) { return [...this.records.values()].map(v => v.record).filter(q => q.sessionKey === sessionKey); }
-  pendingSessions() { return new Set([...this.records.values()].filter(v => v.record.status === 'pending').map(v => v.record.sessionKey)); }
+  pendingSessions() { return new Set([...this.records.values()].filter(v => v.record.status === 'pending' && !v.record.answerDelivery && !v.record.pendingOmitted).map(v => v.record.sessionKey)); }
   get(id: string, sessionKey: string) { return this.forSession(sessionKey).find(q => q.id === id); }
   private put(record: QuestionRecord) {
     this.records.set(record.id, { record, revision: ++this.revision });
@@ -46,35 +64,37 @@ export class GatewayQuestionOwner {
   }
   event(frame: { event?: unknown; payload?: unknown }, accepted?: (record: QuestionRecord, previous?: QuestionRecord) => void) {
     if (frame.event === 'question.requested') {
-      const record = questionRecordFromPayload(frame.payload); if (!record) return false;
+      const record = questionRecordFromPayload(frame.payload); if (!record || this.retired.has(record.id) || record.createdAtMs < (this.sessionStarts.get(record.sessionKey) ?? 0)) return false;
       const previous = this.records.get(record.id)?.record;
       if (previous && (previous.sessionKey !== record.sessionKey || previous.status !== 'pending')) return false;
-      this.put(record); accepted?.(record, previous); return true;
+      this.put(previous?.answerDelivery ? { ...record, answerDelivery: previous.answerDelivery, submittedAnswers: previous.submittedAnswers } : record); accepted?.(record, previous); return true;
     }
     if (frame.event !== 'question.resolved') return false;
     const result = resolvedSchema.safeParse(frame.payload); if (!result.success) return false;
     const previous = this.records.get(result.data.id)?.record; if (!previous) return false;
-    const record = { ...previous, ...result.data, ...(result.data.status === 'answered' && questionNeedsOtherSurface(previous) ? { answers: { answers: {} } } : {}) };
+    const record = { ...previous, ...result.data, answerDelivery: undefined, submittedAnswers: undefined, pendingOmitted: undefined, recoveredElsewhere: undefined, ...(result.data.status === 'answered' && questionNeedsOtherSurface(previous) ? { answers: { answers: {} } } : {}) };
     this.put(record); accepted?.(record, previous); return true;
   }
   hydrate(payload: unknown, startedRevision: number) {
     const parsed = z.object({ questions: z.array(z.unknown()).max(1024) }).safeParse(payload);
     if (!parsed.success) throw new Error('Invalid Gateway question.list response');
     const records = parsed.data.questions.map(questionRecordFromPayload).filter((q): q is QuestionRecord => Boolean(q));
+    if (records.length !== parsed.data.questions.length) throw new Error('Invalid Gateway question.list record');
     const found = new Set(records.map(q => q.id));
     for (const record of records) {
+      if (this.retired.has(record.id) || record.createdAtMs < (this.sessionStarts.get(record.sessionKey) ?? 0)) continue;
       const previous = this.records.get(record.id);
       if (previous && (previous.revision > startedRevision || previous.record.sessionKey !== record.sessionKey
         || previous.record.status !== 'pending' && record.status === 'pending')) continue;
-      this.put(record);
+      this.put(previous?.record.answerDelivery && record.status === 'pending' ? { ...record, answerDelivery: previous.record.answerDelivery, submittedAnswers: previous.record.submittedAnswers } : record);
     }
     for (const [id, previous] of this.records) {
-      if (previous.revision <= startedRevision && previous.record.status === 'pending' && !found.has(id)) this.put({ ...previous.record, status: 'cancelled', recoveredElsewhere: true });
+      if (previous.revision <= startedRevision && previous.record.status === 'pending' && !found.has(id)) this.put({ ...previous.record, pendingOmitted: true, ...(previous.record.answerDelivery ? { answerDelivery: 'unconfirmed' } : {}) });
     }
   }
   expire(now: number) {
     let changed = false;
-    for (const value of this.records.values()) if (value.record.status === 'pending' && value.record.expiresAtMs <= now) { this.put({ ...value.record, status: 'expired' }); changed = true; }
+    for (const value of this.records.values()) if (value.record.status === 'pending' && value.record.expiresAtMs <= now) { this.put({ ...value.record, status: 'expired', answerDelivery: undefined, submittedAnswers: undefined, pendingOmitted: undefined }); changed = true; }
     return changed;
   }
 }
@@ -85,7 +105,7 @@ export function questionMessages(messages: WorkspaceMessage[], records: Question
   const ordered = [...records].sort((a, b) => a.createdAtMs - b.createdAtMs || a.sessionKey.localeCompare(b.sessionKey) || a.id.localeCompare(b.id));
   for (const question of ordered) {
     const answer = !questionNeedsOtherSurface(question) && question.answers ? Object.values(question.answers.answers).map(values => values.join(', ')).join(' · ') : '';
-    const text = question.status === 'pending' ? 'Waiting for your answer' : question.recoveredElsewhere ? 'Question resolved elsewhere' : `Question ${question.status}${answer ? ` · ${answer}` : ''}`;
+    const text = question.pendingOmitted ? question.answerDelivery ? 'Answer submitted · confirmation unavailable' : 'Question no longer pending' : question.answerDelivery === 'sending' ? 'Sending answer…' : question.answerDelivery === 'unconfirmed' ? 'Answer awaiting confirmation' : question.answerDelivery === 'failed' ? 'Answer not confirmed · retry this answer' : question.status === 'pending' ? 'Waiting for your answer' : question.recoveredElsewhere ? 'Question resolved elsewhere' : `Question ${question.status}${answer ? ` · ${answer}` : ''}`;
     const row: WorkspaceMessage = { id: `question:${question.sessionKey}:${question.id}`, role: 'approval', text, sessionKey: question.sessionKey, ...(question.runId ? { runId: question.runId } : {}), timestamp: String(question.createdAtMs), source: 'live', state: question.status === 'pending' ? 'streaming' : 'complete', question };
     const index = questionInsertionIndex(base, question);
     const slot = slots.get(index) ?? [];

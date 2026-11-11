@@ -23,20 +23,51 @@ function composeSharedNarration<T extends Positioned>(messages: T[], orderBase: 
     && row.transcriptSessionId && owners.has(row.transcriptSessionId) && timestampMilliseconds(row.timestamp) !== null
     && (row.role !== 'user' || messages.some(candidate => candidate.displayPosition
       && candidate.transcriptSessionId === row.transcriptSessionId && candidate.sessionKey === row.sessionKey))));
-  const base = shared.size ? messages.filter(row => !shared.has(row)) : messages;
-  const output = orderBase(base);
+  const canonical = orderBase(messages);
+  const attachments = new Map<T, T[]>();
+  const attached = new Set<T>();
+  for (const row of shared) {
+    if (row.role !== 'user') continue;
+    const bundle: T[] = [];
+    for (let index = canonical.indexOf(row) + 1; index < canonical.length; index++) {
+      const candidate = canonical[index]!;
+      if (candidate.displayPosition || shared.has(candidate) || candidate.role === 'boundary'
+        || candidate.sessionKey !== row.sessionKey || candidate.transcriptSessionId && candidate.transcriptSessionId !== row.transcriptSessionId
+        || candidate.source !== 'live' && candidate.source !== 'local') break;
+      bundle.push(candidate); attached.add(candidate);
+    }
+    attachments.set(row, bundle);
+  }
+  const output = canonical.filter(row => !shared.has(row) && !attached.has(row));
   // Shared narration and accepted inputs own host-timed gaps. Delayed input
   // ingestion must not move an already-visible prompt behind later output.
   // Keep remaining native rows in their authoritative relative order, without
   // inventing rawSeq. Recompute from the canonical base after every page merge.
   for (const row of [...shared].sort((a, b) => placementTime(a)! - placementTime(b)!)) {
-    const owned = output.map((candidate, index) => ({ candidate, index })).filter(({ candidate, index }) =>
-      candidate.transcriptSessionId === row.transcriptSessionId && candidate.sessionKey === row.sessionKey
-      || localPromptInNativeTail(output, index, row));
+    const slot = canonical.indexOf(row);
+    const anchor = row.displayPosition ? slot : canonical.findLastIndex(candidate => candidate.displayPosition && samePartition(candidate, row));
+    const nativeSource = canonical[anchor]?.displayPosition?.source;
+    const barrier = (candidate: T) => candidate.role === 'boundary'
+      || !candidate.displayPosition && !shared.has(candidate) && candidate.source !== 'live' && candidate.source !== 'local'
+        && (!candidate.sessionKey || !candidate.transcriptSessionId)
+      || candidate.sessionKey && candidate.sessionKey !== row.sessionKey
+      || candidate.transcriptSessionId && candidate.transcriptSessionId !== row.transcriptSessionId
+      || nativeSource && candidate.displayPosition && candidate.displayPosition.source !== nativeSource;
+    let begin = anchor;
+    let end = anchor + 1;
+    while (begin > 0 && !barrier(canonical[begin - 1]!)) begin--;
+    while (end < canonical.length && !barrier(canonical[end]!)) end++;
+    const interval = new Set(canonical.slice(Math.max(0, begin), end));
+    const prior = row.role === 'user' ? canonical.slice(Math.max(0, begin), slot).findLast(candidate => samePartition(candidate, row)
+      && !candidate.displayPosition?.activity && placementTime(candidate) !== null && placementTime(candidate)! <= placementTime(row)!) : undefined;
+    const barrierRow = begin > 0 ? canonical[begin - 1] : undefined;
+    const floor = prior ? output.indexOf(prior) + 1 : barrierRow ? output.indexOf(barrierRow) + 1 : 0;
+    const owned = output.map((candidate, index) => ({ candidate, index })).filter(({ candidate, index }) => index >= floor && interval.has(candidate) && (
+      samePartition(candidate, row) || localPromptInNativeTail(output, index, row)));
     const next = owned.find(({ candidate }) => timestampMilliseconds(candidate.timestamp) !== null
       && placementTime(candidate)! > placementTime(row)!);
-    const at = next?.index ?? (owned.at(-1)?.index ?? output.length - 1) + 1;
-    output.splice(at, 0, row);
+    const at = next?.index ?? (owned.at(-1)?.index !== undefined ? owned.at(-1)!.index + 1 : floor);
+    output.splice(at, 0, row, ...(attachments.get(row) ?? []));
   }
   return output.every((message, index) => message === messages[index]) ? messages : output;
 }
@@ -56,15 +87,36 @@ function localPromptInNativeTail<T extends Positioned>(rows: T[], index: number,
   }
   return false;
 }
+function samePartition(left: Positioned, right: Positioned) {
+  return left.role !== 'boundary' && right.role !== 'boundary'
+    && left.sessionKey === right.sessionKey && left.transcriptSessionId === right.transcriptSessionId
+    && (!left.displayPosition || !right.displayPosition || left.displayPosition.source === right.displayPosition.source);
+}
+
 function orderedSegments<T extends Positioned>(messages: T[], eligible: (message: T) => boolean) {
   const output: T[] = [];
   let begin = 0;
   while (begin < messages.length) {
-    const source = messages[begin]!.displayPosition?.source;
+    const first = messages[begin]!;
+    const source = first.displayPosition?.source;
+    const attachments = new Map<T, T[]>();
+    const segment: T[] = [first];
+    let anchor = first;
     let end = begin + 1;
-    while (end < messages.length && messages[end]!.displayPosition?.source === source) end += 1;
-    const segment = messages.slice(begin, end);
-    output.push(...(source === undefined ? legacyOrder(segment, eligible) : nativeOrder(segment)));
+    while (end < messages.length) {
+      const candidate = messages[end]!;
+      if (!samePartition(first, candidate) && !(source && !candidate.displayPosition && candidate.sessionKey === first.sessionKey
+        && !candidate.transcriptSessionId && (candidate.source === 'local' || candidate.source === 'live'))) break;
+      if (candidate.displayPosition?.source === source) {
+        segment.push(candidate); anchor = candidate;
+      } else if (source && !candidate.displayPosition && (candidate.source === 'local' || candidate.source === 'live')
+        && candidate.sessionKey === first.sessionKey && (!candidate.transcriptSessionId || candidate.transcriptSessionId === first.transcriptSessionId)) {
+        attachments.set(anchor, [...(attachments.get(anchor) ?? []), candidate]);
+      } else break;
+      end += 1;
+    }
+    const ordered = source === undefined ? legacyOrder(segment, eligible) : nativeOrder(segment);
+    for (const row of ordered) output.push(row, ...(attachments.get(row) ?? []));
     begin = end;
   }
   return output.every((message, index) => message === messages[index]) ? messages : output;
@@ -80,10 +132,9 @@ function legacyOrder<T extends Positioned>(messages: T[], eligible: (message: T)
 
 function nativeOrder<T extends Positioned>(messages: T[]) {
   const rows = messages.map((message) => ({ message, position: message.displayPosition! }));
-  const stable = rows.filter((row) => !row.position.activity);
-  if (stable.some((row, index) => index > 0 && stable[index - 1]!.position.rawSeq > row.position.rawSeq)) return messages;
+  const stable = rows.filter((row) => !row.position.activity).sort((a, b) => a.position.rawSeq - b.position.rawSeq);
   const activities = rows.flatMap((row) => row.position.activity ? [{ ...row, activity: row.position.activity }] : []);
-  if (!activities.length) return messages;
+  if (!activities.length) return stable.map(row => row.message);
   activities.sort((a, b) => {
     const left = a.activity.afterRawSeq;
     const right = b.activity.afterRawSeq;

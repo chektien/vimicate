@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkspaceProject } from '../workspace/workspaceTypes';
-import { closeWorkspaceThread, createWorkspaceThread, type ThreadMutationClient } from './workspaceThreadActions';
+import { closeWorkspaceThread, createWorkspaceThread, removeWorkspaceProject, type ThreadMutationClient } from './workspaceThreadActions';
 
 const root: WorkspaceProject = { id: 'notes', sessionKey: 'root', sessionId: 'root-generation', name: 'notes', path: '~/notes', branch: '—', starred: false, threadCount: 2, state: 'idle', kind: 'project', rootSessionKey: 'root' };
 const child: WorkspaceProject = { ...root, id: 'child', sessionKey: 'child', name: 'draft', kind: 'thread', rootSessionKey: 'root', parentSessionKey: 'root', threadCount: 0 };
@@ -102,5 +102,28 @@ describe('workspace thread actions', () => {
       ...entry, state: 'removed', removedAtSeconds: 20, bindings: [currentBinding],
     }]);
     expect(result.selectedKey).toBe('root');
+  });
+});
+
+describe('top-level project removal', () => {
+  const loaded = { capabilities: { projectRemoval: 'projects-md-v1' }, projects: { markdown: '## notes\n- id: notes\n', sha256: 'a'.repeat(64) } };
+  it('removes only the registry entry, guarded by the read sha, and returns the accepted projects file', async () => {
+    const removeRegistryProject = vi.fn(async (projectID: string) => ({ outcome: 'removed', projectID, projects: { markdown: '## other\n- id: other\n' } }));
+    const result = await removeWorkspaceProject({ removeRegistryProject }, [root, child], 'root', loaded, false);
+    expect(removeRegistryProject).toHaveBeenCalledWith('notes', 'a'.repeat(64));
+    expect(result.registryPayload).toEqual({ projects: { markdown: '## other\n- id: other\n' } });
+    expect(result.message).toContain('folder was kept');
+  });
+  it('refuses child threads, active runs, old Gateways and unloaded registries before any write', async () => {
+    const removeRegistryProject = vi.fn();
+    await expect(removeWorkspaceProject({ removeRegistryProject }, [root, child], 'child', loaded, false)).rejects.toThrow('Use :close-thread');
+    await expect(removeWorkspaceProject({ removeRegistryProject }, [root], 'root', loaded, true)).rejects.toThrow('active run');
+    await expect(removeWorkspaceProject({ removeRegistryProject }, [root], 'root', { projects: loaded.projects }, false)).rejects.toThrow('updated Vimicate Gateway plugin');
+    await expect(removeWorkspaceProject({ removeRegistryProject }, [root], 'root', { capabilities: loaded.capabilities }, false)).rejects.toThrow(':reload-projects');
+    expect(removeRegistryProject).not.toHaveBeenCalled();
+  });
+  it('rejects a reply for a different project', async () => {
+    const removeRegistryProject = vi.fn(async () => ({ outcome: 'removed', projectID: 'other', projects: { markdown: '' } }));
+    await expect(removeWorkspaceProject({ removeRegistryProject }, [root], 'root', loaded, false)).rejects.toThrow('invalid Gateway reply');
   });
 });

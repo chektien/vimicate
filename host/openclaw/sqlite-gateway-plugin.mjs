@@ -8,7 +8,7 @@ import { loadSqliteHistoryReader } from './sqlite-history-reader.mjs';
 import { registerSqliteHistoryPlugin } from './sqlite-history-plugin.mjs';
 import { registerVimicateNarrationPlugin } from './vimicate-narration-plugin-runtime.mjs';
 import { registerSessionRunTruth } from './session-run-truth.mjs';
-import { createProjectFiles } from './project-files.mjs';
+import { createHostedProjectFiles } from './hosted-project-files.mjs';
 
 function privateFile(filename, limit) {
   const fd = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -31,7 +31,7 @@ export function registerVimicateSqliteGateway(api, { packageRoot, stateDir, vimi
   registerSessionRunTruth(api, { packageRoot });
   const formatError = message => ({ code: 'UNAVAILABLE', message });
   const lifetime = new AbortController();
-  const projectFiles = createProjectFiles({ vimicateDir, homeDir });
+  const projectFiles = createHostedProjectFiles({ vimicateDir, homeDir });
   let registry, setup;
   async function initialize() {
     lifetime.signal.throwIfAborted();
@@ -62,13 +62,13 @@ export function registerVimicateSqliteGateway(api, { packageRoot, stateDir, vimi
     },
   });
   const narration = registerVimicateNarrationPlugin(api, { vimicateDir, formatError });
-  for (const [name, method, scope] of [['read', 'read', 'operator.read'], ['updateThreads', 'update', 'operator.write']]) {
+  for (const [name, method, scope] of [['read', 'read', 'operator.read'], ['updateThreads', 'update', 'operator.write'], ['removeProject', 'removeProject', 'operator.write']]) {
     api.registerGatewayMethod(`vimicate.registry.${name}`, async ({ params, respond }) => {
       try {
         await initialize(); lifetime.signal.throwIfAborted();
         const result = method === 'update'
           ? await updateThreadRegistryWhenReady(registry, params, lifetime.signal)
-          : registry.read(params);
+          : registry[method](params);
         respond(true, result, undefined);
       } catch (error) { respond(false, undefined, formatError(error instanceof Error ? error.message : String(error))); }
     }, { scope });
@@ -95,6 +95,6 @@ export function registerVimicateSqliteGateway(api, { packageRoot, stateDir, vimi
     }, { scope: 'operator.read' });
   }
   api.registerService({ id: 'vimicate-registry', start: initialize,
-    stop() { lifetime.abort(new Error('Vimicate registry stopped')); registry?.dispose(); } });
+    stop() { lifetime.abort(new Error('Vimicate registry stopped')); registry?.dispose(); projectFiles.dispose(); } });
   return { history, narration, initialize };
 }

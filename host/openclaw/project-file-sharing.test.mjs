@@ -6,7 +6,7 @@ import test from 'node:test';
 import { createProjectFiles } from './project-files.mjs';
 
 function fixture(t, bytes = Buffer.alloc(8 * 1024 * 1024 + 17, 0xa5)) {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vimicate-share-')));
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.homedir(), '.vimicate-share-')));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const project = path.join(base, 'repo'); const vimicateDir = path.join(base, '.vimicate');
   fs.mkdirSync(project); fs.mkdirSync(vimicateDir);

@@ -1,6 +1,7 @@
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { convergedTranscriptRepresentation } from './transcriptIdentityWall';
 import { restoreObservedTokenRedaction } from './observedTokenRedaction';
+import { retireSealsOfSealedRuns } from './sealedRunRetirement';
 
 export type ClaudeNativeLiveMatch = {
   live: WorkspaceMessage;
@@ -9,6 +10,8 @@ export type ClaudeNativeLiveMatch = {
   queued: WorkspaceMessage[];
   coveredLength: number;
   fullyCovered: boolean;
+  /** This run's own saved turn holds exactly the copy's text and ends in its answer. */
+  ownAnswerSaved: boolean;
   restoredFinalText?: string;
 };
 
@@ -32,30 +35,57 @@ export function reconcileClaudeNativeLive(messages: WorkspaceMessage[], previous
       result[result.indexOf(nativeAnchor)] = replacement;
       nativeAnchor = replacement;
     }
-    // Native history now holds the commentary the steer seals stood in for.
-    for (const sealed of result.filter(row => row.steerSealed && row.runId === live.runId && row.sessionKey === live.sessionKey)) remove(result, sealed);
     const fullText = cumulativeText(live);
+    // Native history now holds the commentary its seals stood in for. Saved
+    // steps can lag the live copy mid-turn: a seal whose text starts past the
+    // covered prefix still owns that text until a later page covers it.
+    const settled = fullyCovered && live.state === 'complete' || coveredLength === fullText.length;
+    const uncoveredSeals: WorkspaceMessage[] = [];
+    let cursor = 0;
+    for (const sealed of result.filter(row => row.steerSealed && row.runId === live.runId && row.sessionKey === live.sessionKey)) {
+      const at = fullText.indexOf(sealed.text, cursor);
+      if (at >= 0) cursor = at + sealed.text.length;
+      if (!settled && at >= coveredLength) uncoveredSeals.push(sealed);
+      else remove(result, sealed);
+    }
+    // Saved steps can sort below live rows still standing in for later
+    // text. Move that uncovered stretch after them so the turn reads in order.
+    const firstUncovered = uncoveredSeals[0];
+    if (firstUncovered && result.indexOf(nativeAnchor) > result.indexOf(firstUncovered)) {
+      const stretch = result.slice(result.indexOf(firstUncovered), result.indexOf(nativeAnchor)).filter(row => row.source === 'live'
+        && row.runId === live.runId && row.sessionKey === live.sessionKey && row.role !== 'run');
+      for (const row of stretch) remove(result, row);
+      result.splice(result.indexOf(nativeAnchor) + 1, 0, ...stretch);
+    }
     // A previously proven match can refer to a copy the merge has since
     // replaced; retire the published row with the same live identity.
     const published = result.find(row => row.source === 'live' && row.id === live.id
       && row.sessionKey === live.sessionKey && row.runId === live.runId) ?? live;
-    if (fullyCovered && live.state === 'complete' || coveredLength === fullText.length) {
+    if (settled) {
       remove(result, published);
       // A footer re-derived from the live answer leaves the merge with it;
       // a turn with no end-turn answer would then lose its completion row.
       if (footer && !result.includes(footer) && !turnHasCompletion(result, nativeAnchor)) result.splice(result.indexOf(nativeAnchor) + 1, 0, footer);
     } else if (coveredLength) {
       const index = result.indexOf(published);
-      if (index >= 0) result[index] = { ...live, text: fullText.slice(coveredLength).replace(/^\n\n?/, ''), claudeNativeFullText: fullText };
+      let tail = fullText.slice(coveredLength).replace(/^\n\n?/, '');
+      for (const sealed of uncoveredSeals) {
+        if (!tail.startsWith(sealed.text)) break;
+        tail = tail.slice(sealed.text.length).replace(/^\n+/, '');
+      }
+      if (index >= 0) result[index] = { ...live, text: tail, claudeNativeFullText: fullText };
     }
     const visibleLive = result.find(row => row.source === 'live' && row.id === live.id
       && row.sessionKey === live.sessionKey && row.runId === live.runId);
-    if (visibleLive) moveAfter(result, visibleLive, nativeAnchor);
+    // The copy already follows its uncovered seals and their tools, and it
+    // answers any prompt steered in after the last saved step.
+    if (visibleLive && !uncoveredSeals.length && !result.slice(result.indexOf(nativeAnchor) + 1, Math.max(0, result.indexOf(visibleLive))).some(row => row.role === 'user')) moveAfter(result, visibleLive, nativeAnchor);
     if (footer) moveAfter(result, footer, visibleLive ?? nativeAnchor);
     for (const input of queued) remove(result, input);
     const anchor = footer ?? visibleLive ?? nativeAnchor;
     if (result.includes(anchor)) result.splice(result.indexOf(anchor) + 1, 0, ...queued);
   }
+  retireSealsOfSealedRuns(result);
   return result;
 }
 
@@ -74,7 +104,7 @@ function claudeNativeLiveMatches(messages: WorkspaceMessage[]): ClaudeNativeLive
     const candidates = nativeCandidates(messages, live);
     if (candidates.length !== 1) continue;
     if (live.state === 'complete' && !footers.length) footers = savedAnswerFooters(messages, live, candidates[0]!.lastNative);
-    if (live.state === 'complete' && footers.length !== 1 && !candidates[0]!.restoredFinalText) continue;
+    if (live.state === 'complete' && footers.length !== 1 && needsFooter(candidates[0]!)) continue;
     matches.push({ live, ...candidates[0]!, footer: footers[0] });
   }
   return matches;
@@ -162,7 +192,27 @@ function nativeCandidates(rows: WorkspaceMessage[], live: WorkspaceMessage, trac
     const coverage = exactCoverage?.fullyCovered ? exactCoverage
       : redactedTerminalCoverage(scoped, start, parts, nativeWindow.at(-1)!, live) ?? exactCoverage;
     if (!coverage) { trace?.push('coverage'); continue; }
-    if (live.state === 'complete' && !coverage.fullyCovered) { trace?.push('partial'); continue; }
+    // Saved history vouches for a completed copy by the run's footer, or by
+    // the turn's own prompt: one saved under this run's submission key, with
+    // no native boundary after it, that follows a finished turn. Its saved
+    // steps may then crop the copy before the answer is saved, even when the
+    // phone was away for the streaming frames. A prompt queued inside an
+    // earlier turn is saved among that turn's rows and proves nothing about
+    // them, so the nearest boundary, native row or positioned input before it
+    // must be a boundary or an end-turn answer: a native one, or the answer
+    // the Gateway saves under `cli-assistant:<runId>` when a run ends, after
+    // all of that run's steps. Positioned inputs include
+    // system prompts such as a scheduled scan. A window that starts at the
+    // prompt cannot show what precedes it, so that prompt does not vouch.
+    // A turn that ended any other way, and a later turn that opens with the
+    // same words, keep the older rules.
+    const beforePrompt = positionedPrompt && scoped.slice(0, scoped.indexOf(positionedPrompt)).findLast(row => row.role === 'boundary'
+      || row.cliProvenance?.kind === 'claude-native' || Boolean(row.displayPosition) && row.role !== 'assistant');
+    const ownTurn = Boolean(positionedPrompt && positionedPrompt.idempotencyKey === `${live.runId}:user`
+      && time(start)! <= time(positionedPrompt)! && beforePrompt
+      && (beforePrompt.role === 'boundary' || beforePrompt.role === 'assistant'
+        && (beforePrompt.cliEndTurn === true || Boolean(beforePrompt.idempotencyKey?.startsWith('cli-assistant:')))));
+    if (live.state === 'complete' && !coverage.fullyCovered && !ownTurn) { trace?.push('partial'); continue; }
     // Only inputs that became their own native turn were queued behind this
     // one; they move after its answer. A steered input has Gateway position
     // but no native provenance: Claude absorbed it mid-turn, so it keeps its
@@ -172,7 +222,12 @@ function nativeCandidates(rows: WorkspaceMessage[], live: WorkspaceMessage, trac
       && row.idempotencyKey?.endsWith(':user') && row !== start && row !== positionedPrompt
       && time(row)! > startAt && time(row)! < end);
     const lastNative = nativeWindow.at(-1)!;
-    candidates.push({ lastNative, queued, ...coverage });
+    // Retiring without the run's footer needs the whole answer saved: the
+    // turn's parts equal the copy exactly, not through a truncation marker or
+    // a shorter prefix, and the last native row is the end-turn answer.
+    const ownAnswerSaved = ownTurn && coverage.fullyCovered && lastNative.role === 'assistant' && lastNative.cliEndTurn === true
+      && ['\n\n', '\n'].some(joiner => parts.map(row => row.text).join(joiner) === liveText);
+    candidates.push({ lastNative, queued, ownAnswerSaved, ...coverage });
   }
   return candidates;
 }
@@ -190,7 +245,7 @@ function redactedTerminalCoverage(scoped: WorkspaceMessage[], prompt: WorkspaceM
     || live.transcriptSessionId && live.transcriptSessionId !== prompt.transcriptSessionId
     || scoped.filter(row => row.role === 'user' && row.idempotencyKey === prompt.idempotencyKey).length !== 1) return null;
   const final = parts.at(-1)!;
-  if (final !== lastNative || final.role !== 'assistant' || parts.filter(row => row.role === 'assistant').length !== 1
+  if (final !== lastNative || final.role !== 'assistant' || final.cliEndTurn !== true || parts.filter(row => row.role === 'assistant').length !== 1
     || final.asyncMessage || final.asyncQuestion || final.absorbedLiveIdentity
     || parts.some(row => row.transcriptSessionId !== prompt.transcriptSessionId
       || row.cliProvenance?.kind !== 'claude-native' || row.cliProvenance.sessionId !== native.sessionId
@@ -215,11 +270,16 @@ export function claudeNativeLiveDiagnosis(messages: WorkspaceMessage[], live: Wo
   const candidates = nativeCandidates(messages, live, trace);
   const counts = [...new Set(trace)].map(reason => `${reason}:${trace.filter(item => item === reason).length}`).join(',');
   if (candidates.length !== 1) return `candidates=${candidates.length} ${counts || 'no-native-text'}`;
-  if (live.state === 'complete' && !footers.length && !candidates[0]!.restoredFinalText) {
+  if (live.state === 'complete' && !footers.length && needsFooter(candidates[0]!)) {
     const saved = savedAnswerFooters(messages, live, candidates[0]!.lastNative);
     if (saved.length !== 1) return `footer=0 saved=${saved.length}`;
   }
   return 'match';
+}
+
+/** Retiring a completed copy needs the run's footer unless its own saved turn holds the whole answer. */
+function needsFooter(candidate: Omit<ClaudeNativeLiveMatch, 'live' | 'footer'>) {
+  return candidate.fullyCovered && !candidate.ownAnswerSaved && !candidate.restoredFinalText;
 }
 
 /**
@@ -238,7 +298,7 @@ function isRunFooter(row: WorkspaceMessage, live: WorkspaceMessage) {
  * completion when it belongs to exactly the native answer the copy matched.
  */
 function savedAnswerFooters(rows: WorkspaceMessage[], live: WorkspaceMessage, lastNative: WorkspaceMessage) {
-  if (lastNative.role !== 'assistant') return [];
+  if (lastNative.role !== 'assistant' || lastNative.cliEndTurn !== true) return [];
   return rows.filter(row => row.role === 'run' && row.state === 'complete' && row.source === 'history'
     && row.sessionKey === live.sessionKey && row.id === `history-run-${lastNative.id}`);
 }

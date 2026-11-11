@@ -35,11 +35,11 @@ describe('explicit older-history input authority', () => {
     const verification = readFileSync(new URL('../transcript/transcriptReviewRestoreVerification.ts', import.meta.url), 'utf8');
 
     expect(navigation).toContain('const viewPositionCache = useRef(new BoundedSessionCache<SessionTranscriptViewportPosition>());');
-    expect(navigation).toContain('resolveSessionTranscriptViewportPosition(buffer, viewportAnchor)');
-    expect(pane).toContain('const anchor = viewport.captureReviewAnchor();');
-    expect(pane).toContain('sourceRow: row.sourceRow, viewPosition: anchor.viewPosition');
-    expect(viewport).toContain('pendingRevisionReveal.current = { datasetKey: datasetKeyRef.current, rowKey: committedRowKeys.current?.[target], target, viewPosition: boundedPosition };');
-    expect(viewport).toContain('pendingReviewRestore.current = { datasetKey: datasetKeyRef.current, rowKey: committedRowKeys.current?.[target], target, viewPosition: boundedPosition, writes: 0, confirmations: 0, settleUntil: Number.POSITIVE_INFINITY, fallbackUsed: false };');
+    expect(navigation).toContain('viewport.restoreSessionPosition(viewportAnchor)');
+    expect(pane).toContain('const anchor = viewport.captureSessionReviewAnchor();');
+    expect(pane).toContain('sourceRow: row.sourceRow, viewPosition: 0, rowOffset: anchor.rowOffset');
+    expect(viewport).toContain('pendingRevisionReveal.current = transcriptReviewRevisionRequest(');
+    expect(viewport).toContain('pendingReviewRestore.current = createTranscriptReviewRestore(pendingRevisionReveal.current, session,');
     expect(capture).toContain('authoritativeTranscriptScrollOffset(owner.getAbsoluteLastScrollOffset(), metrics.offset, observedScroll)');
     expect(verification).toContain("context.record('release-review'");
   });

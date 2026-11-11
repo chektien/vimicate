@@ -1,3 +1,8 @@
+import { TranscriptHistoryStart } from './TranscriptHistoryStart';
+import { TranscriptHistoryOmission } from './TranscriptHistoryOmission';
+import { transcriptItemType } from './transcriptItemType';
+import { useTranscriptSessionPosition } from './useTranscriptSessionPosition';
+import { type SessionTranscriptViewportPosition, type SessionViewportCapture, type SessionViewportEntry } from './sessionTranscriptViewportPosition';
 import { transcriptForwardReviewBoundary } from './transcriptForwardReviewBoundary';
 import { QuestionTargetScope } from '../questions/QuestionTargetScope';
 import { TranscriptHistoryEnd } from './TranscriptHistoryEnd';
@@ -15,7 +20,7 @@ import { projectTranscriptVimState, type TranscriptBuffer, type TranscriptVimSta
 import { useTranscriptViewport } from './useTranscriptViewport';
 import { buildVisibleTranscriptRenderRows, retainStableTranscriptRenderRows, transcriptNavigationSourceRows, transcriptRenderIndexForSourceRow } from './transcriptVisibleRows';
 import { workspaceFontMetrics } from '../ui/workspaceTypography';
-import { transcriptEntryIndex, transcriptVisibleContentAnchor } from './transcriptViewportPolicy';
+import { transcriptVisibleContentAnchor } from './transcriptViewportPolicy';
 import type { TranscriptRevealOwnership } from './transcriptTailFollowPolicy';
 import { TRANSCRIPT_BOTTOM_INSET, TRANSCRIPT_HORIZONTAL_INSET, TRANSCRIPT_VERTICAL_INSET } from './transcriptPaneGeometry';
 import { TRANSCRIPT_PANE_BORDER_WIDTH } from './transcriptFocusMetrics';
@@ -28,9 +33,10 @@ import type { CompiledMarkdownLine, TranscriptLinkTarget } from './transcriptMar
 
 export type TranscriptPaneHandle = {
   reveal: (sourceRow: number, force?: boolean, ownership?: TranscriptRevealOwnership, previousSourceRow?: number) => void;
-  revealAfterRevision: (sourceRow: number, viewPosition?: number) => void;
+  restoreSessionPosition: (position: SessionTranscriptViewportPosition) => void;
+  revealAfterRevision: (sourceRow: number, viewPosition?: number, rowOffset?: number) => void;
   viewPositionForSourceRow: (sourceRow: number) => number | null;
-  captureReviewPosition: () => { sourceRow: number; viewPosition: number } | null;
+  captureReviewPosition: () => { sourceRow: number; viewPosition: number; rowOffset?: number } | null;
   toggleFold: (messageId: string, revealSourceRow?: number) => void;
   setFoldExpanded: (messageId: string, expanded: boolean, revealSourceRow?: number) => void;
   foldAtSourceRow: (sourceRow: number) => { messageId: string; messageIndex: number; sourceRow: number; expanded: boolean } | null;
@@ -43,6 +49,9 @@ export type TranscriptPaneHandle = {
 };
 
 export const TranscriptPane = forwardRef<TranscriptPaneHandle, {
+  sessionEntry?: SessionViewportEntry;
+  onSessionRetire?: (datasetKey: string, capture: SessionViewportCapture | null) => void;
+  historyLoading?: boolean;
   questionNotice?: string;
   hasNewerHistory?: boolean;
   responseMessages?: WorkspaceMessage[];
@@ -66,7 +75,7 @@ export const TranscriptPane = forwardRef<TranscriptPaneHandle, {
   historyProblem?: string;
   onLoadOlder: (expandedMessageIDs: ReadonlySet<string>) => unknown | Promise<unknown>;
   onRetryHistory: (expandedMessageIDs: ReadonlySet<string>) => void;
-}>(function TranscriptPane({ questionNotice, hasNewerHistory = false, responseMessages, onJumpToLatest, onLoadNewer, datasetKey, messages, buffer, navigation, focused, fontScale, onFocus, onSelect, onNavigationProjection, onViewportReview, onApprovalDecision, onRecoverMessage, onOpenMedia, canLoadOlder, loadingOlder, historyProblem, onLoadOlder, onRetryHistory }, ref) {
+}>(function TranscriptPane({ sessionEntry, onSessionRetire, historyLoading, questionNotice, hasNewerHistory = false, responseMessages, onJumpToLatest, onLoadNewer, datasetKey, messages, buffer, navigation, focused, fontScale, onFocus, onSelect, onNavigationProjection, onViewportReview, onApprovalDecision, onRecoverMessage, onOpenMedia, canLoadOlder, loadingOlder, historyProblem, onLoadOlder, onRetryHistory }, ref) {
   const newResponses = useTranscriptResponseNotice(datasetKey, responseMessages ?? messages, !navigation.followTail);
   const loadedMessages = useRef(messages);
   useLayoutEffect(() => { loadedMessages.current = messages; }, [messages]);
@@ -120,19 +129,9 @@ export const TranscriptPane = forwardRef<TranscriptPaneHandle, {
   const viewportRowKeys = useMemo(() => recyclerTopology.map(row => row.key), [recyclerTopology]);
   const acknowledgeUserReachedEnd = useCallback(() => newResponses.acknowledge(messages), [messages, newResponses.acknowledge]);
   const cursorRenderIndex = transcriptRenderIndexForSourceRow(rows, projectedNavigation.cursor.row);
-  // The keyed recycler would otherwise paint its first frame at row 0 and
-  // then scroll to the entry target, a blank flash on every thread switch.
-  // Fixed once per dataset at its first render with rows: a dataset that
-  // enters empty takes the index when history arrives, which FlashList
-  // applies on its first non-empty layout. Render-phase state adjustment,
-  // so an abandoned render cannot leak an index into the committed pane.
-  const [entry, setEntry] = useState(() => ({ datasetKey, hasRows: rows.length > 0, index: transcriptEntryIndex(rows.length, navigation.followTail, cursorRenderIndex) }));
-  let entryIndex = entry;
-  if (entry.datasetKey !== datasetKey || !entry.hasRows && rows.length > 0) {
-    entryIndex = { datasetKey, hasRows: rows.length > 0, index: transcriptEntryIndex(rows.length, navigation.followTail, cursorRenderIndex) };
-    setEntry(entryIndex);
-  }
-  const viewport = useTranscriptViewport<TranscriptRenderRow>(datasetKey, recyclerTopology, rows.length, cursorRenderIndex, projectedNavigation.cursor.row, onViewportReview, viewportRowKeys, acknowledgeUserReachedEnd);
+  const sessionPosition = useTranscriptSessionPosition({ datasetKey, rows, buffer, navigation: projectedNavigation,
+    entry: sessionEntry, onRetire: onSessionRetire, historyLoading });
+  const viewport = useTranscriptViewport<TranscriptRenderRow>(datasetKey, recyclerTopology, rows.length, cursorRenderIndex, projectedNavigation.cursor.row, onViewportReview, viewportRowKeys, acknowledgeUserReachedEnd, sessionPosition.options);
   useEffect(() => {
     if (!olderHistory.refreshing) viewport.retireUnchangedOlderHistoryAnchor();
   }, [olderHistory.refreshing, viewport.retireUnchangedOlderHistoryAnchor]);
@@ -174,20 +173,18 @@ export const TranscriptPane = forwardRef<TranscriptPaneHandle, {
       previousSourceRow === undefined ? undefined : transcriptRenderIndexForSourceRow(rowsRef.current, previousSourceRow),
     );
   }, [viewport.reveal, newResponses.acknowledge]);
-  const revealSourceRowAfterRevision = useCallback((sourceRow: number, viewPosition?: number) => {
-    viewport.revealAfterRevision(transcriptRenderIndexForSourceRow(rowsRef.current, sourceRow), viewPosition);
+  const revealSourceRowAfterRevision = useCallback((sourceRow: number, viewPosition?: number, rowOffset?: number) => {
+    viewport.revealAfterRevision(transcriptRenderIndexForSourceRow(rowsRef.current, sourceRow), viewPosition, rowOffset);
   }, [viewport.revealAfterRevision]);
   const viewPositionForSourceRow = useCallback((sourceRow: number) => viewport.viewPositionForRow(transcriptRenderIndexForSourceRow(rowsRef.current, sourceRow)), [viewport.viewPositionForRow]);
   const listExtraData = useMemo(() => ({ navigation: projectedNavigation, focused, rowGeneration: rows, boundaryMessageIDs: olderHistory.boundaryMessageIDs }), [focused, projectedNavigation, rows, olderHistory.boundaryMessageIDs]);
+  const itemType = useCallback((_item: TranscriptRenderRow, index: number) => transcriptItemType(rows[index]), [rows]);
   const keyExtractor = useCallback((item: TranscriptRenderRow) => item.key, []);
   const firstDateLabel = rows[0]?.chronology.dividerLabel;
-  const historyHeader = useMemo(() => <><View style={styles.topSlot}>{loadingOlder
-    ? null
-    : historyProblem
-      ? <Pressable accessibilityRole="button" accessibilityLabel={`Retry transcript history: ${historyProblem}`} onPress={() => actions.current.onRetryHistory()}><Text numberOfLines={2} style={styles.historyError}>{`history unavailable · ${historyProblem} · tap to retry`}</Text></Pressable>
-      : canLoadOlder
-        ? <Pressable accessibilityRole="button" accessibilityLabel="Load older transcript history" onPress={olderHistory.request} style={styles.historyAction}><Text style={styles.historyActionText}>↑ Load older history</Text><Text style={styles.historyActionHint}>pull down · tap · k again at top</Text></Pressable>
-        : null}</View><TranscriptDateDivider label={firstDateLabel} fontScale={fontScale} /></>, [canLoadOlder, historyProblem, loadingOlder, firstDateLabel, fontScale, olderHistory.request]);
+  const leadingOmission = Boolean(rows[0]?.message.historyOmission);
+  const historyHeader = <TranscriptHistoryStart loading={loadingOlder} problem={historyProblem} canLoad={canLoadOlder}
+    fontScale={fontScale} date={firstDateLabel} omission={leadingOmission}
+    onRetry={() => actions.current.onRetryHistory()} onLoad={olderHistory.request} />;
   const historyFooter = useMemo(() => hasNewerHistory && onJumpToLatest
     ? <TranscriptHistoryEnd onPress={onJumpToLatest} onLoadNewer={onLoadNewer ? requestNewerHistory : undefined} loadingNewer={loadingNewer} problem={historyProblem} />
     : null, [hasNewerHistory, onJumpToLatest, onLoadNewer, requestNewerHistory, loadingNewer, historyProblem]);
@@ -216,20 +213,23 @@ export const TranscriptPane = forwardRef<TranscriptPaneHandle, {
     // Like day separators, the load boundary trails the preceding cell so
     // inserting it never moves the retained message's text within its cell.
     const following = rows[index + 1];
+    const omission = following?.firstInMessage && following.message.historyOmission;
+    const continuation = omission ? <TranscriptHistoryOmission fontScale={fontScale} onLoadOlder={olderHistory.request} /> : null;
     const boundary = following?.firstInMessage && olderHistory.boundaryMessageIDs.includes(following.message.id);
     return <View style={index === rows.length - 1 && !hasNewerHistory ? styles.tailCell : undefined}>{boundary
-      ? <>{source}<TranscriptDateDivider label="Previously loaded" accessibilityLabel="Older history boundary" fontScale={fontScale} /></>
-      : source}</View>;
-  }, [datasetKey, hasNewerHistory, cursorNavigationIndex, focused, fontScale, gutterWidth, olderHistory.boundaryMessageIDs, projectedNavigation, rows, toggleMessageFold, viewport.holdReviewAnchor, viewport.cancelRegionReveal, viewport.captureRegionPosition, viewport.revealRegion]);
+      ? <>{source}{continuation}<TranscriptDateDivider label="Previously loaded" accessibilityLabel="Older history boundary" fontScale={fontScale} /></>
+      : continuation ? <>{source}{continuation}</> : source}</View>;
+  }, [datasetKey, hasNewerHistory, cursorNavigationIndex, focused, fontScale, gutterWidth, olderHistory.request, olderHistory.boundaryMessageIDs, projectedNavigation, rows, toggleMessageFold, viewport.holdReviewAnchor, viewport.cancelRegionReveal, viewport.captureRegionPosition, viewport.revealRegion]);
   useImperativeHandle(ref, () => ({
     reveal: revealSourceRow,
     revealAfterRevision: revealSourceRowAfterRevision,
+    restoreSessionPosition: anchor => sessionPosition.restore(anchor, viewport.revealAfterRevision),
     viewPositionForSourceRow,
     captureReviewPosition: () => {
-      const anchor = viewport.captureReviewAnchor();
+      const anchor = viewport.captureSessionReviewAnchor();
       if (!anchor) return null;
       const row = rowsRef.current[anchor.row];
-      return row ? { sourceRow: row.sourceRow, viewPosition: anchor.viewPosition } : null;
+      return row ? { sourceRow: row.sourceRow, viewPosition: 0, rowOffset: anchor.rowOffset } : null;
     },
     toggleFold: (messageId, sourceRow) => { viewport.holdReviewAnchor(); toggleMessageFold(messageId, sourceRow); },
     setFoldExpanded: (messageId, expanded, sourceRow) => { viewport.holdReviewAnchor(); setMessageFoldExpanded(messageId, expanded, sourceRow); },
@@ -246,22 +246,19 @@ export const TranscriptPane = forwardRef<TranscriptPaneHandle, {
     navigationSourceRows: () => navigationRowsRef.current,
     requestOlderHistory: olderHistory.request,
     requestNewerHistory,
-  }), [olderHistory.request, requestNewerHistory, revealSourceRow, revealSourceRowAfterRevision, setMessageFoldExpanded, toggleMessageFold, viewPositionForSourceRow, viewport.holdReviewAnchor, viewport.captureReviewAnchor]);
+  }), [sessionPosition, viewport.revealAfterRevision, olderHistory.request, requestNewerHistory, revealSourceRow, revealSourceRowAfterRevision, setMessageFoldExpanded, toggleMessageFold, viewPositionForSourceRow, viewport.holdReviewAnchor, viewport.captureSessionReviewAnchor]);
   return (
     <Pressable accessible={false} onPress={onFocus} style={[styles.root, focused && styles.focused]}>
       <FlashList scrollsToTop={false}
-        // Native recycler geometry is dataset-owned too. Reusing one
-        // FlashList instance across project sessions lets the previous
-        // session's retained content offset win after the JS navigation cache
-        // has restored the correct source row. A session-keyed instance starts
-        // with no foreign native offset; useSessionTranscriptNavigation then
-        // performs the one explicit row/position restoration for this dataset.
+        // A session-keyed recycler cannot retain a foreign native offset.
+        // The session owner performs the one source-position restoration.
         key={datasetKey}
-        initialScrollIndex={entryIndex.index}
+        initialScrollIndex={sessionPosition.index}
         ref={viewport.list}
         data={recyclerTopology}
         extraData={listExtraData}
         keyExtractor={keyExtractor}
+        getItemType={itemType}
         drawDistance={1_200}
         maintainVisibleContentPosition={transcriptVisibleContentAnchor}
         onLayout={viewport.onLayout}
@@ -292,5 +289,5 @@ export const TranscriptPane = forwardRef<TranscriptPaneHandle, {
 const styles = StyleSheet.create({
   // Focus changes colour only. A border-width change alters the FlashList
   // content width, rewraps long rows, and can move its retained anchor.
-  root: { flex: 1, minHeight: 0, backgroundColor: colors.canvas, borderWidth: TRANSCRIPT_PANE_BORDER_WIDTH, borderColor: colors.border }, focused: { borderColor: colors.activeAccent }, content: { paddingHorizontal: TRANSCRIPT_HORIZONTAL_INSET }, topSlot: { minHeight: 34, paddingVertical: TRANSCRIPT_VERTICAL_INSET, justifyContent: 'center' }, tailCell: { paddingBottom: TRANSCRIPT_BOTTOM_INSET }, historyAction: { alignSelf: 'center', minHeight: 24, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, borderRadius: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.inset }, historyActionText: { color: colors.yellow, fontFamily: type.mono, fontSize: 9, fontWeight: '700' }, historyActionHint: { color: colors.faint, fontFamily: type.mono, fontSize: 8 }, historyError: { color: colors.red, fontFamily: type.mono, fontSize: 9, textAlign: 'center' }, historyFeedback: { position: 'absolute', top: 0, left: 0, right: 0, minHeight: 34, alignItems: 'center', justifyContent: 'center', zIndex: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.canvas, paddingHorizontal: 8, paddingVertical: 4 }, historyFeedbackText: { color: colors.yellow, fontFamily: type.mono, fontSize: 9, fontWeight: '700' }, empty: { paddingHorizontal: TRANSCRIPT_HORIZONTAL_INSET, paddingVertical: TRANSCRIPT_VERTICAL_INSET }, emptyText: { color: colors.faint, fontFamily: type.mono, fontSize: 12 }, emptyDetail: { marginTop: 3, color: colors.inkMuted, fontFamily: type.mono, fontSize: 10 }, dim: { position: 'absolute', inset: 0, backgroundColor: 'rgba(29,32,33,0.18)' },
+  root: { flex: 1, minHeight: 0, backgroundColor: colors.canvas, borderWidth: TRANSCRIPT_PANE_BORDER_WIDTH, borderColor: colors.border }, focused: { borderColor: colors.activeAccent }, content: { paddingHorizontal: TRANSCRIPT_HORIZONTAL_INSET }, tailCell: { paddingBottom: TRANSCRIPT_BOTTOM_INSET }, historyFeedback: { position: 'absolute', top: 0, left: 0, right: 0, minHeight: 34, alignItems: 'center', justifyContent: 'center', zIndex: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.canvas, paddingHorizontal: 8, paddingVertical: 4 }, historyFeedbackText: { color: colors.yellow, fontFamily: type.mono, fontSize: 9, fontWeight: '700' }, empty: { paddingHorizontal: TRANSCRIPT_HORIZONTAL_INSET, paddingVertical: TRANSCRIPT_VERTICAL_INSET }, emptyText: { color: colors.faint, fontFamily: type.mono, fontSize: 12 }, emptyDetail: { marginTop: 3, color: colors.inkMuted, fontFamily: type.mono, fontSize: 10 }, dim: { position: 'absolute', inset: 0, backgroundColor: 'rgba(29,32,33,0.18)' },
 });

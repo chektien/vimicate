@@ -190,3 +190,10 @@ it('bridges primary user ID enrichment into an explicit submission alias', () =>
   const alias = { ...enriched, id: 'u2' };
   expect(coalesceTranscriptIdentities([base, enriched, alias])).toEqual([enriched]);
 });
+
+it('does not coalesce equal record or submission IDs across explicit route and generation partitions', () => {
+  const first: WorkspaceMessage = { id: 'record', role: 'user', text: 'one', source: 'history', sessionKey: 'one', transcriptSessionId: 'generation-one', idempotencyKey: 'submission:user' };
+  const next = { ...first, text: 'two', transcriptSessionId: 'generation-two' };
+  const foreign = { ...first, text: 'other route', sessionKey: 'other' };
+  expect(coalesceTranscriptIdentities([first, next, foreign])).toHaveLength(3);
+});

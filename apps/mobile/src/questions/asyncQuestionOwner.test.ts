@@ -71,3 +71,24 @@ it('rejects malformed persisted Other selection flags', () => {
     expect(restored.serialize()).toBe('[]');
   }
 });
+
+it('keeps actionability through collapse, but separates admitted delivery, skip, history and draft-only restore', () => {
+  const owner = new AsyncQuestionOwner(); owner.observe([message, message]); const record = owner.view(message)!.record;
+  const counts = () => [...owner.pendingCounts(() => true)];
+  expect(counts()).toEqual([['a', 1]]);
+  owner.collapse(record.id); expect(counts()).toEqual([['a', 1]]);
+  owner.skip(record.id); expect(counts()).toEqual([]);
+  owner.reopen(record.id); expect(counts()).toEqual([['a', 1]]);
+  const restored = new AsyncQuestionOwner(); restored.restore(owner.serialize());
+  expect([...restored.pendingCounts(() => true)]).toEqual([]);
+  owner.admit(message, 'marker-answer');
+  for (const state of ['sending', 'failed', 'accepted'] as const) { owner.delivery(record.id, state); expect(counts()).toEqual([]); }
+  owner.observe([message, { id: 'saved', sessionKey: 'a', role: 'user', source: 'history', text: '> Which?\n\nOne', asyncQuestionReplyToId: 'source' }]);
+  expect(counts()).toEqual([]);
+  const other = { ...message, sessionKey: 'b' }; owner.observe([other]);
+  expect([...owner.pendingCounts(row => row.sessionKey === 'a')]).toEqual([]);
+  owner.observe([other, { id: 'end', sessionKey: 'b', role: 'assistant', text: 'Done', runId: 'origin', asyncQuestionRunOutcome: 'successful' },
+    { id: 'next', sessionKey: 'b', role: 'user', text: 'Continue', runId: 'later' },
+    { id: 'end2', sessionKey: 'b', role: 'assistant', text: 'Done', runId: 'later', asyncQuestionRunOutcome: 'successful' }]);
+  expect(counts()).toEqual([]); owner.clear(); expect(counts()).toEqual([]);
+});

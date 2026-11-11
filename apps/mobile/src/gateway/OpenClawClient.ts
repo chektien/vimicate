@@ -1,4 +1,5 @@
 import { SessionCensus } from './sessionCensus';
+import { readUsage } from './providerUsagePolicy';
 import { SessionEventRevisions } from './sessionEventRevisions';
 import { recordRuntimeEvent } from '../diagnostics/runtimeEventLedger';
 import { SessionSubscriptionOwner } from './sessionSubscriptionOwner';
@@ -21,7 +22,7 @@ import { gatewayDeviceFamilyForProfile } from './gatewayDeviceFamily';
 import { dispatchGatewayEventSafely } from './gatewayEventDispatch';
 import { gatewayRequestFailure, gatewayResponseFailure } from './gatewayRequestDelivery';
 import { GatewayInputRefusalEcho, gatewayInputRefusalScope } from './gatewayInputRefusalEcho';
-import { gatewaySendControlFields, type GatewaySendControl } from './gatewaySendControl';
+import { FencedSteerSupport, type GatewaySendControl, chatSendAckTimeoutMs, chatSendParams } from './gatewaySendControl';
 import { launchGuardedBackgroundTask } from '../async/guardedBackgroundTask';
 import { projectFileContentFromPayload, projectFileListFromPayload, sharedFileResolutionFromPayload, sharedProjectFileContentFromPayload, sharedProjectFileListFromPayload } from './projectFiles';
 
@@ -47,9 +48,10 @@ export class OpenClawClient {
   private pending = new Map<string, Pending>();
   private refusalEchoes = new GatewayInputRefusalEcho();
   private sessionCensus = new SessionCensus();
-  // Survives reconnects; census activity covers events missed while disconnected.
+  // Census activity recovers missed events across reconnects.
   private eventRevisions = new SessionEventRevisions();
   private generation = 0;
+  private fencedSteer = new FencedSteerSupport();
   private profile: GatewayProfile | null = null;
   private connectWaiter: ConnectWaiter | null = null;
   private sessionSubscription = new SessionSubscriptionOwner({
@@ -161,7 +163,7 @@ export class OpenClawClient {
   async readRegistry() { const payload = await this.request<Record<string, unknown>>('vimicate.registry.read', {}, 20000); recordGatewayDiagnostic('registry.read-ok'); return payload; }
   listCommands() { return this.request<Record<string, unknown>>('commands.list'); }
   listModels() { return this.request<Record<string, unknown>>('models.list', { view: 'default' }, 20000); }
-  providerUsage() { return this.request<Record<string, unknown>>('usage.status'); }
+  providerUsage() { return readUsage(this.request.bind(this), this.profile?.endpoint); }
   health() { return this.request<Record<string, unknown>>('health'); }
   describeSession(sessionKey: string) { return this.request<Record<string, unknown>>('sessions.describe', { key: sessionKey }); }
   /** `model: null` asks the Gateway to reset the thread to its configured default. */
@@ -178,6 +180,9 @@ export class OpenClawClient {
   async updateThreadRegistry(mode: 'upsert' | 'remove', entries: ThreadRegistryWireEntry[]) {
     if (!entries.length) throw new Error('A thread-registry update requires at least one entry.');
     return assertThreadRegistryUpdate(await this.request<Record<string, unknown>>('vimicate.registry.updateThreads', { mode, entries, contract: 'host-current-v1' }, 15000));
+  }
+  removeRegistryProject(projectID: string, expectedSha256: string) {
+    return this.request<Record<string, unknown>>('vimicate.registry.removeProject', { contract: 'projects-md-v1', projectID, expectedSha256 }, 15000);
   }
   resetSession(sessionKey: string) { return this.request<Record<string, unknown>>('sessions.reset', { key: sessionKey, reason: 'new' }, 15000); }
   history(sessionKey: string, limit = 80, offset = 0) { return this.request<Record<string, unknown>>('chat.history', { sessionKey, limit, offset }); }
@@ -214,7 +219,9 @@ export class OpenClawClient {
     if (generation !== this.generation || signal.aborted) throw new Error('Image request retired');
     return gatewayArtifactDownloadSource(payload, profile.endpoint, artifactId, sessionKey);
   }
-  send(sessionKey: string, message: string, attachments: GatewayPromptAttachment[] = [], idempotencyKey = Crypto.randomUUID(), control?: 'steer' | GatewaySendControl, replyToId?: string) { return this.request<Record<string, unknown>>('chat.send', { sessionKey, message, deliver: false, timeoutMs: 0, idempotencyKey, ...(replyToId ? { replyToId } : {}), ...gatewaySendControlFields(control), ...(attachments.length ? { attachments: attachments.map((attachment) => ({ type: 'file', mimeType: attachment.mimeType, fileName: attachment.filename, content: attachment.dataBase64 })) } : {}) }, 35000); }
+  send(sessionKey: string, message: string, attachments: GatewayPromptAttachment[] = [], idempotencyKey = Crypto.randomUUID(), control?: 'steer' | GatewaySendControl, replyToId?: string) {
+    return this.fencedSteer.send(this.profile?.endpoint, control, fields => this.request<Record<string, unknown>>('chat.send', chatSendParams(sessionKey, message, attachments, idempotencyKey, fields, replyToId), chatSendAckTimeoutMs(fields)));
+  }
   abort(sessionKey: string, runId?: string) { return this.request<Record<string, unknown>>('chat.abort', runId ? { sessionKey, runId } : { sessionKey }); }
   resolveApproval(kind: 'exec' | 'plugin', id: string, decision: string) { return this.request<Record<string, unknown>>(`${kind}.approval.resolve`, { id, decision }); }
   listApprovals(kind: 'exec' | 'plugin') { return this.request<unknown[]>(`${kind}.approval.list`, {}); }

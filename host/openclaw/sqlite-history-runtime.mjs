@@ -2,8 +2,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
-export const SQLITE_HISTORY_RUNTIME = '2026.10.8';
+export const SQLITE_HISTORY_RUNTIME = '2026.11.1';
 import { PROFILES } from './sqlite-history-profiles.mjs';
 
 export const SQLITE_HISTORY_SUPPORTED_RUNTIMES = Object.freeze(Object.keys(PROFILES));
@@ -29,7 +30,12 @@ export async function loadSqliteHistoryRuntime(packageRoot) {
     const allowed = Array.isArray(expected) ? expected : [expected];
     sqliteHistoryCheck(allowed.includes(crypto.createHash('sha256').update(bytes).digest('hex')), 'private native reader fingerprint mismatch');
   }
-  const load = relative => import(pathToFileURL(path.join(packageRoot, 'dist', relative)).href);
+  // 10.10 history workers read the prepared native runtime-config snapshot.
+  // A capture-local import duplicates that authority and sees no snapshot.
+  // Resolve these pinned read ports from the package identity, as run truth does.
+  const nativeRequire = (profile.nativeIdentity || info.version === '2026.10.10') ? createRequire(path.join(packageRoot, 'package.json')) : undefined;
+  const load = relative => nativeRequire ? nativeRequire(path.join(packageRoot, 'dist', relative))
+    : import(pathToFileURL(path.join(packageRoot, 'dist', relative)).href);
   if (profile.entrypoints) {
     // 9.6+ runs plugin imports from a private capture copy that omits worker
     // files. Pin this copy's workers to the installed package before any
@@ -40,7 +46,7 @@ export async function loadSqliteHistoryRuntime(packageRoot) {
     sqliteHistoryCheck(transcript?.distWorkerPath === 'config/sessions/session-transcript.worker.js',
       'native worker entrypoints differ');
     await fs.access(path.join(packageRoot, 'dist', transcript.distWorkerPath));
-    for (const entry of Object.values(entrypoints)) {
+    if (!nativeRequire) for (const entry of Object.values(entrypoints)) {
       if (entry.root === undefined && entry.package === undefined) entry.root = packageRoot;
     }
   }

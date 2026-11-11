@@ -3,7 +3,7 @@ import { BoundedSessionCache } from '../workspace/boundedSessionCache';
 import { newConversationTailMessageID, SessionTranscriptNavigationCache } from './sessionTranscriptNavigation';
 import { createTranscriptVimState, projectTranscriptVimState, reconcileTranscriptVimState, type TranscriptBuffer, type TranscriptVimState } from './transcriptVim';
 import type { TranscriptPaneHandle } from './TranscriptPane';
-import { captureSessionTranscriptViewportPosition, resolveSessionTranscriptViewportPosition, type SessionTranscriptViewportPosition } from './sessionTranscriptViewportPosition';
+import { captureSessionTranscriptViewportPosition, resolveSessionTranscriptViewportPosition, type SessionTranscriptViewportPosition, type SessionViewportCapture, type SessionViewportEntry } from './sessionTranscriptViewportPosition';
 
 type TranscriptViewportHandoffKind = 'review-restore' | 'tail';
 type TranscriptViewportHandoff = {
@@ -11,7 +11,6 @@ type TranscriptViewportHandoff = {
   buffer: TranscriptBuffer;
   navigation: TranscriptVimState;
   kind: TranscriptViewportHandoffKind;
-  viewPosition: number | undefined;
   viewportAnchor: SessionTranscriptViewportPosition | undefined;
 };
 
@@ -59,29 +58,31 @@ export function useSessionTranscriptNavigation(options: Options) {
     viewportHandoffFrame.current = null;
     pendingViewportHandoff.current = null;
   }, [options.setNavigation, options.tailReveal]);
-  const captureCurrentSession = useCallback(() => {
-    const key = previousSessionKey.current;
-    const buffer = previousBuffer.current;
-    const navigation = options.navigationRef.current;
-    navigationCache.current.store(key, buffer, navigation);
-    const viewport = options.viewportRef.current;
-    const review = viewport?.captureReviewPosition?.();
-    const position = captureSessionTranscriptViewportPosition(buffer, review?.sourceRow ?? navigation.cursor.row,
-      review?.viewPosition ?? viewport?.viewPositionForSourceRow(navigation.cursor.row), !!review);
-    if (position) viewPositionCache.current.store(key, position);
-    else viewPositionCache.current.delete(key);
-  }, [options.navigationRef, options.viewportRef]);
+  const onViewportRetire = useCallback((key: string, capture: SessionViewportCapture | null) => {
+    if (key !== previousSessionKey.current) return;
+    if (capture?.kind === 'anchor') {
+      const position = capture.anchor ? { ...capture.anchor, rowOffset: capture.rowOffset }
+        : captureSessionTranscriptViewportPosition(previousBuffer.current, capture.sourceRow, capture.rowOffset);
+      if (position) viewPositionCache.current.store(key, { ...position, endGap: capture.endGap });
+      else viewPositionCache.current.delete(key);
+    } else viewPositionCache.current.delete(key);
+  }, []);
+  const entryFor = useCallback((key: string, buffer: TranscriptBuffer): SessionViewportEntry => {
+    const saved = viewPositionCache.current.restore(key);
+    const sourceRow = resolveSessionTranscriptViewportPosition(buffer, saved);
+    return sourceRow !== null && saved?.rowOffset !== undefined
+      ? { kind: 'anchor', sourceRow, rowOffset: saved.rowOffset } : { kind: 'tail' };
+  }, []);
 
   const scheduleOwnedViewportHandoff = useCallback((
     sessionKey: string,
     buffer: TranscriptBuffer,
     navigation: TranscriptVimState,
     kind: TranscriptViewportHandoffKind,
-    viewPosition?: number,
     viewportAnchor?: SessionTranscriptViewportPosition,
   ) => {
     const sameSessionFrame = viewportHandoffFrame.current !== null && pendingViewportHandoff.current?.sessionKey === sessionKey;
-    pendingViewportHandoff.current = { sessionKey, buffer, navigation, kind, viewPosition, viewportAnchor };
+    pendingViewportHandoff.current = { sessionKey, buffer, navigation, kind, viewportAnchor };
     // Keep an admitted handoff ahead of the list's queued geometry writers.
     // Cancel/requeue on every revision lets the old tail paint before review.
     if (sameSessionFrame) return;
@@ -92,16 +93,15 @@ export function useSessionTranscriptNavigation(options: Options) {
       viewportHandoffFrame.current = null;
       pendingViewportHandoff.current = null;
       if (!request) return;
-      const { sessionKey, buffer, navigation, kind, viewPosition, viewportAnchor } = request;
+      const { sessionKey, buffer, navigation, kind, viewportAnchor } = request;
       if (previousSessionKey.current !== sessionKey || previousBuffer.current !== buffer) return;
       if (!handoffOwnsNavigation(request, options.navigationRef.current)) return;
       const viewport = options.viewportRef.current;
       if (!viewport) return;
       if (kind === 'tail') {
         viewport.reveal(buffer.lines.length - 1, true, 'tail');
-      } else if (kind === 'review-restore') {
-        const row = viewportAnchor ? resolveSessionTranscriptViewportPosition(buffer, viewportAnchor) : navigation.cursor.row;
-        if (row !== null) viewport.revealAfterRevision(row, viewPosition ?? 0.45);
+      } else if (kind === 'review-restore' && viewportAnchor) {
+        viewport.restoreSessionPosition(viewportAnchor);
       }
     });
     viewportHandoffFrame.current = frame;
@@ -130,8 +130,8 @@ export function useSessionTranscriptNavigation(options: Options) {
       // layout commit. Restore on the next frame so that reset cannot cancel
       // or overwrite the session-owned source-row handoff.
       const saved = viewPositionCache.current.restore(options.sessionKey);
-      const anchor = saved?.viewportOwned && resolveSessionTranscriptViewportPosition(options.buffer, saved) !== null ? saved : undefined;
-      scheduleOwnedViewportHandoff(options.sessionKey, options.buffer, restored, anchor || !restored.followTail ? 'review-restore' : 'tail', saved?.viewPosition ?? 0.45, anchor);
+      const anchor = saved && resolveSessionTranscriptViewportPosition(options.buffer, saved) !== null ? saved : undefined;
+      scheduleOwnedViewportHandoff(options.sessionKey, options.buffer, restored, anchor ? 'review-restore' : 'tail', anchor);
       return;
     }
 
@@ -160,7 +160,7 @@ export function useSessionTranscriptNavigation(options: Options) {
         // Rebase still-owned work onto this committed revision. Rejecting the
         // stale buffer at execution is necessary, but silently dropping the
         // only return/restore request loses the session's viewport intent.
-        scheduleOwnedViewportHandoff(options.sessionKey, options.buffer, next, pending.kind, pending.viewPosition, pending.viewportAnchor);
+        scheduleOwnedViewportHandoff(options.sessionKey, options.buffer, next, pending.kind, pending.viewportAnchor);
       }
     }
     previousBuffer.current = options.buffer;
@@ -169,5 +169,5 @@ export function useSessionTranscriptNavigation(options: Options) {
     options.setNavigation(createTranscriptVimState(previousBuffer.current));
     options.viewportRef.current?.reveal(Number.MAX_SAFE_INTEGER, true, 'tail');
   }, [options.setNavigation, options.viewportRef]);
-  return { captureCurrentSession, onViewportReview, jumpToLatest };
+  return { onViewportRetire, entryFor, onViewportReview, jumpToLatest };
 }

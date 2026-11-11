@@ -38,7 +38,7 @@ export function createNewerHistoryAction(context: Context) {
       const visible = historyCache.current.restore(sessionKey) ?? [];
       const batch = await loadVisibleNewerHistoryBatch({ client, sessionKey, path: context.workspacePath.current,
         visible, generation: context.sessionGeneration.current, cursor: context.cursor.current, archive: context.archive.current, context: visibleContext,
-        scan: scan?.sessionKey === sessionKey && scan.selectionRevision === selectionRevision ? scan.value : null,
+        projectionContext: context.projectionContext, scan: scan?.sessionKey === sessionKey && scan.selectionRevision === selectionRevision ? scan.value : null,
         owns: ownsRequest });
       if (!ownsRequest()) return;
       scan = batch.scan ? { sessionKey, selectionRevision, value: batch.scan } : null;
@@ -46,12 +46,11 @@ export function createNewerHistoryAction(context: Context) {
         context.onDetail('checking the next newer history interval · j again to continue');
         return;
       }
-      context.cursor.current = batch.rewind.cursor;
       context.archive.current = batch.rewind.archive;
       // Keep an overlapping suffix around the reader, then add consecutive
       // newer history. Explicit G remains the only action that jumps the gap.
       const next = newerHistoryWindow(visible, batch.newer, sessionKey, visibleContext.retainedBoundaryMessageID);
-      context.setHistoryMessages(sessionKey, next, 'older', ownsPublication);
+      context.setHistoryMessages(sessionKey, next, 'older', ownsPublication, batch.rewind.cursor);
       context.setCanLoadOlder(canPageOlder(context.cursor.current, context.archive.current));
       // Reaching current history is still review intent. Hidden live content
       // remains isolated and tail-following is never enabled by this action.

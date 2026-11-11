@@ -19,10 +19,16 @@ export type TranscriptMessageMetadata = AsyncQuestionMetadata & {
   displayPosition?: TranscriptDisplayPosition;
   /** Explicit entry/delivery identity; never inferred from authored prose. */
   cliProvenance?: TranscriptCliProvenance;
+  /** Explicit Claude end_turn stop reason, not an answer-shaped partial step. */
+  cliEndTurn?: true;
   /** Original cumulative Claude text while the visible live row shows only its uncovered tail. */
   claudeNativeFullText?: string;
-  /** Live Claude text sealed above a prompt steered into the running turn. */
+  /** Live Claude text sealed above a prompt steered into the running turn, or above a tool call as commentary. */
   steerSealed?: boolean;
+  /** Length and hash of a seal's exact text, kept when a cache truncates the visible copy. */
+  sealText?: { length: number; hash: number; check: number };
+  /** Transient: a Claude run's live text when this tool's first frame arrived. Consumed by the live reducer, never stored. */
+  toolBoundaryChatText?: string;
   idempotencyKey?: string;
   /** Gateway pending-input acceptance, not model-ingestion time. Display only. */
   inputAcceptedAtMs?: number;
@@ -125,6 +131,8 @@ export function nativeTranscriptMetadata(raw: Record<string, unknown>) {
       : raw.role === 'user' && boundedText(metadata.steerTargetRunId, 256) ? metadata.steerTargetRunId : '',
     ...(displayPosition ? { displayPosition } : {}),
     ...(cliProvenance ? { cliProvenance } : {}),
+    ...(cliProvenance?.kind === 'claude-native' && raw.role === 'assistant'
+      && (raw.stopReason === 'end_turn' || raw.stopReason === 'endTurn') ? { cliEndTurn: true as const } : {}),
   };
 }
 

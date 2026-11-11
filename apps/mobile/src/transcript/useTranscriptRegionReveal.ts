@@ -12,8 +12,9 @@ type NavigationCancel = (reason: 'navigation') => unknown;
 export function useTranscriptRegionReveal<T>({
   list, metrics, observedScroll, current, pendingDatasetReset, pendingIndexedReveal,
   olderHistoryAnchor, cancelRevisionReveal, cancelPostLayoutFrame, cancelTailWriter,
-  cancelIndexedWriter, setTailFollow, issueIndexedReveal,
+  cancelIndexedWriter, setTailFollow, issueIndexedReveal, cancelSessionRestore,
 }: {
+  cancelSessionRestore?: () => void;
   list: RefObject<FlashListRef<T> | null>;
   metrics: RefObject<TranscriptViewportGeometry>;
   observedScroll: RefObject<boolean>;
@@ -29,13 +30,14 @@ export function useTranscriptRegionReveal<T>({
   issueIndexedReveal: (target: number, position: number, correction: boolean, region: Region) => void;
 }) {
   const captureRegionPosition = useCallback((target: number) => {
+    cancelSessionRestore?.();
     const owner = list.current;
     const layout = owner?.getLayout(target);
     if (!owner || !layout) return null;
     const offset = mountedTranscriptNativeScrollOffset(owner)
       ?? authoritativeTranscriptScrollOffset(owner.getAbsoluteLastScrollOffset(), metrics.current.offset, observedScroll.current);
     return { y: offset - layout.y - owner.getFirstItemOffset(), height: owner.getWindowSize().height || metrics.current.viewportHeight };
-  }, [list, metrics, observedScroll]);
+  }, [list, metrics, observedScroll, cancelSessionRestore]);
   const revealRegion = useCallback((target: number, region: Region) => {
     if (!Number.isFinite(region.y) || !Number.isFinite(region.height) || region.height <= 0
       || boundedTranscriptRow(target, current.current.itemCount) !== target) return;

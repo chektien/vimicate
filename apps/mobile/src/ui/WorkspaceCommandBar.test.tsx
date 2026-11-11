@@ -4,18 +4,19 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const viewport = vi.hoisted(() => ({ width: 375, height: 812 }));
-vi.mock('react-native', () => ({
+const scrolling = vi.hoisted(() => ({ scrollToIndex: vi.fn(), scrollToOffset: vi.fn(), props: {} as Record<string, any> }));
+vi.mock('react-native', async () => ({
   useWindowDimensions: () => viewport,
   View: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   Text: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
-  Pressable: ({ children, accessibilityLabel, onPress }: { children?: React.ReactNode; accessibilityLabel: string; onPress: () => void }) =>
-    <button aria-label={accessibilityLabel} onClick={onPress}>{children}</button>,
-  FlatList: ({ data, renderItem, accessibilityLabel, keyboardDismissMode, keyboardShouldPersistTaps, style }: {
+  Pressable: ({ children, accessibilityLabel, accessibilityState, onPress }: { children?: React.ReactNode; accessibilityLabel: string; accessibilityState?: { selected: boolean }; onPress: () => void }) =>
+    <button aria-label={accessibilityLabel} aria-pressed={accessibilityState?.selected} onClick={onPress}>{children}</button>,
+  FlatList: (await import('react')).forwardRef(({ data, renderItem, accessibilityLabel, keyboardDismissMode, keyboardShouldPersistTaps, style, ...props }: {
     data: { value: string }[]; renderItem: (info: { item: { value: string } }) => React.ReactNode;
     accessibilityLabel: string; keyboardDismissMode: string; keyboardShouldPersistTaps: string; style: unknown;
-  }) => <section aria-label={accessibilityLabel} data-dismiss={keyboardDismissMode} data-taps={keyboardShouldPersistTaps} data-style={JSON.stringify(style)}>
+  }, ref) => { if (ref) (ref as React.MutableRefObject<unknown>).current = scrolling; scrolling.props = props; return <section aria-label={accessibilityLabel} data-dismiss={keyboardDismissMode} data-taps={keyboardShouldPersistTaps} data-style={JSON.stringify(style)}>
     {data.map((item) => <React.Fragment key={item.value}>{renderItem({ item })}</React.Fragment>)}
-  </section>,
+  </section>; }),
   StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
 }));
 vi.mock('../../modules/vimicate-editor', () => ({
@@ -33,6 +34,7 @@ const props = () => ({ search: null, command: { query: 'model ' }, commands: [],
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   viewport.width = 375; viewport.height = 812;
+  scrolling.scrollToIndex.mockClear(); scrolling.scrollToOffset.mockClear();
   container = document.createElement('div'); document.body.append(container);
   root = createRoot(container);
 });
@@ -75,4 +77,27 @@ it('keeps hardware hints on wide layouts, and does not show command suggestions 
   await act(async () => root.render(<WorkspaceCommandBar {...p} command={null} search={{ query: 'needle', scope: 'transcript', direction: 1, softwareKeyboardEnabled: true }} />));
   expect(container.querySelector('section')).toBeNull();
   expect(container.querySelector('[aria-label="Search"]')).not.toBeNull();
+});
+
+it('highlights the cycled candidate, follows it beyond the first rows, and clears selection on edits', async () => {
+  const p = props();
+  const models = Array.from({ length: 30 }, (_, i) => `example/model-${i}`);
+  const query = `model ${models[24]}`;
+  const command = { query, completion: { seed: '', index: 24, start: 6, end: query.length, query } };
+  await act(async () => root.render(<WorkspaceCommandBar {...p} command={command} modelChoices={models} />));
+  expect(container.querySelectorAll('[aria-pressed="true"]')).toHaveLength(1);
+  expect(container.querySelector('[aria-pressed="true"]')?.getAttribute('aria-label')).toBe(`Complete ${models[24]}`);
+  expect(scrolling.scrollToIndex).toHaveBeenCalledWith({ index: 24, animated: false, viewPosition: 0.5 });
+  // An offscreen wrapped row may not yet be measured. Coarse-scroll to admit
+  // it, then use the measured content callback to align the exact selection.
+  await act(async () => scrolling.props.onScrollToIndexFailed({ index: 24, averageItemLength: 60 }));
+  expect(scrolling.scrollToOffset).toHaveBeenCalledWith({ offset: 1440, animated: false });
+  scrolling.scrollToIndex.mockClear();
+  await act(async () => scrolling.props.onContentSizeChange());
+  expect(scrolling.scrollToIndex).toHaveBeenCalledWith({ index: 24, animated: false, viewPosition: 0.5 });
+  const input = container.querySelector('input');
+  await act(async () => root.render(<WorkspaceCommandBar {...p} command={{ query: 'model example/model-2' }} modelChoices={models} />));
+  expect(container.querySelector('input')).toBe(input);
+  expect(container.querySelector('[aria-pressed="true"]')).toBeNull();
+  expect(scrolling.scrollToOffset).toHaveBeenLastCalledWith({ offset: 0, animated: false });
 });

@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
 import { buildSqlitePlugin, sqlitePluginManifest } from './build-sqlite-plugin.mjs';
 import { verifyArtifactIntegrity } from './plugin-artifact-integrity.mjs';
+import { PROFILES } from './sqlite-history-profiles.mjs';
 
 test('update fixtures work with a symlinked Terminal temporary directory', async t => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'vimicate-terminal-temp-')));
@@ -34,8 +35,11 @@ test('packaged integration explicitly activates at startup and excludes old JSON
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const result = await buildSqlitePlugin(path.join(root, 'plugin'));
   assert.equal(sqlitePluginManifest.activation.onStartup, true);
-  assert.equal(result.runtime, '2026.10.8');
-  assert.equal(Object.keys(result.files).length, 25);
+  assert.equal(result.runtime, '2026.11.1');
+  assert.equal(Object.keys(result.files).length, 29);
+  assert.ok(result.files['sqlite-history-profiles-october.mjs']);
+  const packaged = await import(pathToFileURL(path.join(result.destination, 'sqlite-history-profiles.mjs')));
+  assert.deepEqual(packaged.PROFILES, PROFILES);
   assert.ok(result.files['vimicate-narration-page-views.mjs']);
   const integrity = await verifyArtifactIntegrity(result.destination);
   assert.equal(result.buildId, integrity.buildId);
@@ -60,7 +64,14 @@ test('packaged integration explicitly activates at startup and excludes old JSON
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.6'));
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.7'));
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.8'));
+  assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.10'));
+  assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.11.1'));
   assert.equal(Object.keys(result.files).some(name => name.includes('ledger') || name.includes('installer')), false);
+  const split = path.join(result.destination, 'sqlite-history-profiles-october.mjs');
+  const splitBytes = await fs.readFile(split);
+  await fs.appendFile(split, '\n// changed fingerprint partition\n');
+  await assert.rejects(verifyArtifactIntegrity(result.destination), /integrity mismatch/);
+  await fs.writeFile(split, splitBytes);
   await fs.appendFile(path.join(result.destination, 'index.mjs'), '\n// altered entry\n');
   await assert.rejects(verifyArtifactIntegrity(result.destination), /integrity mismatch/);
   await assert.rejects(buildSqlitePlugin(result.destination), /EEXIST/);
@@ -85,7 +96,7 @@ test('source archives build licensed hash-verified artifacts without borrowing e
   await assert.rejects(build(destination), /finalized project MIT license/);
   await fs.writeFile(path.join(archive, 'LICENSE'), license);
   const result = await build(destination), integrity = await verify(destination);
-  assert.equal(integrity.schemaVersion, 2);
+  assert.equal(integrity.schemaVersion, 4);
   assert.equal(integrity.sourceRevision, null);
   assert.equal(integrity.sourceDirty, null);
   assert.equal(integrity.files.LICENSE, crypto.createHash('sha256').update(license).digest('hex'));
@@ -96,19 +107,43 @@ test('source archives build licensed hash-verified artifacts without borrowing e
   await assert.rejects(verify(destination), /integrity mismatch/);
 });
 
-test('existing v1 artifacts retain exact payload verification without new license claims', async t => {
-  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'vimicate-legacy-integrity-')));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const { PLUGIN_PAYLOAD_FILES } = await import('./plugin-artifact-integrity.mjs');
-  const files = {};
-  for (const name of PLUGIN_PAYLOAD_FILES.filter(name => !['LICENSE', 'THIRD_PARTY_NOTICES.md'].includes(name))) {
-    await fs.writeFile(path.join(root, name), `legacy fixture ${name}`);
-    files[name] = crypto.createHash('sha256').update(`legacy fixture ${name}`).digest('hex');
-  }
-  const buildId = crypto.createHash('sha256').update(JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)))).digest('hex');
-  await fs.writeFile(path.join(root, 'vimicate-build.json'), JSON.stringify({ schemaVersion: 1,
-    buildId, sourceRevision: 'a'.repeat(40), sourceDirty: false, files }));
-  assert.equal((await verifyArtifactIntegrity(root)).buildId, buildId);
-  await fs.appendFile(path.join(root, 'index.mjs'), 'tampered');
-  await assert.rejects(verifyArtifactIntegrity(root), /integrity mismatch/);
-});
+// Freeze historical schemas here independently from today's packaging list.
+// Deriving them by subtracting names from the current list hides schema drift.
+const legacyPayload = [
+  'sqlite-gateway-plugin.mjs', 'sqlite-history-runtime.mjs', 'sqlite-history-evidence.mjs',
+  'sqlite-history-profiles.mjs', 'sqlite-history-profiles-legacy.mjs',
+  'sqlite-history-authority.mjs', 'sqlite-history-reader.mjs', 'sqlite-history-family.mjs',
+  'session-run-truth.mjs', 'sqlite-history-plugin.mjs', 'session-archive-verification.mjs',
+  'thread-registry.mjs', 'thread-registry-merge.mjs', 'vimicate-narration-plugin-runtime.mjs',
+  'project-files.mjs', 'project-file-primitives.mjs', 'icloud-materialize.mjs',
+  'vimicate-narration-record-contract.mjs', 'vimicate-narration-state-store.mjs',
+  'vimicate-narration-page-views.mjs', 'index.mjs', 'openclaw.plugin.json', 'package.json',
+];
+for (const schemaVersion of [1, 2, 3]) {
+  test(`existing v${schemaVersion} artifacts retain their exact historical payload set`, async t => {
+    const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), `vimicate-v${schemaVersion}-integrity-`)));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const names = [...legacyPayload,
+      ...(schemaVersion >= 2 ? ['LICENSE', 'THIRD_PARTY_NOTICES.md'] : []),
+      ...(schemaVersion >= 3 ? ['project-file-access.mjs', 'hosted-project-files.mjs', 'ssh-file-access.mjs'] : []),
+    ].sort();
+    const files = {};
+    for (const name of names) {
+      const bytes = `v${schemaVersion} fixture ${name}`;
+      await fs.writeFile(path.join(root, name), bytes);
+      files[name] = crypto.createHash('sha256').update(bytes).digest('hex');
+    }
+    const buildId = crypto.createHash('sha256').update(JSON.stringify(Object.entries(files)
+      .sort(([a], [b]) => a.localeCompare(b)))).digest('hex');
+    const manifest = { schemaVersion, buildId, sourceRevision: 'b'.repeat(40), sourceDirty: false, files };
+    await fs.writeFile(path.join(root, 'vimicate-build.json'), JSON.stringify(manifest));
+    assert.equal((await verifyArtifactIntegrity(root)).buildId, buildId);
+    // No old schema can accept the new split module as part of its payload.
+    await fs.writeFile(path.join(root, 'vimicate-build.json'), JSON.stringify({ ...manifest,
+      files: { ...files, 'sqlite-history-profiles-october.mjs': '0'.repeat(64) } }));
+    await assert.rejects(verifyArtifactIntegrity(root), /invalid plugin build manifest/);
+    await fs.writeFile(path.join(root, 'vimicate-build.json'), JSON.stringify(manifest));
+    await fs.appendFile(path.join(root, 'index.mjs'), 'tampered');
+    await assert.rejects(verifyArtifactIntegrity(root), /integrity mismatch/);
+  });
+}

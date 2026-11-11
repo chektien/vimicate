@@ -2,6 +2,12 @@ import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { assistantAttachmentSnapshot } from './assistantAttachmentSnapshot';
 import { cumulativeNarrationText, sameNarrationIdentity } from './narrationTextConvergence';
 
+/** Chat frames are cumulative. A delayed frame that is a shorter prefix of
+ * the text already received takes nothing back. */
+export function isStaleCumulativePrefix(received: string, incoming: string) {
+  return received.length > incoming.length && received.startsWith(incoming);
+}
+
 /** Preserve monotonic cumulative assistant publication without text dedupe. */
 export function convergedLiveMessage(previous: WorkspaceMessage, incoming: WorkspaceMessage) {
   if (previous.id !== incoming.id) return incoming;
@@ -21,12 +27,9 @@ export function convergedLiveMessage(previous: WorkspaceMessage, incoming: Works
   }
   const previousText = previous.text;
   const incomingText = incoming.text;
-  const regressesCumulativePrefix = incoming.state === 'streaming'
-    && previousText.length > incomingText.length
-    && previousText.startsWith(incomingText);
+  const regressesCumulativePrefix = incoming.state === 'streaming' && isStaleCumulativePrefix(previousText, incomingText);
   const regressesRawEnvelope = regressesCumulativePrefix && previous.chatCumulativeText
-    && incoming.chatCumulativeText && previous.chatCumulativeText.length > incoming.chatCumulativeText.length
-    && previous.chatCumulativeText.startsWith(incoming.chatCumulativeText);
+    && incoming.chatCumulativeText && isStaleCumulativePrefix(previous.chatCumulativeText, incoming.chatCumulativeText);
   const text = regressesCumulativePrefix ? previousText : incomingText;
   // Gateway chat frames are cumulative snapshots, not attachment deltas. An
   // explicit media list therefore replaces the previous attempt instead of

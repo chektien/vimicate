@@ -6,6 +6,7 @@ import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import type { useGatewaySubmission } from './useGatewaySubmission';
 import { HistoryPublicationAuthority } from './historyPublicationAuthority';
 import { AsyncQuestionOwner } from '../questions/asyncQuestionOwner';
+import { AsyncQuestionProvider, useAsyncQuestionActions } from '../questions/AsyncQuestionContext';
 vi.mock('expo-crypto', () => { let sequence = 0; return { randomUUID: () => `async-answer-${++sequence}` }; });
 vi.mock('../storage/workspaceStore', () => ({ loadValue: vi.fn(async () => null), saveValue: vi.fn(async () => {}) }));
 import { loadValue, saveValue } from '../storage/workspaceStore';
@@ -14,11 +15,27 @@ const message: WorkspaceMessage = { id: 'question', role: 'assistant', source: '
 const key = (key: string) => ({ key, shift: false, command: false, control: false, option: false });
 function harness(sender: ReturnType<typeof vi.fn>, endpoint = 'ws://fixture:18789') {
   const root = createRoot(document.createElement('div')); let value!: ReturnType<typeof useAsyncGatewayQuestions>; let messages = [message]; let status: 'connected' | 'disconnected' = 'connected'; let address = endpoint;
+  let provided: ReturnType<typeof useAsyncQuestionActions>;
   const authority = { current: new HistoryPublicationAuthority(true) }; const submit = { current: sender as unknown as ReturnType<typeof useGatewaySubmission> };
-  function Component() { value = useAsyncGatewayQuestions({ messages, endpoint: address, status, authority, submit }); return null; }
+  function Consumer() { provided = useAsyncQuestionActions(); return null; }
+  function Component() { value = useAsyncGatewayQuestions({ messages, endpoint: address, status, authority, submit }); return <AsyncQuestionProvider value={value}><Consumer /></AsyncQuestionProvider>; }
   const render = () => act(async () => root.render(<Component />));
-  return { root, render, authority, value: () => value, history: (rows: WorkspaceMessage[]) => { messages = rows; }, status: (next: typeof status) => { status = next; }, endpoint: (next: string) => { address = next; } };
+  return { root, render, authority, value: () => value, provided: () => provided, history: (rows: WorkspaceMessage[]) => { messages = rows; }, status: (next: typeof status) => { status = next; }, endpoint: (next: string) => { address = next; } };
 }
+it('composes the native probe offline owner and provider without persistence or delivery', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.mocked(loadValue).mockClear(); vi.mocked(saveValue).mockClear();
+  const sender = vi.fn(async () => false); const test = harness(sender, ''); test.status('disconnected');
+  try {
+    await test.render(); expect(test.provided()).toBe(test.value());
+    const record = test.provided()!.view(message)!.record;
+    await act(async () => test.provided()!.ui.text(record, 1, 'unsent offline draft'));
+    test.history([]); await test.render(); test.history([message]); await test.render();
+    expect(test.provided()!.ui.draft(record).text['1']).toBe('unsent offline draft');
+    await act(async () => test.provided()!.ui.resolve(record));
+    expect(test.provided()!.view(message)?.state).toBe('queued');
+    expect(sender).not.toHaveBeenCalled(); expect(loadValue).not.toHaveBeenCalled(); expect(saveValue).not.toHaveBeenCalled();
+  } finally { await act(async () => test.root.unmount()); }
+});
 it('hands reading keys back until Enter and exits on Escape without changing answers', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const sender = vi.fn(); const test = harness(sender); await test.render();

@@ -23,8 +23,10 @@ private final class VimicateCommandTextField: UITextField {
       keyCommand(input: "u", modifierFlags: .control, action: #selector(clearCommandLine))
     ]
     let historyCommands = historyEnabled ? [
-      keyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(previousCommand)),
-      keyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(nextCommand))
+      keyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(completeBackward)),
+      keyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(completeForward)),
+      keyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: .shift, action: #selector(previousCommand)),
+      keyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: .shift, action: #selector(nextCommand))
     ] : []
     return historyCommands + commands + (super.keyCommands ?? [])
   }

@@ -16,8 +16,8 @@ export function uncoveredLiveChat(chat: WorkspaceMessage, rows: WorkspaceMessage
   const preambles = ownedPreambles(chat, rows);
   // A steer-sealed prefix stays above its prompt even in the final frame.
   const steered = preambles.some(row => row.steerSealed);
-  if (chat.state === 'complete' && !steered) return chat;
-  if (!preambles.length) return chat;
+  if (chat.state === 'complete' && !steered) return keepingNativeCrop(chat, rows);
+  if (!preambles.length) return keepingNativeCrop(chat, rows);
   const raw = chat.chatCumulativeText;
   for (let start = 0; start < preambles.length; start += 1) {
     let remaining = raw;
@@ -42,6 +42,22 @@ export function uncoveredLiveChat(chat: WorkspaceMessage, rows: WorkspaceMessage
     }
   }
   return chat;
+}
+
+/** Saved Claude steps covered a prefix of this run's live copy while it
+ * streamed, so the copy shows only its own tail. Frames are cumulative: the
+ * final frame carries that prefix again. Saved history re-proves that crop
+ * for a completed copy only through the turn's own prompt, which a prompt
+ * saved without the run's submission key cannot give. Keep the crop this run
+ * already earned instead of showing its commentary a second time. */
+function keepingNativeCrop(chat: WorkspaceMessage, rows: WorkspaceMessage[]): WorkspaceMessage {
+  const raw = chat.chatCumulativeText;
+  if (chat.state !== 'complete' || raw === undefined) return chat;
+  const previous = rows.find(row => isLiveChat(row) && row.id === chat.id && row.sessionKey === chat.sessionKey);
+  const full = previous?.claudeNativeFullText;
+  if (!previous || !full || full === previous.text || !full.endsWith(previous.text)) return chat;
+  const covered = full.slice(0, full.length - previous.text.length);
+  return covered.trim() && raw.startsWith(covered) ? { ...chat, text: raw.slice(covered.length).replace(/^\n+/, ''), claudeNativeFullText: raw } : chat;
 }
 
 /** A late item or lifecycle receipt may replace a chat row already painted.

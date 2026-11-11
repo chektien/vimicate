@@ -108,3 +108,21 @@ describe('project file Gateway RPC', () => {
     await expect(client.resolveSharedFile('~/icloud/Downloads/Sessions plan.md')).rejects.toThrow('Unknown method');
   });
 });
+
+it('preserves scoped host labels while rejecting oversized or control-bearing display text', () => {
+  const hosted = { ...list, directoryLabel: 'work-mac:~/repos/example/daily' };
+  expect(projectFileListFromPayload(hosted, 'notes', 'daily').directoryLabel).toBe(hosted.directoryLabel);
+  for (const directoryLabel of ['', 'bad\nlabel', 'bad\u0000label', 'x'.repeat(8193), 42]) {
+    expect(() => projectFileListFromPayload({ ...list, directoryLabel })).toThrow('Invalid directory label');
+  }
+});
+
+
+it('validates a primary host-root redirect without allowing path traversal or self-redirects', () => {
+  const redirect = { ...list, primaryRoot: 'repo@work-mac' };
+  expect(projectFileListFromPayload(redirect).primaryRoot).toBe('repo@work-mac');
+  for (const primaryRoot of ['../escape', 'repo@host/child', 'repo@-host', 'x'.repeat(130), 1]) {
+    expect(() => projectFileListFromPayload({ ...list, primaryRoot })).toThrow('Invalid primary root');
+  }
+  expect(() => projectFileListFromPayload({ ...list, path: 'repo@work-mac/daily', entries: [], primaryRoot: 'repo@work-mac' })).toThrow('Invalid primary root');
+});

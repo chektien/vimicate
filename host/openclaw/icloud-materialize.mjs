@@ -9,14 +9,14 @@ export async function readWithICloudMaterialization(read, {
   materialize = brctlDownload, waitMs = 12_000, stepMs = 400,
   sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms)), now = () => Date.now(),
 } = {}) {
-  try { return read(); }
+  try { return await read(); }
   catch (error) {
     if (!error?.icloudPlaceholder || typeof error.icloudPath !== 'string') throw error;
     await materialize(error.icloudPath);
     const deadline = now() + waitMs;
     for (;;) {
       await sleep(stepMs);
-      try { return read(); }
+      try { return await read(); }
       catch (retry) { if (!retry?.icloudPlaceholder || now() >= deadline) throw retry; }
     }
   }

@@ -1,3 +1,5 @@
+import { projectFileLinkedOpen } from './projectFileLinkedOpen';
+import { useProjectDirectoryLabel } from './useProjectDirectoryLabel';
 import { useProjectFilePreviewLineSelection } from './useProjectFilePreviewLineSelection';
 import { useProjectFilePreviewActions } from './useProjectFilePreviewActions';
 import { useProjectFileSort } from './useProjectFileSort';
@@ -37,6 +39,7 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
   const directoryChecking = useRef(false);
   const openRef = useRef(false);
   const [path, setPath] = useState('');
+  const { directoryLabel, setDirectoryLabel } = useProjectDirectoryLabel(projectId, scopeKey, path);
   const pathRef = useRef('');
   const [entries, setEntries] = useState<ProjectFileEntry[]>([]);
   const [showHidden, setShowHidden] = useState(true); const showHiddenRef = useRef(showHidden); showHiddenRef.current = showHidden;
@@ -102,44 +105,43 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
     onClose();
   }, [onClose]);
 
-  const loadDirectory = useCallback(async (nextPath: string, linkedFile?: { path: string; line?: number }, selectedPath?: string | null, restoredRegion: 'list' | 'preview' = 'list', preservePreview = false): Promise<void> => {
+  const loadDirectory = useCallback(async (nextPath: string, linkedFile?: { path: string; line?: number }, selectedPath?: string | null, restoredRegion: 'list' | 'preview' = 'list', preservePreview = false, redirected = false): Promise<void> => {
     if (!openRef.current) return;
     dismissSort();
     const activePort = portRef.current; const expectedProject = projectRef.current; const expectedScope = scopeRef.current;
-    const request = listRequests.current.begin(); previewRequests.current.invalidate();
+    const request = listRequests.current.begin(() => openRef.current && projectRef.current === expectedProject && scopeRef.current === expectedScope); previewRequests.current.invalidate();
     directoryChecking.current = preservePreview;
     const requestedFile = linkedFile ? { ...linkedFile, projectId: expectedProject, scopeKey: expectedScope } : null;
     pendingRestoreSelection.current = null;
     pendingRestoreRegion.current = 'list';
     restorePreviewPath.current = selectedPath ?? null;
     linkedFileOpenRef.current = requestedFile;
-    pathRef.current = nextPath; setPath(nextPath);
+    pathRef.current = nextPath; setPath(nextPath); setDirectoryLabel(null);
     if (!preservePreview) { setEntries([]); setContent(null); setContentScope(''); setPreviewPhase('idle'); }
     publishPhase(preservePreview ? 'ready' : 'loading'); setProblem(''); setPreviewProblem(''); publishRegion(requestedFile ? 'preview' : restoredRegion); publishSearch(null);
     if (!activePort || !expectedProject) { request.finish(); directoryChecking.current = false; linkedFileOpenRef.current = null; setEntries([]); setContent(null); setContentScope(''); setPreviewPhase('idle'); publishPhase('error'); setProblem('Project files are unavailable.'); return; }
     try {
       const result = await activePort.listDirectory({ projectId: expectedProject, path: nextPath, signal: request.signal });
-      if (!request.current() || !openRef.current || projectRef.current !== expectedProject || scopeRef.current !== expectedScope) return; if (result.projectId !== expectedProject || result.path !== nextPath) throw new Error('Invalid project file list response.');
+      if (!request.current()) return; if (result.projectId !== expectedProject || result.path !== nextPath) throw new Error('Invalid project file list response.');
+      const linked = projectFileLinkedOpen(result, linkedFile, showHiddenRef.current, sortRef.current, redirected);
+      if (linked?.kind === 'redirect') { void loadDirectory(linked.path, linked.link, undefined, restoredRegion, false, true); return; }
+      setDirectoryLabel(result, expectedScope);
       directoryChecking.current = false;
       if (requestedFile) {
-        const entry = result.entries.find((candidate) => candidate.path === requestedFile.path);
-        if (!entry) {
+        if (linked?.kind === 'missing') {
           linkedFileOpenRef.current = null;
           const selected = { ...createFileListNavigation(), index: -1 };
           navigationRef.current = selected; setNavigation(selected); setEntries(result.entries); publishPhase('ready'); publishRegion('list');
           setProblem(`Linked file is not listed by the Gateway. Showing its folder: ${requestedFile.path}`);
           return;
         }
-        if (entry.kind === 'directory') {
-          // Enter the folder without previewing a file as a link side effect;
-          // the new listing owns cancellation under the same project scope.
-          void loadDirectory(entry.path, undefined, '');
+        if (linked?.kind === 'directory') {
+          void loadDirectory(linked.path, undefined, '');
           return;
         }
-        const revealHidden = entry.name.startsWith('.');
-        if (revealHidden) { showHiddenRef.current = true; setShowHidden(true); }
-        const visible = visibleProjectFileEntries(result.entries, revealHidden || showHiddenRef.current, sortRef.current);
-        const selected = { ...createFileListNavigation(), index: visible.findIndex((candidate) => candidate.path === requestedFile.path) };
+        if (linked?.kind !== 'file') throw new Error('Invalid linked file selection');
+        if (linked.revealHidden) { showHiddenRef.current = true; setShowHidden(true); }
+        const selected = { ...createFileListNavigation(), index: linked.index };
         navigationRef.current = selected; setEntries(result.entries); setNavigation(selected); publishPhase('ready');
       } else {
         const visible = visibleProjectFileEntries(result.entries, showHiddenRef.current, sortRef.current);
@@ -152,7 +154,7 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
       }
       if (preservePreview) setResumeRevision((current) => current + 1);
     } catch (error) {
-      if (!request.current() || !openRef.current || projectRef.current !== expectedProject || scopeRef.current !== expectedScope) return;
+      if (!request.current()) return;
       linkedFileOpenRef.current = null;
       directoryChecking.current = false;
       previewRequests.current.invalidate(); setEntries([]); setContent(null); setContentScope(''); setPreviewPhase('idle'); publishPhase('error'); setProblem(errorDetail(error, 'Could not read this directory.'));
@@ -235,11 +237,11 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
     const linkedFile = linkedFileOpenRef.current;
     const linkedSelection = linkedFile?.projectId === expectedProject && linkedFile.scopeKey === expectedScope && linkedFile.path === expectedPath ? linkedFile : null;
     if (linkedFile && !linkedSelection) linkedFileOpenRef.current = null;
-    const request = previewRequests.current.begin();
+    const request = previewRequests.current.begin(() => openRef.current && projectRef.current === expectedProject && scopeRef.current === expectedScope);
     if (!currentForScope) { if (!sameFile) setContent(null); setContentScope(''); }
     setPreviewPhase('loading'); setPreviewProblem('');
     void activePort.readFile({ projectId: expectedProject, path: expectedPath, signal: request.signal }).then((result) => {
-      if (!request.current() || !openRef.current || projectRef.current !== expectedProject || scopeRef.current !== expectedScope) return; if (result.projectId !== expectedProject || result.path !== expectedPath) throw new Error('Invalid project file response.');
+      if (!request.current()) return; if (result.projectId !== expectedProject || result.path !== expectedPath) throw new Error('Invalid project file response.');
       setContent(result); setContentScope(expectedScope); setPreviewPhase('ready');
       if (result.kind === 'text') {
         const source = boundedProjectFilePreviewSource(result.text).source;
@@ -253,7 +255,7 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
       restorePreviewPath.current = null;
       if (linkedFileOpenRef.current === linkedSelection) linkedFileOpenRef.current = null;
     }).catch((error: unknown) => {
-      if (!request.current() || !openRef.current || projectRef.current !== expectedProject || scopeRef.current !== expectedScope) return;
+      if (!request.current()) return;
       if (linkedFileOpenRef.current === linkedSelection) linkedFileOpenRef.current = null;
       setContent(null); setContentScope(''); setPreviewPhase('error'); setPreviewProblem(errorDetail(error, `Could not open ${expectedPath}.`));
     }).finally(request.finish);
@@ -398,7 +400,7 @@ export function useProjectFilesController({ projectId, scopeKey = projectId, por
     return true;
   }, [close, closeOnHandoff, content, contentScope, loadDirectory, nativeHTMLPreviewActive, onHandoff, onStatus, onYank, openEntry, openFallback, previewPhase, refresh, select, selectedEntry?.path, visibleEntries, sorting]);
 
-  return { projectId, scopeKey, registerFallbackOpen, readFileForSharing: port?.readFileForSharing, sorting, open, openBrowser, openFilePath, close, refresh, parent, openEntry, path: stateProjectIsCurrent ? path : '', entries: visibleEntries, selectedIndex: navigation.index, selectedEntry, select, showHidden, phase, problem, content: visibleContent, previewPhase, previewProblem, previewNavigation, selectPreviewLine, setNativePreviewActive, region, setRegion: publishRegion, helpVisible, setHelpVisible, searchQuery, searchDirection: searchDirection.current, handleKey };
+  return { directoryLabel, projectId, scopeKey, registerFallbackOpen, readFileForSharing: port?.readFileForSharing, sorting, open, openBrowser, openFilePath, close, refresh, parent, openEntry, path: stateProjectIsCurrent ? path : '', entries: visibleEntries, selectedIndex: navigation.index, selectedEntry, select, showHidden, phase, problem, content: visibleContent, previewPhase, previewProblem, previewNavigation, selectPreviewLine, setNativePreviewActive, region, setRegion: publishRegion, helpVisible, setHelpVisible, searchQuery, searchDirection: searchDirection.current, handleKey };
 }
 
 function errorDetail(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }

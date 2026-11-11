@@ -1,7 +1,7 @@
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import type { OpenClawClient } from './OpenClawClient';
 import type { ArchivedHistoryState } from './archivedHistory';
-import { refreshedHistoryCursor, type HistoryCursor } from './historyPagination';
+import { type HistoryCursor } from './historyPagination';
 import type { HistoryPublicationAuthority } from './historyPublicationAuthority';
 import type { HistoryArchiveRecovery } from './historyArchiveRecovery';
 import type { HistoryRefreshDeferral } from './historyRefreshDeferral';
@@ -18,8 +18,10 @@ type Cell<T> = { current: T };
 type MessageAction = WorkspaceMessage[] | ((current: WorkspaceMessage[]) => WorkspaceMessage[]);
 /** Dependencies reference the existing history owner; no independent state or timers. */
 export type LatestHistoryActionsContext = {
+  projectionContext?: (() => WorkspaceMessage[]) | undefined;
   client: OpenClawClient;
   historyFreshness?: CanonicalHistoryFreshness | undefined;
+  onLatestLoading?: ((sessionKey: string, request: object, loading: boolean, owns: () => boolean) => void) | undefined;
   selectedRef: Cell<string>;
   publicationAuthority: Cell<HistoryPublicationAuthority | null>;
   latestRequestRevision: Cell<number>;
@@ -36,7 +38,7 @@ export type LatestHistoryActionsContext = {
   latestTailCache: Cell<SessionHistoryCache>;
   historyCache: Cell<SessionHistoryCache>;
   hydrateSharedNarration: (sessionKey: string, isCurrent: () => boolean) => Promise<WorkspaceMessage[] | null>;
-  setHistoryMessages: (sessionKey: string, action: MessageAction, side: HistoryWindowMode, ownsPublication: () => boolean) => void;
+  setHistoryMessages: (sessionKey: string, action: MessageAction, side: HistoryWindowMode, ownsPublication: () => boolean, cursor?: HistoryCursor | null) => void;
   setHistoryProblem: (problem: string) => void;
   setLoadingOlder: (loading: boolean) => void;
   setCanLoadOlder: (canLoad: boolean) => void;
@@ -86,10 +88,9 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
   const inFlightLatest = new Map<string, { request: Promise<WorkspaceMessage[] | undefined>; owns: () => boolean }>();
 
   function resetLatestPagination(latest: HistoryCursor) {
-    cursor.current = latest;
     const previous = archive.current;
     if (previous) archive.current = { identity: previous.identity, ...(previous.workspacePath ? { workspacePath: previous.workspacePath } : {}), exhausted: false };
-    setCanLoadOlder(canPageOlder(cursor.current, archive.current));
+    setCanLoadOlder(canPageOlder(latest, archive.current));
   }
 
   // Thread re-entry and reconnect hydration only: reuse the retained latest
@@ -129,7 +130,12 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
       && Boolean(authority?.owns(activityRevision)) && selectedRef.current === sessionKey
       && requestRevision === latestRequestRevision.current && selectionRevision === historySelectionRevision.current;
     inFlightLatest.set(sessionKey, { request, owns });
-    const settle = () => { if (inFlightLatest.get(sessionKey)?.request === request) inFlightLatest.delete(sessionKey); };
+    context.onLatestLoading?.(sessionKey, request, true, owns);
+    const settle = () => {
+      if (inFlightLatest.get(sessionKey)?.request !== request) return;
+      inFlightLatest.delete(sessionKey);
+      context.onLatestLoading?.(sessionKey, request, false, owns);
+    };
     request.then(settle, settle);
     return request;
   }
@@ -167,15 +173,13 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
         hydrateSharedNarration(sessionKey, ownsLatest),
       ]);
       if (!payload || !narration || !ownsLatest()) return;
-      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration);
+      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration, () => [...(latestTailCache.current.restore(sessionKey) ?? historyCache.current.restore(sessionKey) ?? []), ...(context.projectionContext?.() ?? [])]);
       if (!bounded) return;
       const retained = latestTailCache.current.restore(sessionKey) ?? historyCache.current.restore(sessionKey) ?? [];
-      const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest, presentation !== 'reveal-current');
+      const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest, presentation !== 'reveal-current', context.projectionContext);
       if (!completed) return;
       const latest = completed.cursor;
-      cursor.current = completed.nativeHistoryFloor && windowMode.current === 'latest'
-        ? latest : refreshedHistoryCursor(cursor.current, latest);
-      setCanLoadOlder(Boolean(cursor.current.hasMore || (archive.current && !archive.current.exhausted && !archive.current.blocked)));
+
       const projected = completed.messages;
       const pendingInputs = completed.pendingInputSnapshot
         ? { snapshot: completed.pendingInputSnapshot, candidates: pendingCandidates }
@@ -203,7 +207,7 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
           reviewEntryIntent.current = null;
           historyFailure.current = completed.lookbackProblem ? 'latest' : null;
           setHistoryProblem(completed.lookbackProblem);
-          setHistoryMessages(sessionKey, publication, 'latest', ownsLatest);
+          setHistoryMessages(sessionKey, publication, 'latest', ownsLatest, latest);
           clearPersistedHistoryReview(sessionKey);
           if (recoveringArchive) setCanLoadOlder(false);
           return published;
@@ -229,7 +233,7 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
       const published = publication(currentTail);
       historyFailure.current = completed.lookbackProblem ? 'latest' : null;
       setHistoryProblem(completed.lookbackProblem);
-      setHistoryMessages(sessionKey, publication, 'latest', ownsLatest);
+      setHistoryMessages(sessionKey, publication, 'latest', ownsLatest, latest);
       return published;
     } catch (error) {
       if (!publicationAuthority.current?.owns(activityRevision) || selectedRef.current !== sessionKey || requestRevision !== latestRequestRevision.current) return;
@@ -258,9 +262,9 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
       const narrationRequest = hydrateSharedNarration(sessionKey, ownsLatest);
       const payload = await client.history(sessionKey, 80, 0); if (!ownsLatest()) return;
       const narration = await narrationRequest; if (!narration || !ownsLatest()) return;
-      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration); if (!bounded) return;
+      const bounded = await presentationBoundedLatestHistory(client, sessionKey, payload, workspacePath.current, ownsLatest, narration, () => [...(latestTailCache.current.restore(sessionKey) ?? historyCache.current.restore(sessionKey) ?? []), ...(context.projectionContext?.() ?? [])]); if (!bounded) return;
       const retained = latestTailCache.current.restore(sessionKey) ?? historyCache.current.restore(sessionKey) ?? [];
-      const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest, true); if (!completed) return;
+      const completed = await completedNativeHistoryContinuity(client, sessionKey, bounded, retained, workspacePath.current, ownsLatest, true, context.projectionContext); if (!completed) return;
       const mountedReview = historyCache.current.restore(sessionKey) ?? [];
       const projected = completed.messages;
       const pendingInputs = completed.pendingInputSnapshot
@@ -286,6 +290,7 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
         restored.windowMode === 'latest' ? publication : restored.messages,
         restored.windowMode,
         ownsLatest,
+        completed.cursor,
       );
       if (restored.windowMode === 'latest') clearPersistedHistoryReview(sessionKey);
       else persistHistoryReview(sessionKey, restored.messages);
@@ -300,4 +305,16 @@ export function createLatestHistoryActions(context: LatestHistoryActionsContext)
   }
 
   return { loadHistory, restoreLatestHistory };
+}
+
+export type LatestHistoryLoading = { sessionKey: string; request: object; owns: () => boolean } | null;
+
+/** Publish loading only for this existing history owner's live request token. */
+export function latestHistoryLoadingReporter(
+  publish: (action: (current: LatestHistoryLoading) => LatestHistoryLoading) => void,
+  authority: { current: HistoryPublicationAuthority | null },
+) {
+  return (sessionKey: string, request: object, loading: boolean, owns: () => boolean) => {
+    if (authority.current?.isActive) publish(current => loading ? { sessionKey, request, owns } : current?.request === request ? null : current);
+  };
 }

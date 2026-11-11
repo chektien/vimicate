@@ -47,7 +47,7 @@ function setup() {
   });
   vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
   const navigationRef = { current: createTranscriptVimState(buffer()) };
-  const viewport = { reveal: vi.fn(), revealAfterRevision: vi.fn(), viewPositionForSourceRow: vi.fn(() => 0.31) };
+  const viewport = { restoreSessionPosition: vi.fn(), reveal: vi.fn(), revealAfterRevision: vi.fn(), viewPositionForSourceRow: vi.fn(() => 0.31) };
   const viewportRef = { current: viewport as unknown as TranscriptPaneHandle };
   const setNavigation = (value: SetStateAction<TranscriptVimState>) => {
     navigationRef.current = typeof value === 'function' ? value(navigationRef.current) : value;
@@ -71,9 +71,22 @@ beforeEach(() => { hooks.index = 0; hooks.slots = []; hooks.effects = []; });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('session viewport handoff across committed revisions', () => {
+  it('does not transfer removed source-point geometry to an unrelated surviving cursor', () => {
+    const test = setup(); const first = buffer();
+    const session = test.render('a', first);
+    test.navigationRef.current = { ...test.navigationRef.current, followTail: false, cursor: { row: 1, column: 0 } };
+    Object.assign(test.viewport, { captureReviewPosition: () => ({ sourceRow: 2, viewPosition: 0, rowOffset: 625 }) });
+    session.onViewportRetire('a', { kind: 'anchor', sourceRow: 2, rowOffset: 625, endGap: 100 });
+    test.render('b', buffer('other')); test.tick(); test.viewport.revealAfterRevision.mockClear();
+    test.render('a', buffer('one')); test.tick();
+    expect(test.viewport.restoreSessionPosition).not.toHaveBeenCalled();
+    expect(test.viewport.reveal).toHaveBeenLastCalledWith(0, true, 'tail');
+    test.unmount();
+  });
+
   it('restores a cached tail on an ordinary return with no intervening refresh', () => {
     const test = setup(); const first = buffer();
-    test.render('a', first).captureCurrentSession();
+    test.render('a', first).onViewportRetire('a', { kind: 'tail' });
     test.render('b', buffer('other')); test.tick(); test.viewport.reveal.mockClear();
     test.render('a', first); test.tick();
     expect(test.viewport.reveal).toHaveBeenCalledExactlyOnceWith(2, true, 'tail');
@@ -84,10 +97,10 @@ describe('session viewport handoff across committed revisions', () => {
     const test = setup(); const first = buffer();
     const session = test.render('a', first);
     test.navigationRef.current = { ...test.navigationRef.current, followTail: false, cursor: { row: 1, column: 0 } };
-    session.captureCurrentSession();
+    session.onViewportRetire('a', { kind: 'anchor', sourceRow: 1, rowOffset: 10.5, endGap: 100 });
     test.render('b', buffer('other')); test.tick(); test.viewport.reveal.mockClear();
     test.render('a', first); test.tick();
-    expect(test.viewport.revealAfterRevision).toHaveBeenCalledExactlyOnceWith(1, 0.31);
+    expect(test.viewport.restoreSessionPosition).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ messageId: 'answer', lineInMessage: 1, rowOffset: 10.5 }));
     expect(test.viewport.reveal).not.toHaveBeenCalled();
     test.unmount();
   });
@@ -102,7 +115,7 @@ describe('session viewport handoff across committed revisions', () => {
 
   it('reveals the newest tail when history refreshes before the return frame', () => {
     const test = setup(); const first = buffer();
-    test.render('a', first).captureCurrentSession();
+    test.render('a', first).onViewportRetire('a', { kind: 'tail' });
     test.render('b', buffer('other')); test.tick(); test.viewport.reveal.mockClear();
     test.render('a', first);
     const latest = buffer('one\ntwo\nthree\nfour');
@@ -115,11 +128,11 @@ describe('session viewport handoff across committed revisions', () => {
     const test = setup(); const first = buffer();
     const session = test.render('a', first);
     test.navigationRef.current = { ...test.navigationRef.current, followTail: false, cursor: { row: 1, column: 0 } };
-    session.captureCurrentSession();
+    session.onViewportRetire('a', { kind: 'anchor', sourceRow: 1, rowOffset: 10.5, endGap: 100 });
     test.render('b', buffer('other')); test.tick();
     test.render('a', first);
     test.render('a', buffer()); test.tick();
-    expect(test.viewport.revealAfterRevision).toHaveBeenCalledExactlyOnceWith(1, 0.31);
+    expect(test.viewport.restoreSessionPosition).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ messageId: 'answer', lineInMessage: 1, rowOffset: 10.5 }));
     test.unmount();
   });
 
@@ -127,7 +140,7 @@ describe('session viewport handoff across committed revisions', () => {
     const test = setup(); const first = buffer();
     const session = test.render('a', first);
     test.navigationRef.current = { ...test.navigationRef.current, followTail: false, cursor: { row: 1, column: 0 } };
-    session.captureCurrentSession();
+    session.onViewportRetire('a', { kind: 'anchor', sourceRow: 1, rowOffset: 10.5, endGap: 100 });
     test.render('b', buffer('other')); test.tick(); test.viewport.reveal.mockClear();
     test.render('a', first);
     const prepended = createTranscriptBuffer([
@@ -135,7 +148,7 @@ describe('session viewport handoff across committed revisions', () => {
       { id: 'answer', role: 'assistant', source: 'history', text: 'one\ntwo\nthree' },
     ]);
     test.render('a', prepended); test.tick();
-    expect(test.viewport.revealAfterRevision).toHaveBeenCalledExactlyOnceWith(2, 0.31);
+    expect(test.viewport.restoreSessionPosition).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ messageId: 'answer', lineInMessage: 1, rowOffset: 10.5 }));
     expect(test.viewport.reveal).not.toHaveBeenCalled();
     test.unmount();
   });
@@ -171,13 +184,13 @@ describe('session viewport handoff across committed revisions', () => {
     const test = setup(); const first = buffer();
     const session = test.render('a', first);
     test.navigationRef.current = { ...test.navigationRef.current, followTail: false, cursor: { row: 1, column: 0 } };
-    session.captureCurrentSession();
+    session.onViewportRetire('a', { kind: 'anchor', sourceRow: 1, rowOffset: 10.5, endGap: 100 });
     test.render('b', buffer('other')); test.tick();
     test.render('a', first);
     test.viewport.viewPositionForSourceRow.mockReturnValue(0.6);
-    test.render('a', first).captureCurrentSession();
+    test.render('a', first).onViewportRetire('a', { kind: 'tail' });
     test.render('a', buffer()); test.render('a', buffer()); test.tick();
-    expect(test.viewport.revealAfterRevision).toHaveBeenCalledExactlyOnceWith(1, 0.31);
+    expect(test.viewport.restoreSessionPosition).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ messageId: 'answer', lineInMessage: 1, rowOffset: 10.5 }));
     test.unmount();
   });
 

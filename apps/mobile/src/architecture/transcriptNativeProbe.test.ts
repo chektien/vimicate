@@ -35,17 +35,30 @@ describe('isolated native transcript review probe', () => {
   });
   it('composes production owners only behind the explicit offline QA fixture selector', () => {
     const probe = readFileSync(new URL('../../scripts/fixtures/TranscriptSessionReviewProbe.tsx', import.meta.url), 'utf8');
+    const lifetime = readFileSync(new URL('../../scripts/fixtures/TranscriptReturnLifetimeProbe.tsx', import.meta.url), 'utf8');
     const entry = readFileSync(new URL('../../index.ts', import.meta.url), 'utf8');
     const app = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
     expect(probe).toContain("from '../../src/transcript/TranscriptPane'");
     expect(probe).toContain('useSessionTranscriptNavigation(');
-    expect(probe).toContain('owner.captureCurrentSession(); setSession(next)');
+    expect(probe).toContain('sessionEntry={owner.entryFor(session, buffer)} onSessionRetire={owner.onViewportRetire}');
+    expect(probe).not.toContain('captureCurrentSession');
     expect(probe).toContain('onViewportReview={owner.onViewportReview}');
     expect(probe).not.toMatch(/OpenClawClient|useGatewayWorkspace|fetch\(|WebSocket|setInterval\(/);
     expect(entry).not.toContain('TranscriptSessionReviewProbe');
     expect(app).toContain('isSimulatorReviewFixtureMode(fixtureMode) ? <TranscriptSessionReviewProbe />');
     expect(probe).toContain("mode === 'qa-review-v1'");
     expect(probe).toContain("useMemo(() => ({ A: makeRows('A'), B: makeRows('B') }), [])");
+    expect(probe).toContain('lifetime ? <TranscriptReturnLifetimeProbe key=');
+    expect(probe).toContain('asyncQuestion={asyncQuestion}');
+    expect(lifetime).toContain('useSessionTranscriptNavigation(');
+    expect(lifetime).toContain('sessionEntry={owner.entryFor(session, buffer)}');
+    expect(lifetime).toContain('owner.onViewportRetire(key, value)');
+    expect(lifetime).toContain('historyLoading={historyLoading}');
+    expect(lifetime).toContain("const asyncActions = useAsyncGatewayQuestions({ messages, endpoint: '', status: 'disconnected', authority, submit });");
+    expect(lifetime).toContain('const submit = useRef<ReturnType<typeof useGatewaySubmission>>(async () => false)');
+    expect(lifetime).toContain('<AsyncQuestionProvider value={asyncActions}>');
+    expect(lifetime).toContain('asyncActions.handleKey(message,');
+    expect(lifetime).not.toMatch(/OpenClawClient|useGatewayWorkspace|fetch\(|WebSocket|setInterval\(/);
   });
 
 });

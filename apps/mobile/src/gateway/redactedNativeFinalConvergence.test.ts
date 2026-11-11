@@ -132,6 +132,7 @@ describe('redacted native terminal identity', () => {
       ? { ...row, cliProvenance: { kind: 'claude-native' as const, sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', externalId: row.id } } : row)],
     ['unbound prompt', (rows: WorkspaceMessage[]) => [{ ...rows[0]!, idempotencyKey: 'other-run:user' }, ...rows.slice(1)]],
     ['non-native answer', (rows: WorkspaceMessage[]) => rows.map(row => row.id === 'answer' ? withoutProvenance(row) : row)],
+    ['nonterminal native answer', (rows: WorkspaceMessage[]) => rows.map(({ cliEndTurn: _removed, ...row }) => row)],
     ['unproven external ID', (rows: WorkspaceMessage[]) => rows.map(row => row.id === 'answer' ? { ...row, id: 'unrelated-answer-id' } : row)],
     ['streaming answer', (rows: WorkspaceMessage[]) => rows.map(row => row.id === 'answer' ? { ...row, state: 'streaming' as const } : row)],
     ['foreign run answer', (rows: WorkspaceMessage[]) => rows.map(row => row.id === 'answer' ? { ...row, runId: 'other-run' } : row)],

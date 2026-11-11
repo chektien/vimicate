@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { OlderHistoryLoadResult } from '../gateway/historyPublicationReceipt';
+import { historyPublicationMutation, type OlderHistoryLoadResult } from '../gateway/historyPublicationReceipt';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 
 type Attempt = {
   datasetKey: string;
   beforeIDs: Set<string>;
+  before: readonly WorkspaceMessage[];
   settled: boolean;
   result?: OlderHistoryLoadResult | undefined;
 };
@@ -16,6 +17,9 @@ function olderHistoryLoadResult(value: unknown): OlderHistoryLoadResult | undefi
     || (candidate.addedMessageCount ?? -1) < 0) return undefined;
   const visible = candidate.addedVisibleRowCount;
   return { committed: true, published: candidate.published, addedMessageCount: candidate.addedMessageCount!,
+    ...(candidate.mutation ? { mutation: candidate.mutation } : {}),
+    ...(candidate.continuation === 'budget' ? { continuation: 'budget' as const } : {}),
+    ...(candidate.boundaryMessageID ? { boundaryMessageID: candidate.boundaryMessageID } : {}),
     ...(Number.isInteger(visible) && visible! >= 0 ? { addedVisibleRowCount: visible } : {}) };
 }
 
@@ -100,14 +104,22 @@ export function useOlderHistoryRequestPresentation(options: {
       ? current.result.addedMessageCount
       : added.length;
     const published = current.result?.published || added.length > 0;
-    const status = published && addedCount > 0 && current.result?.addedVisibleRowCount === 0
+    const structural = historyPublicationMutation(current.before, options.messages);
+    const mutation = current.result?.mutation ?? structural.mutation;
+    const completedStatus = mutation === 'scan' ? 'history scan advanced · load older to continue'
+      : mutation === 'partial' ? 'some older history loaded · retry to continue'
+      : published && mutation === 'refresh' ? 'history refreshed'
+      : published && addedCount > 0 && current.result?.addedVisibleRowCount === 0
       ? `${addedCount} older record${addedCount === 1 ? '' : 's'} loaded · no new visible rows`
       : addedCount
       ? `${addedCount} older message${addedCount === 1 ? '' : 's'} loaded`
       : published ? 'older history loaded'
       : options.canLoadOlder ? 'history checked · no older messages added' : 'oldest history reached';
+    const status = current.result?.continuation === 'budget' && mutation !== 'scan'
+      ? `${completedStatus} · load older to continue` : completedStatus;
     const retainedBoundaries = presentation.boundaryMessageIDs.filter(id => options.messages.some(message => message.id === id));
-    const nextBoundary = published ? retainedBoundary?.id : undefined;
+    const nextBoundary = published && mutation === 'prepend'
+      ? current.result?.boundaryMessageID ?? structural.boundaryMessageID : undefined;
     const next = {
       datasetKey: options.datasetKey,
       status,
@@ -129,6 +141,7 @@ export function useOlderHistoryRequestPresentation(options: {
     const owner: Attempt = {
       datasetKey: options.datasetKey,
       beforeIDs: new Set(options.messages.map(message => message.id)),
+      before: options.messages,
       settled: false,
     };
     attempt.current = owner;

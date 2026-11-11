@@ -1,3 +1,4 @@
+import { reconcileHistoryCursor } from './historyTransport';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import { BoundedSessionCache } from '../workspace/boundedSessionCache';
 import { sameArchiveIdentity, type ArchivedHistoryState } from './archivedHistory';
@@ -58,23 +59,27 @@ export function restoredHistorySelection(
     && (reviewMessages.length > 0 || cached.historyFailure === 'older');
 
   if (cached && validReview) {
+    const cursor = reconcileHistoryCursor(cached.cursor, reviewMessages, initialArchive?.identity.sessionKey ?? cached.cursor?.sessionKey ?? '');
     return {
       ...cached,
+      cursor,
       messages: reviewMessages,
-      canLoadOlder: canPageOlder(cached.cursor, cached.archive),
+      canLoadOlder: canPageOlder(cursor, cached.archive),
     };
   }
 
+  const restoredCursor = reconcileHistoryCursor(cached && sameSessionGeneration(cached.generation, generation)
+    ? cached.cursor : null, latestMessages, latestMessages.find(row => row.sessionKey)?.sessionKey ?? initialArchive?.identity.sessionKey ?? '');
   return {
     generation,
     archive: initialArchive,
-    cursor: null,
+    cursor: restoredCursor,
     windowMode: 'latest',
     reviewEntryIntent: null,
     historyFailure: null,
     historyProblem: '',
     messages: latestMessages,
-    canLoadOlder: canPageOlder(null, initialArchive),
+    canLoadOlder: canPageOlder(restoredCursor, initialArchive),
   };
 }
 

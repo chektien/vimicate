@@ -206,12 +206,19 @@ function exactHeaders(left: Record<string, string> | undefined, right: Record<st
 
 function coalesceByIdentity(messages: WorkspaceMessage[], identityOf: (message: WorkspaceMessage) => string) {
   const result: WorkspaceMessage[] = [];
-  const positions = new Map<string, number>();
+  const positions = new Map<string, number[]>();
   for (const message of messages) {
     const identity = identityOf(message);
-    const position = positions.get(identity);
+    const candidates = positions.get(identity) ?? [];
+    const compatible = candidates.filter(index => {
+      const prior = result[index]!;
+      return !(prior.sessionKey && message.sessionKey && prior.sessionKey !== message.sessionKey
+        || prior.transcriptSessionId && message.transcriptSessionId && prior.transcriptSessionId !== message.transcriptSessionId);
+    });
+    // Unknown authority must not bridge two concrete identity partitions.
+    const position = compatible.length === 1 ? compatible[0] : undefined;
     if (position === undefined) {
-      positions.set(identity, result.length);
+      positions.set(identity, [...candidates, result.length]);
       result.push(message);
       continue;
     }
