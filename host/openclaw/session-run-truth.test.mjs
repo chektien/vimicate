@@ -3,7 +3,7 @@ import test from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createSessionRunTruthReader, loadSessionRunTruthRuntime, registerSessionRunTruth } from './session-run-truth.mjs';
+import { createSessionRunTruthReader, isHiddenSessionRun, loadSessionRunTruthRuntime, registerSessionRunTruth } from './session-run-truth.mjs';
 
 function fixture({ session = { key: 'agent:main:one', sessionId: 'generation', hasActiveRun: true, lastRunId: 'terminal' }, denied = false, target = { runId: 'actual' }, runContexts } = {}) {
   const calls = []; const response = [];
@@ -81,7 +81,8 @@ test('reports scheduled origin only for the exact live cron-claimed steering tar
   const f = fixture({ runContexts }); await f.reader(f.options);
   assert.deepEqual(f.response, [[true, { session: { key: 'agent:main:one', sessionId: 'generation', hasActiveRun: true, activeRunId: 'actual',
     activeRunOrigin: { kind: 'scheduled', runId: 'actual', sessionId: 'generation' }, status: 'running' } }]]);
-  assert.deepEqual(runContexts.reads, ['actual', 'live:actual']);
+  // The first read is the native visibility check, then the origin proof.
+  assert.deepEqual(runContexts.reads, ['actual', 'actual', 'live:actual']);
 });
 test('announcement, agent RPC, stale, foreign and unscoped contexts stay unknown', async () => {
   for (const [context, live, session] of [
@@ -148,4 +149,19 @@ test('unattached, stale, terminal, aborting and changed-generation owners expose
 test('a runtime without the interrupt-target read omits attached identity', async () => {
   const f = fixture({ target: null }); await f.reader(f.options);
   assert.equal(f.response[0][1].session.attachedRunId, undefined);
+});
+
+test('each native hidden flag hides a run, absent flags keep older runtimes visible', () => {
+  const contexts = flags => ({ getAgentRunContext: runId => runId === 'run' ? { sessionKey: 'agent:main:one', ...flags } : undefined });
+  assert.equal(isHiddenSessionRun(contexts({}), new Map(), 'run'), false);
+  assert.equal(isHiddenSessionRun(contexts({ projectSessionActive: true, isControlUiVisible: true }), undefined, 'run'), false);
+  for (const flag of ['isControlUiVisible', 'projectSessionActive', 'projectSessionLifecycle']) {
+    assert.equal(isHiddenSessionRun(contexts({ [flag]: false }), undefined, 'run'), true, flag);
+  }
+  for (const flag of ['controlUiVisible', 'projectSessionActive']) {
+    assert.equal(isHiddenSessionRun(contexts({}), new Map([['run', { [flag]: false }]]), 'run'), true, flag);
+  }
+  assert.equal(isHiddenSessionRun(contexts({}), new Map([['other', { controlUiVisible: false }]]), 'run'), false);
+  assert.equal(isHiddenSessionRun(contexts({ isControlUiVisible: false }), undefined, ''), false);
+  assert.equal(isHiddenSessionRun(undefined, undefined, 'run'), false);
 });

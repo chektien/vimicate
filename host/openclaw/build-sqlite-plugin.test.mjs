@@ -35,7 +35,7 @@ test('packaged integration explicitly activates at startup and excludes old JSON
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const result = await buildSqlitePlugin(path.join(root, 'plugin'));
   assert.equal(sqlitePluginManifest.activation.onStartup, true);
-  assert.equal(result.runtime, '2026.11.1');
+  assert.equal(result.runtime, '2026.11.3');
   assert.equal(Object.keys(result.files).length, 29);
   assert.ok(result.files['sqlite-history-profiles-october.mjs']);
   const packaged = await import(pathToFileURL(path.join(result.destination, 'sqlite-history-profiles.mjs')));
@@ -66,6 +66,8 @@ test('packaged integration explicitly activates at startup and excludes old JSON
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.8'));
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.10.10'));
   assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.11.1'));
+  assert.ok(metadata.vimicate.auditedRuntimes.includes('2026.11.3'));
+  assert.equal(metadata.vimicate.auditedRuntimes.includes('2026.11.2'), false);
   assert.equal(Object.keys(result.files).some(name => name.includes('ledger') || name.includes('installer')), false);
   const split = path.join(result.destination, 'sqlite-history-profiles-october.mjs');
   const splitBytes = await fs.readFile(split);

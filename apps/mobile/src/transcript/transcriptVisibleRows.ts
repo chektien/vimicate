@@ -5,7 +5,7 @@ import { compileTranscriptMarkdown, machineDetailTranscriptLine, plainTranscript
 import { transcriptChronology } from './transcriptChronology';
 import { transcriptGroupPositions, transcriptRolePresentation } from './transcriptPresentation';
 import type { TranscriptRenderRow } from './transcriptRenderRows';
-import { boundedExpandedTranscriptLine, MACHINE_FOLD_CHARACTER_LIMIT, MAX_EXPANDED_MESSAGE_ROWS, transcriptMessageIsFoldedByDefault, transcriptSourceLineCount } from './transcriptRowBudget';
+import { actionableErrorHeadline, boundedExpandedTranscriptLine, MACHINE_FOLD_CHARACTER_LIMIT, MAX_EXPANDED_MESSAGE_ROWS, transcriptMessageIsFoldedByDefault, transcriptSourceLineCount } from './transcriptRowBudget';
 import { transcriptReadSkills, skillActivitySummary } from './transcriptSkillInvocation';
 import { projectTranscriptDetailsDisclosure, type DisclosureLine } from './transcriptDetailsDisclosure';
 import { isAsyncQuestionFallback } from '../questions/asyncQuestionPresentation';
@@ -287,11 +287,11 @@ function expandedMachineSourceLines(message: WorkspaceMessage, sourceLines: stri
 function foldedMessageRow(message: WorkspaceMessage, lineCount: number, sourceRow: number, shared: Pick<TranscriptRenderRow, 'messageIndex' | 'message' | 'presentation' | 'groupPosition' | 'chronology' | 'firstSourceRowInMessage' | 'lastSourceRowInMessage'>): TranscriptRenderRow {
   const hiddenLineCount = Math.max(0, lineCount - 1);
   const conversation = shared.presentation.conversation;
-  const semanticSummary = conversation
+  const semanticSummary = actionableErrorHeadline(message) ?? (conversation
     ? conciseConversationSummary(message.text)
     : message.tool
       ? conciseToolSummary({ name: message.tool.name, phase: message.state ?? '', metadata: message.tool.summary })
-      : machineHeadline(message);
+      : machineHeadline(message));
   const summary = [skillActivitySummary(semanticSummary, transcriptReadSkills([message], 0, 0)), formattedDuration(message.tool?.durationMs)].filter(Boolean).join(' · ');
   const noun = hiddenLineCount === 1 ? 'line' : 'lines';
   const marker = hiddenLineCount ? `… [${hiddenLineCount} ${noun} folded]` : '… [details folded]';
@@ -328,9 +328,9 @@ function conciseConversationSummary(text: string) {
 function foldedMachineRows(rows: TranscriptRenderRow[]) {
   const first = rows[0]!;
   const hiddenLineCount = Math.max(0, rows.length - 1);
-  const semanticSummary = first.message.tool
+  const semanticSummary = actionableErrorHeadline(first.message) ?? (first.message.tool
     ? conciseToolSummary({ name: first.message.tool.name, phase: first.message.state ?? '', metadata: first.message.tool.summary })
-    : machineHeadline(first.message);
+    : machineHeadline(first.message));
   const summary = [skillActivitySummary(semanticSummary, first.readSkills ?? []), formattedDuration(first.message.tool?.durationMs)].filter(Boolean).join(' · ');
   const noun = hiddenLineCount === 1 ? 'line' : 'lines';
   const marker = hiddenLineCount ? `… [${hiddenLineCount} ${noun} folded]` : '… [details folded]';

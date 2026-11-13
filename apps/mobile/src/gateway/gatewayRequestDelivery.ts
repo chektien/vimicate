@@ -50,10 +50,11 @@ export function gatewayResponseFailure(value: unknown): GatewayRequestFailure {
     failure.runTargetRefusal = { reason: String(details.reason), expectedActiveRunId: details.expectedActiveRunId };
   }
   if (details.inputDisposition === 'not-dispatched') {
-    if (details.reason === 'tool_authority_mismatch') failure.activeRunInputNotice = 'Message not sent: the active run has different tool permissions. Your draft is kept. Wait for it to finish, or use :interrupt <prompt> to stop it and start a new turn.';
-    if (details.reason === 'input_visibility_mismatch') failure.activeRunInputNotice = 'Message not sent: the active run cannot receive messages from this chat. Your draft is kept. Wait for it to finish, or use :interrupt <prompt> to stop it and start a new turn.';
+    if (details.reason === 'tool_authority_mismatch') failure.activeRunInputNotice = 'Message not sent. The active run has different tool permissions. Your draft is kept and is not queued. Wait for it to finish, then send the draft. Use :interrupt <prompt> only if you want to stop it and start a new turn.';
+    if (details.reason === 'input_visibility_mismatch') failure.activeRunInputNotice = 'Message not sent. The active run cannot receive messages from this chat. Your draft is kept and is not queued. Wait for it to finish, then send the draft. Use :interrupt <prompt> only if you want to stop it and start a new turn.';
     if (details.reason === 'run_not_ready' && typeof details.expectedActiveRunId === 'string' && details.expectedActiveRunId.trim()
-      && details.activeRunId === details.expectedActiveRunId) failure.activeRunInputNotice = 'This run cannot accept messages right now. Your draft is kept. Try again shortly, or use :interrupt <prompt> to stop it and start a new turn.';
+      && details.activeRunId === details.expectedActiveRunId) failure.activeRunInputNotice = 'Message not sent. This run cannot accept messages right now. Your draft is kept and is not queued. Check :status, then send the draft when the run is ready or finished.';
+    if (details.reason === 'image_input_unsupported') failure.activeRunInputNotice = 'Message not sent. The active run cannot accept these images. Your draft is kept and is not queued. Wait for the run to finish, then send the draft as a new turn.';
     if (failure.activeRunInputNotice) failure.message = failure.activeRunInputNotice;
   }
   return failure;

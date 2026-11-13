@@ -100,8 +100,9 @@ describe('workspace fire-and-forget ownership architecture', () => {
     // answer to a frame that is already on the wire; a timeout or the reconnect
     // that rejects every pending request are the others, and none of them is a
     // refusal the app may answer by restoring the draft.
-    expect(submission).toContain('const promptReachedGateway = promptRowStands && gatewayRequestReachedGateway(error);');
-    expect(submission).toContain('if (!acceptedRunId && !promptReachedGateway) {');
+    expect(submission).toContain('const deliveryUnknown = (!commandText || interrupt) && gatewayRequestReachedGateway(error);');
+    expect(submission).toContain('if (!acceptedRunId && !deliveryUnknown) {');
+    expect(submission).toContain('return promptRowStands || deliveryUnknown;');
     expect(client).toContain("throw gatewayRequestFailure('Gateway is not connected', false);");
     expect(client).toContain('pending.reachedGateway = true;');
     expect(client).toContain("gatewayRequestFailure('Gateway disconnected', entry.reachedGateway)");

@@ -3,6 +3,7 @@ import type { AgentWaitResult } from './OpenClawClient';
 import { failedRunMessage, reconcileCompletedRunMessage } from './runCompletionMessage';
 import { runPhaseForWaitResult, runTerminalDetail } from './runLifecycle';
 import { settleRunToolMessages } from './runToolSettlement';
+import { reconcileRunFailureNotices } from './runFailureConvergence';
 
 /**
  * A definitive failed agent.wait result is authoritative even when OpenClaw
@@ -18,8 +19,8 @@ export function reconcileFailedRunWait(
 ) {
   if (runPhaseForWaitResult(result) !== 'failed') return messages;
   const settled = settleRunToolMessages(messages, sessionKey, runId, 'failed');
-  return reconcileCompletedRunMessage(
+  return reconcileRunFailureNotices(reconcileCompletedRunMessage(
     settled,
     failedRunMessage(sessionKey, runId, elapsedMs, runTerminalDetail(result)),
-  );
+  ));
 }

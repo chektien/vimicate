@@ -13,6 +13,7 @@ import { awaitArchiveFixture } from './test-support/archive-fixture-lifecycle.mj
 
 const target = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
 const fixtures = {
+  '2026.11.3': { accessor: 'session-accessor-FPvTcdkh.mjs', loader: 'plugin-setup-module-DUPuK-Np.mjs', entrypoints: 'runtime-process-entrypoints-BMmG9cQl.mjs' },
   '2026.11.1': { accessor: 'session-accessor-B_vtmJRr.mjs', loader: 'plugin-setup-module-fwWGzhte.mjs', entrypoints: 'runtime-process-entrypoints-BMmG9cQl.mjs' },
   '2026.10.10': { accessor: 'session-accessor-DN7dldOi.mjs', loader: 'plugin-setup-module-T3m9n359.mjs', entrypoints: 'runtime-process-entrypoints-BMmG9cQl.mjs' },
   '2026.10.8': { accessor: 'session-accessor-ebdiOYjA.mjs', loader: 'plugin-setup-module-CDxHOMjX.mjs', entrypoints: 'runtime-process-entrypoints-De68tE_W.mjs' },
@@ -40,7 +41,7 @@ if (!isChild) {
       await fs.writeFile(path.join(plugin, 'probe.mjs'),
         `import { randomUUID } from 'node:crypto'; export const captureIdentity = randomUUID();\nexport { n as entries } from ${JSON.stringify(pathToFileURL(path.join(target,
           `dist/${fixture.entrypoints}`)).href)};\n`);
-      const modes = ['2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1'].includes(metadata.version) ? ['native', 'capture', 'worker-capture'] : ['native', 'capture'];
+      const modes = ['2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1', '2026.11.3'].includes(metadata.version) ? ['native', 'capture', 'worker-capture'] : ['native', 'capture'];
       for (const mode of modes) {
         const captured = mode !== 'native';
         const stateDir = path.join(root, `${mode}-state`);
@@ -91,11 +92,11 @@ if (!isChild) {
   process.env.OPENCLAW_STATE_DIR = fixtureRoot;
   process.env.OPENCLAW_CONFIG_PATH = path.join(fixtureRoot, 'openclaw.json');
   await fs.writeFile(process.env.OPENCLAW_CONFIG_PATH, '{}');
-  if (['2026.10.10', '2026.11.1'].includes(version)) {
+  if (['2026.10.10', '2026.11.1', '2026.11.3'].includes(version)) {
     // Native 10.10 workers require the prepared runtime configuration snapshot.
     // Use the real reader against this synthetic config before any history read.
     const { t: captureRuntimeConfigAsyncReader } = await import(pathToFileURL(
-      path.join(packageRoot, `dist/${version === '2026.11.1' ? 'io.runtime-3AQXKbcT.mjs' : 'io.runtime-BcDhh2yB.mjs'}`)));
+      path.join(packageRoot, `dist/${version === '2026.11.3' ? 'io.runtime-B2RjP7Ie.mjs' : version === '2026.11.1' ? 'io.runtime-3AQXKbcT.mjs' : 'io.runtime-BcDhh2yB.mjs'}`)));
     await captureRuntimeConfigAsyncReader()();
   }
   const native = await import(pathToFileURL(path.join(packageRoot, `dist/${fixture.accessor}`)));
@@ -107,7 +108,7 @@ if (!isChild) {
   for (let i = 0; i < 9; i++) {
     const result = native.appendTranscriptMessageSync(scope, { eventId: `fixture-${i}`, now: 1700000000000+i,
       message: { role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: `fixture ${i} 🦉 中文` + (i === 3 ? " repeated".repeat(10000) : "") }],
-        ...(['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1'].includes(version) && i === 8 ? { __openclaw: { replyToId: 'fixture-0' } } : {}),
+        ...(['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1', '2026.11.3'].includes(version) && i === 8 ? { __openclaw: { replyToId: 'fixture-0' } } : {}),
         ...(i % 2 ? { stopReason: 'stop', api: 'openai-responses', provider: 'openai', model: 'fixture' } : {}) } });
     assert.equal(result.ok, true);
   }
@@ -130,7 +131,7 @@ if (!isChild) {
   const before = await fs.readFile(filename);
   trace('fixture-created');
   const { loadSqliteHistoryRuntime } = await import('./sqlite-history-runtime.mjs');
-  const nativeEntrypoints = ['2026.10.10', '2026.11.1'].includes(version) ? (await import(pathToFileURL(
+  const nativeEntrypoints = ['2026.10.10', '2026.11.1', '2026.11.3'].includes(version) ? (await import(pathToFileURL(
     path.join(packageRoot, `dist/${fixture.entrypoints}`)))).n : undefined;
   const workerOverrides = nativeEntrypoints ? Object.values(nativeEntrypoints).map(entry => [entry.root, entry.package]) : undefined;
   const runtime = await loadSqliteHistoryRuntime(packageRoot);
@@ -150,7 +151,7 @@ if (!isChild) {
     const loaded = instance.loadModule(source);
   trace('captured-module-loaded');
     ({ loadSqliteHistoryReader } = loaded);
-    if (['2026.10.10', '2026.11.1'].includes(version)) {
+    if (['2026.10.10', '2026.11.1', '2026.11.3'].includes(version)) {
       const capturedRuntime = await instance.loadModule(path.join(root, 'sqlite-history-runtime.mjs'))
         .loadSqliteHistoryRuntime(packageRoot);
       assert.equal(capturedRuntime.chat.i, runtime.chat.i, 'captured history retains native reader/config identity');
@@ -191,7 +192,7 @@ if (!isChild) {
         maxSingleMessageBytes: 128*1024 }).messages, 512*1024).items);
     const directIds = canonical.map(m=>m.__openclaw?.id);
     assert.deepEqual(page.messages, canonical);
-    if (['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1'].includes(version) && offset === 0) {
+    if (['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1', '2026.11.3'].includes(version) && offset === 0) {
       const quoted = page.messages.find(message => message.__openclaw?.id === 'fixture-8').__openclaw.replyToMessage;
       assert.equal(quoted.ok, true);
       assert.equal(quoted.message.__openclaw.id, 'fixture-0');
@@ -211,7 +212,7 @@ if (!isChild) {
   if (capturedInstance) {
     const entrypointsFile = path.join(packageRoot, `dist/${fixture.entrypoints}`);
     const { entries } = capturedInstance.loadModule(path.join(process.env.HISTORY_CAPTURE_PLUGIN_ROOT, 'probe.mjs'));
-    if (!['2026.10.10', '2026.11.1'].includes(version)) assert.equal(entries.sessionTranscript.root, packageRoot);
+    if (!['2026.10.10', '2026.11.1', '2026.11.3'].includes(version)) assert.equal(entries.sessionTranscript.root, packageRoot);
     assert.notEqual(entries.sessionTranscript.currentModuleUrl, pathToFileURL(entrypointsFile).href);
     const capturedDist = path.dirname(fileURLToPath(entries.sessionTranscript.currentModuleUrl));
     await assert.rejects(fs.access(path.join(capturedDist, entries.sessionTranscript.distWorkerPath)), /ENOENT/);

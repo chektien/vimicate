@@ -11,10 +11,13 @@ export type TranscriptCliProvenance =
   | { kind: 'claude-aggregate'; runId: string };
 
 export type TranscriptDeliveryProvenance = { kind: 'message-tool' | 'cli-result'; runId: string };
+export type RunFailureKind = 'before-reply' | 'runtime' | 'snapshot';
 
 export type TranscriptMessageMetadata = AsyncQuestionMetadata & {
   /** Typed internal runtime input, never inferred from authored prose. */
   internalEvent?: 'exec' | 'inter_session';
+  /** Client projection of a validated runtime failure, never authored prose. */
+  runFailure?: RunFailureKind;
   /** Concrete session named by history, not the selected route. */
   transcriptSessionId?: string;
   narrationItemId?: string;
@@ -38,10 +41,18 @@ export type TranscriptMessageMetadata = AsyncQuestionMetadata & {
   inputAcceptedAtMs?: number;
   /** Exact chat.send acknowledgement / pending-custody identity, never lifecycle authority. */
   inputReceiptRunId?: string;
+  /** Read-only pending custody. Restored snapshots must be rechecked. */
+  inputQueueState?: 'queued' | 'unknown';
+  /** Exact server pending record retained on its accepted local alias. Display only. */
+  inputPendingId?: string;
 };
 
 export function transcriptInputAcceptedAt(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+export function validatedRunFailureKind(value: unknown): RunFailureKind | undefined {
+  return value === 'before-reply' || value === 'runtime' || value === 'snapshot' ? value : undefined;
 }
 
 export function transcriptInputReceiptRunId(value: unknown): string | undefined {

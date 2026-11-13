@@ -287,7 +287,7 @@ describe('UI fixture startup boundary', () => {
       state: 'error',
       sessionKey: 'fixture-failed-wait',
       runId: 'failed-wait-run',
-      text: '● failed after 7s · failed: authoritative verification failed',
+      text: expect.stringContaining('failed: authoritative verification failed'),
     });
   });
 

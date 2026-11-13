@@ -8,7 +8,14 @@ describe('fire-and-forget prompt submission boundary', () => {
   });
 
   it('converts both synchronous and asynchronous failures into owned UI state', async () => {
-    await expect(guardedPromptSubmission(() => { throw new Error('payload bridge failed'); })).resolves.toEqual({ kind: 'failed', detail: 'payload bridge failed' });
-    await expect(guardedPromptSubmission(async () => { throw new Error('gateway promise failed'); })).resolves.toEqual({ kind: 'failed', detail: 'gateway promise failed' });
+    for (const submit of [() => { throw new Error('payload bridge failed'); }, async () => { throw new Error('gateway promise failed'); }]) {
+      const outcome = await guardedPromptSubmission(submit);
+      expect(outcome).toMatchObject({ kind: 'failed', detail: expect.stringContaining('delivery is not verified') });
+      if (outcome.kind === 'failed') {
+        expect(outcome.detail).toContain('draft is kept'); expect(outcome.detail).toContain('Refresh');
+        expect(outcome.detail).not.toContain('Message not sent');
+        expect(outcome.detail).toMatch(/bridge failed|promise failed/);
+      }
+    }
   });
 });

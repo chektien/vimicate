@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
-export const SQLITE_HISTORY_RUNTIME = '2026.11.1';
+export const SQLITE_HISTORY_RUNTIME = '2026.11.3';
 import { PROFILES } from './sqlite-history-profiles.mjs';
 
 export const SQLITE_HISTORY_SUPPORTED_RUNTIMES = Object.freeze(Object.keys(PROFILES));

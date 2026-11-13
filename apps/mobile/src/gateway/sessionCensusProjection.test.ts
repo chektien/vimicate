@@ -49,7 +49,7 @@ it('compact census retains every projected project, activity, lifecycle, questio
   expect(result.projects[1]).toMatchObject({ name: 'Backend label', kind: 'thread', rootSessionKey: root, parentSessionKey: root, path: '~/notes', group: 'home', runPhase: 'failed', state: 'error', updatedAt: 300, pendingQuestions: { own: 2, total: 2, threads: 0 } });
   expect(result.projects[0]).toMatchObject({ agentRuntime: 'native', branch: 'main', starred: true, threadCount: 2, pendingQuestions: { own: 0, total: 2, threads: 1 } });
   expect(result.unread).toBe(true); expect(result.notices).toHaveLength(1);
-  expect(result.failures[0]).toMatchObject({ runId: 'run', timestamp: '300', text: 'Run failed · Failure fixture' });
+  expect(result.failures[0]).toMatchObject({ runId: 'run', timestamp: '300', text: expect.stringContaining('Failure fixture') });
 });
 
 it('compact census continues to name the exact active run and clear retired error receipts', async () => {

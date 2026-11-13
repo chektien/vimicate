@@ -63,6 +63,35 @@ function pendingCall<T>() {
   return { promise, invoked, resolve: settle!.resolve, reject: settle!.reject, call: () => { observed(); return promise; } };
 }
 
+it('does not report a lost acknowledgement as confirmed delivery or promise reconnection', async () => {
+  const test = harness({ send: async () => { throw gatewayRequestFailure('chat.send timed out', true); } });
+  expect(await test.submit('synthetic request')).toBe(true);
+  expect(test.setDetail).toHaveBeenLastCalledWith(expect.stringContaining('Delivery unconfirmed'));
+  expect(test.setDetail).not.toHaveBeenCalledWith('prompt sent; reconnecting for its answer');
+  expect(test.rows.filter(row => row.role === 'user')).toHaveLength(1);
+  expect(test.rows.some(row => row.text.includes('Do not resend'))).toBe(true);
+  expect(test.client.send).toHaveBeenCalledOnce();
+});
+it('makes a definite refusal visibly unsent and explicitly not queued', async () => {
+  const test = harness({ send: async () => { throw gatewayRequestFailure('Cannot upload this image', false); } });
+  expect(await test.submit('synthetic request')).toBe(false);
+  expect(test.setDetail).toHaveBeenLastCalledWith(expect.stringContaining('Message not sent'));
+  expect(test.rows.filter(row => row.role === 'user')).toHaveLength(0);
+  expect(test.rows.some(row => row.text.includes('draft is kept and is not queued'))).toBe(true);
+  expect(test.client.send).toHaveBeenCalledOnce();
+});
+it('keeps transport uncertainty truthful if selection moves before attachments finish preparing', async () => {
+  const prepared = pendingCall<[]>(); const gateway = pendingCall<Record<string, unknown>>();
+  const test = harness({ send: gateway.call });
+  const submission = guardedPromptSubmission(() => test.submit('synthetic request', prepared.promise));
+  test.selectedRef.current = 'other-thread'; prepared.resolve([]); await gateway.invoked;
+  gateway.reject(gatewayRequestFailure('chat.send timed out', true));
+  await expect(submission).resolves.toEqual({ kind: 'accepted' });
+  expect(test.rows.some(row => row.text.startsWith('Delivery unconfirmed.'))).toBe(true);
+  expect(test.rows.some(row => row.text.startsWith('Message not sent.'))).toBe(false);
+  expect(test.client.send).toHaveBeenCalledOnce();
+});
+
 describe('submission prompt retention', () => {
   it(':stop reports a negative receipt without masking a later failure', async () => {
     const test = harness(); test.runRegistry.current.registerRun('notes', 'active-run');
@@ -237,8 +266,9 @@ describe('submission prompt retention', () => {
     const image = { id: 'image', uri: 'file:///synthetic/image.png', filename: 'image.png', mimeType: 'image/png', byteCount: 1, kind: 'image' as const };
     await expect(guardedPromptSubmission(() => test.submit(text, prepare, 'notes', [image]))).resolves.toEqual({ kind: 'rejected' });
     expect(prepare).toHaveBeenCalledOnce(); expect(test.client.send).not.toHaveBeenCalled();
-    expect(test.rows).toEqual([]); expect(test.runRegistry.current.isBusy('notes')).toBe(false);
-    expect(test.setDetail).toHaveBeenLastCalledWith('synthetic unreadable image');
+    expect(test.rows.filter(row => row.role === 'user')).toEqual([]); expect(test.runRegistry.current.isBusy('notes')).toBe(false);
+    expect(test.setDetail).toHaveBeenLastCalledWith(expect.stringContaining('Message not sent'));
+    expect(test.rows.at(-1)?.text).toContain('synthetic unreadable image');
   });
 
   it('publishes a lazy image-only payload only after preparation and retains it on an unconfirmed acknowledgement', async () => {
@@ -261,7 +291,7 @@ describe('submission prompt retention', () => {
     const gateway = pendingCall<Record<string, unknown>>();
     const test = harness({ send: gateway.call });
     const submission = test.submit('ship the release notes');
-    expect(test.rows.map((row) => row.text)).toEqual(['ship the release notes']);
+    expect(test.rows.filter(row => row.role === 'user').map((row) => row.text)).toEqual(['ship the release notes']);
 
     await gateway.invoked;
     // Home, lock, or any non-active scene tick suspends publication and tears
@@ -294,11 +324,11 @@ describe('submission prompt retention', () => {
     const test = harness({ send: async () => { throw gatewayRequestFailure('Gateway is not connected', false); } });
 
     await expect(test.submit('ship the release notes')).resolves.toBe(false);
-    expect(test.rows).toEqual([]);
-    expect(test.setDetail).toHaveBeenCalledWith('Gateway is not connected');
+    expect(test.rows.filter(row => row.role === 'user')).toEqual([]);
+    expect(test.setDetail).toHaveBeenCalledWith(expect.stringContaining('Reconnect'));
   });
 
-  it('reports a prompt as sent when the frame reached the Gateway and the reconnect discarded its answer', async () => {
+  it('retains an unconfirmed prompt when the frame was written and the reconnect discarded its answer', async () => {
     const gateway = pendingCall<Record<string, unknown>>();
     const test = harness({ send: gateway.call });
     const submission = test.submit('ship the release notes');
@@ -311,23 +341,23 @@ describe('submission prompt retention', () => {
     gateway.reject(gatewayRequestFailure('Gateway disconnected', true));
 
     await expect(submission).resolves.toBe(true);
-    expect(test.rows.map((row) => row.text)).toEqual(['ship the release notes']);
+    expect(test.rows.filter(row => row.role === 'user').map((row) => row.text)).toEqual(['ship the release notes']);
     expect(test.client.send).toHaveBeenCalledOnce();
-    expect(test.setDetail).toHaveBeenCalledWith('prompt sent; reconnecting for its answer');
+    expect(test.setDetail).toHaveBeenCalledWith(expect.stringContaining('Delivery unconfirmed'));
   });
 
-  it('reports a delivered prompt as sent when the selection moved to another thread', async () => {
+  it('retains an unconfirmed prompt in its originating thread when selection moves', async () => {
     const gateway = pendingCall<Record<string, unknown>>();
     const test = harness({ send: gateway.call });
     const submission = test.submit('ship the release notes');
-    expect(test.rows).toHaveLength(1);
+    expect(test.rows.filter(row => row.role === 'user')).toHaveLength(1);
 
     await gateway.invoked;
     test.selectedRef.current = 'other-thread';
     gateway.reject(gatewayRequestFailure('chat.send timed out', true));
 
     await expect(submission).resolves.toBe(true);
-    expect(test.rows).toHaveLength(1);
+    expect(test.rows.filter(row => row.role === 'user')).toHaveLength(1);
     expect(test.client.send).toHaveBeenCalledOnce();
   });
 
@@ -401,7 +431,8 @@ it('restores a refused steer without aborting or replacing the active run', asyn
   expect(test.client.send).toHaveBeenCalledOnce();
   expect(test.client.abort).not.toHaveBeenCalled();
   expect(test.runRegistry.current.runFor('notes')).toBe('scheduled-run');
-  expect(test.setDetail).toHaveBeenCalledWith(expect.stringContaining('cannot accept steering'));
+  expect(test.setDetail).toHaveBeenCalledWith(expect.stringContaining('Wait for the current task'));
+  expect(test.rows.at(-1)?.text).toContain('cannot accept steering');
 });
 
 it('explicit interrupt sends only its prompt and fences the exact active run', async () => {
@@ -437,7 +468,7 @@ it('refused exact interrupt restores the command and preserves a successor run',
   test.runRegistry.current.registerRun('notes', 'successor');
   gateway.reject(new Error('Active run changed. Refresh before interrupting.'));
   await expect(pending).resolves.toBe(false);
-  expect(test.runRegistry.current.runFor('notes')).toBe('successor'); expect(test.rows).toEqual([]);
+  expect(test.runRegistry.current.runFor('notes')).toBe('successor'); expect(test.rows.filter(row => row.role === 'user')).toEqual([]);
   expect(test.client.send).toHaveBeenCalledOnce(); expect(test.client.abort).not.toHaveBeenCalled();
 });
 
@@ -497,7 +528,7 @@ it('refreshes the actual target after a definitive refusal without resending the
   expect(test.client.readSessionRunTruth).toHaveBeenCalledWith('notes');
   expect(test.runRegistry.current.runFor('notes')).toBe('actual-runtime-owner');
   expect(test.rows.filter(row => row.role === 'user')).toEqual([]);
-  expect(test.setDetail).toHaveBeenLastCalledWith('The active run changed. Draft kept.');
+  expect(test.setDetail).toHaveBeenLastCalledWith(expect.stringContaining('Refresh this conversation'));
   expect(test.client.abort).not.toHaveBeenCalled();
 });
 it('does not refresh or replay an unconfirmed provider write', async () => {
@@ -551,7 +582,7 @@ it.each(informationalRefusals)('does not reinterpret an unconfirmed %s write as 
     readSessionRunTruth: async () => ({}) });
   test.runRegistry.current.registerRun('notes', 'active-run');
   await expect(test.submit('please continue')).resolves.toBe(true);
-  expect(test.rows).toHaveLength(1); expect(test.rows[0]?.role).toBe('user');
+  expect(test.rows.filter(row => row.role === 'user')).toHaveLength(1); expect(test.rows[0]?.role).toBe('user');
   expect(test.client.readSessionRunTruth).not.toHaveBeenCalled();
   expect(test.client.send).toHaveBeenCalledOnce(); expect(test.client.abort).not.toHaveBeenCalled();
 });
@@ -591,7 +622,7 @@ it('queues a confirmed permission refusal as one independent user turn, keeping 
   expect(test.runRegistry.current.runFor('notes')).toBe('cron');
   expect(test.client.abort).not.toHaveBeenCalled();
   expect(queue.accepted).toHaveBeenCalledOnce();
-  expect(test.setDetail).toHaveBeenCalledWith('Message accepted to run automatically after the current task. Checking queue status. Reply "interrupt" to stop the current task and run queued messages next.');
+  expect(test.setDetail).toHaveBeenCalledWith('Message accepted for a separate turn. Checking whether it is queued or has started. Do not resend. Reply "interrupt" only if you want to stop the current task and run confirmed queued messages next.');
 });
 it('keeps an uncertain followup standing and never submits it a third time', async () => {
   const queue = tracking(); let calls = 0;

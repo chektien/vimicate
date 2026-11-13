@@ -24,6 +24,10 @@ export function sameWorkspaceMessageExceptText(left: WorkspaceMessage, right: Wo
   return left === right || (left.id === right.id
     && left.role === right.role
     && left.internalEvent === right.internalEvent
+    && left.runFailure === right.runFailure
+    && left.cachedNotice === right.cachedNotice
+    && left.inputQueueState === right.inputQueueState
+    && left.inputPendingId === right.inputPendingId
     && left.timestamp === right.timestamp
     && left.state === right.state
     && left.runId === right.runId

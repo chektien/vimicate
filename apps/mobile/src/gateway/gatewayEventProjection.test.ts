@@ -11,7 +11,7 @@ describe('structured gateway event projection', () => {
     const modelPhase = { event: 'agent', payload: { sessionKey: 'one', runId: 'r-model', stream: 'lifecycle', data: { phase: 'model' } } };
     expect(projectGatewayEvent(modelPhase, 'one')).toBeNull();
     expect(projectGatewayEvent({ event: 'agent', payload: { sessionKey: 'one', runId: 'r-model', stream: 'lifecycle', data: { phase: 'start' } } }, 'one')?.message).toMatchObject({ role: 'run', text: 'start' });
-    expect(projectGatewayEvent({ event: 'agent', payload: { sessionKey: 'one', runId: 'r-model', stream: 'lifecycle', data: { phase: 'error', reason: 'model unavailable' } } }, 'one')?.message).toMatchObject({ role: 'error', text: 'Run failed · model unavailable' });
+    expect(projectGatewayEvent({ event: 'agent', payload: { sessionKey: 'one', runId: 'r-model', stream: 'lifecycle', data: { phase: 'error', reason: 'model unavailable' } } }, 'one')?.message).toMatchObject({ role: 'error', text: expect.stringContaining('model unavailable') });
   });
   it('projects useful cumulative assistant chat deltas and suppresses generic liveness', () => {
     expect(projectGatewayEvent({ event: 'chat', payload: { sessionKey: 'one', runId: 'r1', state: 'delta', message: { content: [{ type: 'text', text: 'I am checking the project.' }] } } }, 'one')?.message).toMatchObject({ id: 'live-chat-r1', role: 'assistant', text: 'I am checking the project.', state: 'streaming' });
@@ -266,7 +266,8 @@ describe('structured gateway event projection', () => {
 
   it('summarizes a structured agent stream error without printing its object braces', () => {
     const failure = projectGatewayEvent({ event: 'agent', payload: { sessionKey: 'one', runId: 'r9', stream: 'error', data: { code: 'tool_timeout', description: 'read timed out after 120s', toolCallId: 'call-9' } } }, 'one')?.message;
-    expect(failure?.text.split('\n')[0]).toBe('read timed out after 120s');
+    expect(failure?.text.split('\n')[0]).toContain('Refresh');
+    expect(failure?.text).toContain('read timed out after 120s');
     expect(failure?.text).toContain('"tool_timeout"');
     expect(transcriptMessageIsFoldedByDefault(failure!)).toBe(true);
   });

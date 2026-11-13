@@ -10,6 +10,7 @@ import { buildSqlitePlugin } from './build-sqlite-plugin.mjs';
 
 const target = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
 const fixtures = {
+  '2026.11.3': ['reply-run-registry.registry-DjlsSV_e.mjs', 'sessions-read-QORJB2sW.mjs', 'plugin-setup-module-DUPuK-Np.mjs'],
   '2026.11.1': ['reply-run-registry.registry-BlzIDIz-.mjs', 'sessions-read-8WZVwcoa.mjs', 'plugin-setup-module-fwWGzhte.mjs'],
   '2026.10.10': ['reply-run-registry.registry-AU46m76C.mjs', 'sessions-read-BSqkIDDT.mjs', 'plugin-setup-module-T3m9n359.mjs'],
   '2026.10.8': ['reply-run-registry.registry-P4L3EVyw.mjs', 'sessions-read-DaqLIW6z.mjs', 'plugin-setup-module-CDxHOMjX.mjs'],
@@ -41,9 +42,9 @@ if (process.env.VIMICATE_RUN_TRUTH_ACCEPTANCE_CHILD !== '1') {
   const load = name => import(pathToFileURL(path.join(target, 'dist', name)).href);
   const version = JSON.parse(await fs.readFile(path.join(target, 'package.json'))).version;
   const fixture = fixtures[version];
-  const contexts = await load(version === '2026.11.1' ? 'agent-run-registry-BBn72PQp.mjs' : ['2026.10.10', '2026.11.1'].includes(version) ? 'agent-run-registry-Dvv4_0by.mjs' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1'].includes(version) ? (version === '2026.10.8' ? 'agent-run-registry-fu4Yij2z.mjs' : ['2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1'].includes(version) ? 'agent-run-registry-B2Kia58i.mjs' : 'agent-run-registry-zReSioYT.mjs') : 'agent-run-registry-BaxMDLZF.mjs');
-  const claim = contexts[['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1'].includes(version) ? 'i' : 'r'];
-  const clear = contexts[['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1'].includes(version) ? 'o' : 'a'];
+  const contexts = await load(version === '2026.11.3' ? 'agent-run-registry-gmaPgO-n.mjs' : version === '2026.11.1' ? 'agent-run-registry-BBn72PQp.mjs' : ['2026.10.10', '2026.11.1', '2026.11.3'].includes(version) ? 'agent-run-registry-Dvv4_0by.mjs' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1', '2026.11.3'].includes(version) ? (version === '2026.10.8' ? 'agent-run-registry-fu4Yij2z.mjs' : ['2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1', '2026.11.3'].includes(version) ? 'agent-run-registry-B2Kia58i.mjs' : 'agent-run-registry-zReSioYT.mjs') : 'agent-run-registry-BaxMDLZF.mjs');
+  const claim = contexts[['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1', '2026.11.3'].includes(version) ? 'i' : 'r'];
+  const clear = contexts[['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1', '2026.11.3'].includes(version) ? 'o' : 'a'];
   const { g: registry } = await load(fixture[0]);
   const { t: handlers } = await load(fixture[1]);
   const { n: PluginInstance, r: bindPluginInstanceModuleLoader } = await load(fixture[2]);
@@ -88,7 +89,7 @@ if (process.env.VIMICATE_RUN_TRUTH_ACCEPTANCE_CHILD !== '1') {
     operation.complete();
     assert.equal(registry.resolveCurrentMessageInjectionTarget(key), undefined);
     assert.equal((await captured.loadSessionRunTruthRuntime(target)).registry.resolveCurrentMessageInjectionTarget(key), undefined);
-    if (['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1'].includes(version)) await acceptAttachedRunIdentity();
+    if (['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8', '2026.10.10', '2026.11.1', '2026.11.3'].includes(version)) await acceptAttachedRunIdentity();
     console.log('native and captured steering identity accepted');
   } finally {
     clear('actual-native-run');
@@ -103,7 +104,7 @@ if (process.env.VIMICATE_RUN_TRUTH_ACCEPTANCE_CHILD !== '1') {
   async function acceptAttachedRunIdentity() {
     // Historical profiles also characterize the old strict-steering refusal.
     // 10.10 adopts native steering and must never import that dropped helper.
-    const assertActiveSteerTarget = ['2026.10.10', '2026.11.1'].includes(version) ? undefined
+    const assertActiveSteerTarget = ['2026.10.10', '2026.11.1', '2026.11.3'].includes(version) ? undefined
       : (await load('strict-active-steering-local.mjs')).assertActiveSteerTarget;
     const refusal = expected => {
       try { assertActiveSteerTarget({ steerPolicy: 'require-active', expectedActiveRunId: expected }, undefined,
@@ -132,7 +133,7 @@ if (process.env.VIMICATE_RUN_TRUTH_ACCEPTANCE_CHILD !== '1') {
       if (assertActiveSteerTarget) assert.deepEqual(refusal('attached-run'), { reason: 'run_not_ready', expectedActiveRunId: 'attached-run',
         activeRunId: 'attached-run', inputDisposition: 'not-dispatched', suggestedQueueMode: 'interrupt' });
       assert.equal(registry.resolveCurrentMessageInjectionTarget(key), undefined);
-      if (['2026.10.10', '2026.11.1'].includes(version)) assert.equal((await native.loadSessionRunTruthRuntime(target)).getAttachedBackend(busy)?.runId, 'attached-run');
+      if (['2026.10.10', '2026.11.1', '2026.11.3'].includes(version)) assert.equal((await native.loadSessionRunTruthRuntime(target)).getAttachedBackend(busy)?.runId, 'attached-run');
       else assert.equal(registry.resolveCurrentInterruptTarget(key)?.runId, 'attached-run');
       for (const module of [native, captured]) {
         const session = await read(module);
@@ -153,7 +154,7 @@ if (process.env.VIMICATE_RUN_TRUTH_ACCEPTANCE_CHILD !== '1') {
     try {
       // A stale expected identity is a changed run, never a queue proof.
       if (assertActiveSteerTarget) assert.equal(refusal('attached-run').reason, 'active_run_changed');
-      if (['2026.10.10', '2026.11.1'].includes(version)) assert.equal((await native.loadSessionRunTruthRuntime(target)).getAttachedBackend(successor)?.runId, 'successor-run');
+      if (['2026.10.10', '2026.11.1', '2026.11.3'].includes(version)) assert.equal((await native.loadSessionRunTruthRuntime(target)).getAttachedBackend(successor)?.runId, 'successor-run');
       else assert.equal(registry.resolveCurrentInterruptTarget(key)?.runId, 'successor-run');
       assert.equal((await read(native)).attachedRunId, 'successor-run');
       successor.abortByUser();

@@ -10,7 +10,9 @@ import { validatedAbsorbedLiveIdentity } from './transcriptIdentityWall';
 import { inactiveMessageRecovery } from './messageRecovery';
 import { reconcileClaudeNativeLive } from './claudeNativeLiveConvergence';
 import { validatedMessageToolSend } from '../workspace/messageToolProgress';
-import { transcriptInternalEvent, transcriptInputAcceptedAt, transcriptInputReceiptRunId, transcriptCliProvenance, transcriptDeliveryProvenance, transcriptDisplayPosition, transcriptSessionIdentity } from '../workspace/transcriptMetadata';
+import { transcriptInternalEvent, transcriptInputAcceptedAt, transcriptInputReceiptRunId, transcriptCliProvenance, transcriptDeliveryProvenance, transcriptDisplayPosition, transcriptSessionIdentity, validatedRunFailureKind } from '../workspace/transcriptMetadata';
+import { CACHED_NOTICE_PREFIX, isCachedTranscriptNotice, legacyTranscriptNoticePreview } from './cachedTranscriptNotice';
+import { remoteQueuedInputScope } from './remoteQueuedInputScope';
 
 // This is a restart/offline preview, not canonical scrollback. Keeping the
 // bridge payload small prevents a cache write from spanning iOS suspension;
@@ -18,6 +20,7 @@ import { transcriptInternalEvent, transcriptInputAcceptedAt, transcriptInputRece
 const CACHE_MESSAGE_LIMIT = 200;
 const CACHE_BYTE_LIMIT = 512_000;
 const CACHE_TEXT_LIMIT = 64_000;
+const CACHE_PROJECTION_VERSION = 1;
 const roles = new Set<WorkspaceMessageRole>(['user', 'assistant', 'narration', 'tool', 'run', 'approval', 'media', 'error', 'openclaw', 'session', 'workspace', 'command', 'boundary', 'config', 'system', 'vimicate', 'operator']);
 
 export type TranscriptCacheBounds = {
@@ -31,7 +34,7 @@ export function serializedTranscriptCache(messages: WorkspaceMessage[], bounds: 
   const byteLimit = positiveBound(bounds.byteLimit, CACHE_BYTE_LIMIT);
   const textLimit = positiveBound(bounds.textLimit, CACHE_TEXT_LIMIT);
   const retained: WorkspaceMessage[] = [];
-  let bytes = 2;
+  let bytes = JSON.stringify({ version: CACHE_PROJECTION_VERSION, messages: [] }).length;
   for (const message of messages.slice(-messageLimit).reverse()) {
     const safe = cacheSafeMessage(message, textLimit);
     const size = JSON.stringify(safe).length + 1;
@@ -40,8 +43,9 @@ export function serializedTranscriptCache(messages: WorkspaceMessage[], bounds: 
   }
   const ordered = retained.reverse();
   const first = ordered[0];
-  return JSON.stringify(retained.length < messages.length && first && first.role !== 'user' && first.role !== 'boundary' && !first.historyOmission
-    ? withHistoryOmission(ordered) : ordered);
+  return JSON.stringify({ version: CACHE_PROJECTION_VERSION,
+    messages: retained.length < messages.length && first && first.role !== 'user' && first.role !== 'boundary' && !first.historyOmission
+      ? withHistoryOmission(ordered) : ordered });
 }
 
 export function parsedTranscriptCache(payload: string | null, messageLimit = CACHE_MESSAGE_LIMIT) {
@@ -49,18 +53,25 @@ export function parsedTranscriptCache(payload: string | null, messageLimit = CAC
   if (!payload) return [];
   try {
     const raw: unknown = JSON.parse(payload);
-    if (!Array.isArray(raw)) return [];
+    const legacy = Array.isArray(raw);
+    const rows = legacy ? raw : record(raw) && raw.version === CACHE_PROJECTION_VERSION && Array.isArray(raw.messages) ? raw.messages : null;
+    if (!rows) return [];
+    const parsed = rows.slice(-boundedLimit).flatMap(parsedMessage);
     return reconcileClaudeNativeLive(authoritativeHistoryChronology(
-      pruneUnownedRestoredLiveRows(raw.slice(-boundedLimit).flatMap(parsedMessage)),
+      pruneUnownedRestoredLiveRows(legacy ? parsed.map(legacyTranscriptNoticePreview) : parsed),
       (message) => message.source === 'history',
     ));
   } catch { return []; }
 }
 
 function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): WorkspaceMessage {
-  const text = message.text.length <= textLimit
+  const cachedNotice = isCachedTranscriptNotice(message);
+  // Migration adds a presentation envelope, not new diagnostic content. Do
+  // not clip bytes that fit the old cache merely because that envelope grew.
+  const retainedTextLimit = textLimit + (cachedNotice ? CACHED_NOTICE_PREFIX.length : 0);
+  const text = message.text.length <= retainedTextLimit
     ? message.text
-    : `${message.text.slice(0, textLimit)}${CACHED_PREVIEW_NOTICE}`;
+    : `${message.text.slice(0, retainedTextLimit)}${CACHED_PREVIEW_NOTICE}`;
   // Tool output can contain arbitrary Markdown source with image-looking
   // paths. Canonical history will reconstruct genuine structured tool media;
   // never preserve older false-positive tool cards across launches.
@@ -70,12 +81,18 @@ function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): Workspa
   const cliProvenance = transcriptCliProvenance(message.cliProvenance);
   const deliveryProvenance = text === message.text ? transcriptDeliveryProvenance(message.deliveryProvenance) : undefined;
   const historyOmission = validatedHistoryOmission(message.historyOmission, message.id);
+  const runFailure = cachedRunFailure(message);
+  const inputQueueState = cachedInputQueueState(message);
   return {
     id: message.id,
     ...persistedAsyncMetadata(message as unknown as Record<string, unknown>),
     role: message.role,
     ...(message.role === 'tool' && transcriptInternalEvent(message.internalEvent) ? { internalEvent: transcriptInternalEvent(message.internalEvent)! } : {}),
     text,
+    ...(cachedNotice ? { cachedNotice: true as const } : {}),
+    ...(runFailure ? { runFailure } : {}),
+    ...(inputQueueState ? { inputQueueState } : {}),
+    ...(inputQueueState && message.inputPendingId ? { inputPendingId: message.inputPendingId } : {}),
     ...(message.timestamp ? { timestamp: message.timestamp } : {}),
     ...(message.state && message.state !== 'streaming' ? { state: message.state } : {}),
     ...(message.runId ? { runId: message.runId } : {}),
@@ -115,12 +132,15 @@ function parsedMessage(value: unknown): WorkspaceMessage[] {
   const cliProvenance = transcriptCliProvenance(value.cliProvenance);
   const deliveryProvenance = transcriptDeliveryProvenance(value.deliveryProvenance);
   const historyOmission = validatedHistoryOmission(value.historyOmission, value.id);
+  const runFailure = cachedRunFailure(value);
   const message: WorkspaceMessage = {
     id: value.id,
     ...persistedAsyncMetadata(value),
     role: value.role as WorkspaceMessageRole,
     ...(value.role === 'tool' && transcriptInternalEvent(value.internalEvent) ? { internalEvent: transcriptInternalEvent(value.internalEvent)! } : {}),
     text: value.text,
+    ...(isCachedTranscriptNotice({ role: value.role as WorkspaceMessageRole, text: value.text, ...(value.cachedNotice === true ? { cachedNotice: true } : {}) }) ? { cachedNotice: true as const } : {}),
+    ...(runFailure ? { runFailure } : {}),
     ...(typeof value.timestamp === 'string' ? { timestamp: value.timestamp } : {}),
     ...(state ? { state } : {}),
     ...(typeof value.runId === 'string' ? { runId: value.runId } : {}),
@@ -148,7 +168,24 @@ function parsedMessage(value: unknown): WorkspaceMessage[] {
   };
   const absorbedLiveIdentity = validatedAbsorbedLiveIdentity(value.absorbedLiveIdentity, message);
   if (absorbedLiveIdentity) message.absorbedLiveIdentity = absorbedLiveIdentity;
+  // A saved custody snapshot is not current queue authority after relaunch.
+  const queueCandidate: WorkspaceMessage = { ...message, ...(typeof value.inputPendingId === 'string' ? { inputPendingId: value.inputPendingId } : {}),
+    ...(value.inputQueueState === 'queued' || value.inputQueueState === 'unknown' ? { inputQueueState: value.inputQueueState } : {}) };
+  if (cachedInputQueueState(queueCandidate)) {
+    message.inputQueueState = 'unknown';
+    if (queueCandidate.inputPendingId) message.inputPendingId = queueCandidate.inputPendingId;
+  }
   return [repairedCachedMarkdownImages(message)];
+}
+
+function cachedRunFailure(value: { role?: unknown; runId?: unknown; sessionKey?: unknown; runFailure?: unknown }) {
+  return value.role === 'error' && typeof value.runId === 'string' && value.runId.trim().length > 0 && value.runId.length <= 256
+    && typeof value.sessionKey === 'string' && value.sessionKey.trim().length > 0 && value.sessionKey.length <= 2048
+    ? validatedRunFailureKind(value.runFailure) : undefined;
+}
+
+function cachedInputQueueState(message: WorkspaceMessage) {
+  return remoteQueuedInputScope(message) ? message.inputQueueState : undefined;
 }
 
 function parsedRecovery(value: unknown): WorkspaceMessage['recovery'] | undefined {

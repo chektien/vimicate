@@ -19,6 +19,8 @@ import { markToolBoundaryCandidate, upsertSealingToolBoundary } from './toolBoun
 import { transcriptSessionIdentity } from '../workspace/transcriptMetadata';
 import { sessionApprovalMessage } from './sessionApprovalEvents';
 import { sessionFailureNotice, convergeSessionFailureNotice } from './sessionFailureNotice';
+import { runFailureNoticeText } from './promptDeliveryNotice';
+import { reconcileRunFailureNotices } from './runFailureConvergence';
 
 export type GatewayEventProjection = {
   sessionKey: string;
@@ -82,7 +84,7 @@ export function projectGatewayEvent(frame: GatewayFrame, selectedSessionKey: str
     const embedded = state === 'error' ? null : embeddedToolProtocolFromText(extractedText);
     const authoredText = embedded ? embedded.prose : extractedText;
     const assistantContent = state === 'error'
-      ? { text: extractedText, attachments: extractedAttachments, deferred: false }
+      ? { text: runFailureNoticeText(extractedText, { background: runId.startsWith('announce:') }), attachments: extractedAttachments, deferred: false }
       : projectAssistantProtocolContent(authoredText, extractedAttachments, state !== 'delta');
     const { text, attachments } = assistantContent;
     const transcriptSessionId = transcriptSessionIdentity(payload.sessionId);
@@ -93,6 +95,7 @@ export function projectGatewayEvent(frame: GatewayFrame, selectedSessionKey: str
       ...(transcriptSessionId ? { transcriptSessionId } : {}),
       ...asyncMetadata,
       role: state === 'error' ? 'error' : 'assistant',
+      ...(state === 'error' ? { runFailure: 'runtime' as const } : {}),
       text: wireMessage.openclawAsyncDelivery ? asyncMetadata.asyncQuestionPrivate ? 'Private input · Answer elsewhere in OpenClaw.' : privateQuestionText(text) : text,
       state: state === 'delta' ? 'streaming' : state === 'error' ? 'error' : 'complete',
       runId,
@@ -154,7 +157,9 @@ export function projectGatewayEvent(frame: GatewayFrame, selectedSessionKey: str
       const reason = stringValue(data.reason);
       const projected = reason ? { summary: reason, detail: '' } : machineActivitySummary(data, 'agent stream error');
       if (isAssistantProjectionDiagnostic(projected.summary)) return null;
-      return projection(sessionKey, { id: `live-error-${runId}-${payload.seq ?? 'event'}`, role: 'error', text: [projected.summary, projected.detail].filter(Boolean).join('\n'), state: 'error', runId }, eventTimestamp);
+      const transcriptSessionId = transcriptSessionIdentity(payload.sessionId);
+      return projection(sessionKey, { id: `live-error-${runId}-${payload.seq ?? 'event'}`, role: 'error', runFailure: 'runtime', text: runFailureNoticeText([projected.summary, projected.detail].filter(Boolean).join('\n'), { background: runId.startsWith('announce:'), label: 'The assistant reported an error' }), state: 'error', runId,
+        ...(transcriptSessionId ? { transcriptSessionId } : {}) }, eventTimestamp);
     }
   }
 
@@ -215,6 +220,8 @@ export function reconcilePendingApprovalMessages(current: WorkspaceMessage[], pe
 }
 
 export function upsertLiveMessage(messages: WorkspaceMessage[], message: WorkspaceMessage): WorkspaceMessage[] {
+  messages = reconcileRunFailureNotices(messages);
+  if (!reconcileRunFailureNotices([...messages, message]).includes(message)) return messages;
   if (message.toolBoundaryChatText !== undefined) return upsertSealingToolBoundary(messages, message, upsertLiveMessage);
   const chat = uncoveredLiveChat(message, messages);
   const covered = chat !== message && chat.text === '' && !chat.attachments?.length && message.role === 'assistant';

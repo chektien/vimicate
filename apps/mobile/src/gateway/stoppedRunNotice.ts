@@ -1,5 +1,6 @@
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 import type { SessionRunRegistry } from './sessionRunRegistry';
+import { runFailureDetail } from './promptDeliveryNotice';
 
 /** A confirmed Stop changes the presentation of its exact native abort, not
  * provider failures or errors from a successor. Keep the receipt's identity
@@ -11,7 +12,7 @@ export function stoppedRunNotices(messages: WorkspaceMessage[], registry: Pick<S
     if (message.role !== 'error' || !message.sessionKey || !message.runId
       || !registry.stopWasConfirmed(message.sessionKey, message.runId)
       || !/^(?:session-failure:|live-chat-|live-error-)/.test(message.id)
-      || !/^(?:Run failed · )?(?:agent run aborted|CLI run aborted)(?: \| OPENCLAW_DIRECT_ABORT)?$/.test(message.text.trim())) continue;
+      || !/^(?:Run failed · )?(?:agent run aborted|CLI run aborted)(?: \| OPENCLAW_DIRECT_ABORT)?$/.test(runFailureDetail(message.text).trim())) continue;
     if (result === messages) result = [...messages];
     result[i] = { ...message, role: 'command', state: 'complete', text: 'Run stopped at your request.' };
   }

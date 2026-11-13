@@ -10,6 +10,18 @@ import { buildVisibleTranscriptRenderRows, retainStableTranscriptRenderRows, tra
 describe('transcript explicit folds', () => {
   const machine: WorkspaceMessage = { id: 'tool', role: 'tool', text: Array.from({ length: 5000 }, (_, index) => `output ${index}`).join('\n') };
 
+  it.each([
+    'Runtime error\n{"internal":"raw provider payload"}',
+    '\n'.repeat(599) + 'x',
+    'x'.repeat(601),
+  ])('keeps unsafe or oversized pre-detail content out of the folded guidance', headline => {
+    const [row] = buildVisibleTranscriptRenderRows([{ id: 'failure', role: 'error', state: 'error', text: `${headline}\nTechnical details\nprivate payload` }], new Set());
+    expect(row?.compiled.source).not.toContain('internal');
+    expect(row?.compiled.source).not.toContain('private payload');
+    expect(row?.compiled.source.split('\n')).toHaveLength(1);
+    expect(row!.compiled.source.length).toBeLessThan(200);
+  });
+
   it('retains every unchanged row identity across a live tail append', () => {
     const stable: WorkspaceMessage[] = [
       { id: 'prompt', role: 'user', text: 'do it', timestamp: '1000' },

@@ -1,3 +1,4 @@
+import { queuedInputRows } from './historyQueuedInputRows';
 import { compatibleQuestionGeneration, normalizedSubmissionIdentity } from '../questions/asyncQuestionReplyIdentity';
 import { isSessionNotice, projectSessionNotice, foldedSessionNoticeMirrors } from './sessionNoticeProjection';
 import { markdownImageSources } from './markdownImagePath';
@@ -21,6 +22,8 @@ import type { WorkspaceAttachment, WorkspaceMessage } from './workspaceTypes';
 import { arrayAt, stringAt, numberAt, isRecord } from './workspacePayloadFields';
 import { withoutRedundantStagedImagePlaceholders, withoutClaudeStagedImageReferences } from './claudeStagedImageReferences';
 import { reconcileMessageToolProgress } from './messageToolProgress';
+import { historyRunFailure, recordedHistoryInputs } from './historyRunFailure';
+import { historyBackgroundNotice } from './historyBackgroundNotice';
 
 export function messagesFromPayload(payload: Record<string, unknown>, workspacePath = '', retainedQuestionContext: WorkspaceMessage[] = []): WorkspaceMessage[] {
   const pendingRows = queuedInputRows(payload);
@@ -28,6 +31,7 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
   const rows = [...arrayAt(payload, ['messages', 'items', 'history']), ...pendingRows];
   const sessionKey = stringAt(payload, ['sessionKey', 'stableSessionKey', 'key']);
   const transcriptSessionId = transcriptSessionIdentity(payload.sessionId);
+  const recordedInputs = recordedHistoryInputs(rows, sessionKey, transcriptSessionId);
   const callActivities = toolCallActivityIndex(rows); const joinedPrompts = new Map<WorkspaceMessage, string[]>(); const asyncPrompts = rows.flatMap(row => {
     if (!isRecord(row)) return [];
     const question = asyncQuestionMetadata(row).asyncQuestion;
@@ -37,13 +41,15 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
   const projected = rows.flatMap<WorkspaceMessage>((wire) => {
     if (!isRecord(wire)) return [];
     const { raw, placeholder } = withoutClaudeStagedImageReferences(wire);
+    const runFailure = historyRunFailure(raw, recordedInputs, sessionKey, transcriptSessionId);
     const internalRole = internalSystemRole(raw);
     const fallback = isRecord(raw.openclawStreamFallback) ? raw.openclawStreamFallback : {};
     const narrationItemId = !internalRole && raw.role === 'assistant' && fallback.source === 'segment'
       && typeof fallback.itemId === 'string' && fallback.itemId.length > 0 && fallback.itemId.length <= 256 ? fallback.itemId : undefined;
-    const declaredRole = internalRole ?? (narrationItemId || isClaudeCliCommentary(raw) ? 'narration' : workspaceRole(stringAt(raw, ['role', 'kind', 'type'])));
+    const declaredRole = runFailure ? 'error' : internalRole ?? (narrationItemId || isClaudeCliCommentary(raw) ? 'narration' : workspaceRole(stringAt(raw, ['role', 'kind', 'type'])));
     const content = claudeOversizedRecordContent(raw);
     const extractedText = extractText(content);
+    const backgroundNotice = historyBackgroundNotice(raw, extractedText, sessionKey, transcriptSessionId);
     const compactionBoundary = isCompactionControlMessage(extractedText);
     const role = compactionBoundary ? 'boundary' : semanticWorkspaceRole(declaredRole, content);
     // Every structured tool part is one execution and becomes its own bounded
@@ -75,13 +81,13 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
     const knownSubmission = Boolean(submissionKey && retainedPrompts.some(message => normalizedSubmissionIdentity(message.idempotencyKey) === submissionKey));
     const rowScopeCompatible = (raw.sessionKey === undefined || raw.sessionKey === sessionKey) && (raw.sessionId === undefined || transcriptSessionIdentity(raw.sessionId) === transcriptSessionId);
     const asyncAnswerText = role === 'user' && (asyncMetadata.asyncQuestionReplyToId || rowScopeCompatible && (knownSubmission || candidates.length === 1)) ? assistantContent.text : undefined;
-    const projectedText = asyncAnswerText ? privateQuestionText(asyncAnswerText) : raw.openclawAsyncDelivery ? asyncMetadata.asyncQuestionPrivate ? 'Private input · Answer elsewhere in OpenClaw.' : privateQuestionText(assistantContent.text) : assistantContent.text;
+    const projectedText = runFailure?.text ?? backgroundNotice ?? (asyncAnswerText ? privateQuestionText(asyncAnswerText) : raw.openclawAsyncDelivery ? asyncMetadata.asyncQuestionPrivate ? 'Private input · Answer elsewhere in OpenClaw.' : privateQuestionText(assistantContent.text) : assistantContent.text);
     const attachments = assistantContent.attachments;
     const conversational = role !== 'tool' && Boolean(projectedText || attachments.length);
     if (!conversational && !activities.length && !attachments.length) return [];
     const timestamp = timestampAt(raw, ['timestamp', 'createdAt']);
     const native = nativeTranscriptMetadata(raw);
-    const runId = stringAt(raw, ['runId']) || native.runId;
+    const runId = runFailure?.runId || stringAt(raw, ['runId']) || native.runId;
     const idempotencyKey = narrationItemId ? '' : stringAt(raw, ['idempotencyKey']) || native.idempotencyKey;
     const rawID = narrationItemId ? `native-narration:${transcriptSessionId ?? sessionKey}:${narrationItemId}` : stringAt(raw, ['id', 'messageId']) || native.id;
     const id = rawID || `history-${stableTextHash(`${role}\u0000${timestamp}\u0000${idempotencyKey}\u0000${projectedText || (activities[0] ? toolRowText(activities[0]) : '')}`)}`;
@@ -93,7 +99,7 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
     const inputAcceptedAtMs = pendingAcceptedAtMs ?? native.inputAcceptedAtMs;
     const shared = { source: 'history' as const, ...(sessionKey ? { sessionKey } : {}), ...(transcriptSessionId ? { transcriptSessionId } : {}), ...(native.displayPosition ? { displayPosition: native.displayPosition } : {}), ...(native.cliProvenance ? { cliProvenance: native.cliProvenance } : {}), ...(native.cliEndTurn ? { cliEndTurn: true as const } : {}), ...(timestamp ? { timestamp } : {}), ...(runId ? { runId } : {}) };
     const published: Array<Pick<WorkspaceMessage, 'role' | 'text' | 'state' | 'tool'>> = [
-      ...(conversational ? [{ role, text: projectedText }] : []),
+      ...(conversational ? [{ role, text: projectedText, ...(runFailure ? { state: 'error' as const } : {}) }] : []),
       ...activities.map((activity) => ({
         role: 'tool' as const,
         text: toolRowText(activity),
@@ -108,6 +114,8 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
       ...row,
       id: index === 0 ? id : `${id}#tool-${index}`,
       ...shared,
+      ...(index === 0 && runFailure ? { runFailure: 'before-reply' as const } : {}),
+      ...(index === 0 && role === 'user' && pendingAcceptedAtMs !== undefined && runId && sessionKey && transcriptSessionId ? { inputQueueState: 'queued' as const, inputPendingId: id } : {}),
       ...(index === 0 && role === 'user' && inputAcceptedAtMs !== undefined ? { inputAcceptedAtMs } : {}),
       ...(index === 0 && role === 'user' && pendingAcceptedAtMs !== undefined && runId ? { inputReceiptRunId: runId } : {}),
       ...(index === 0 ? asyncMetadata : {}), ...(index === 0 && asyncAnswerText ? { asyncQuestionAnswerText: asyncAnswerText } : {}),
@@ -123,26 +131,6 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
     return projectedRows;
   });
   return compactEmptyConversationBoundaries(authoritativeHistoryChronology(withoutRedundantStagedImagePlaceholders(withoutJoinedQueuedInputs(projected, joinedPrompts))));
-}
-
-/** Accepted steer inputs stay outside OpenClaw's model history until their turn runs. */
-function queuedInputRows(payload: Record<string, unknown>) {
-  const page = isRecord(payload.pendingInputs) ? payload.pendingInputs : {};
-  return arrayAt(page, ['items']).flatMap((value) => {
-    if (!isRecord(value) || value.state !== 'queued' || !isRecord(value.message)) return [];
-    const id = stringAt(value, ['id']);
-    const runId = stringAt(value, ['runId']);
-    const idempotencyKey = stringAt(value.message, ['idempotencyKey']);
-    const acceptedAt = numberAt(value, ['acceptedAt']);
-    if (!id || id.length > 512 || !Number.isSafeInteger(acceptedAt) || acceptedAt < 0
-      || runId.length > 256 || idempotencyKey.length > 512) return [];
-    return [{
-      id: `pending-input:${id}`, role: 'user', content: value.message.content, timestamp: acceptedAt,
-      ...(runId ? { runId } : {}), ...(idempotencyKey ? { idempotencyKey } : {}),
-      ...(value.message.media !== undefined ? { media: value.message.media } : {}),
-      ...(value.message.__openclaw !== undefined ? { __openclaw: value.message.__openclaw } : {}),
-    }];
-  });
 }
 
 /**

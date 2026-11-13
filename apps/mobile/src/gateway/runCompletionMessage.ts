@@ -1,4 +1,5 @@
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
+import { runFailureNoticeText } from './promptDeliveryNotice';
 
 export function runElapsedDescription(elapsedMs: number) {
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
@@ -35,7 +36,8 @@ export function failedRunMessage(sessionKey: string, runId: string, elapsedMs: n
   return {
     id: runLifecycleMessageID(sessionKey, runId),
     role: 'error',
-    text: `● failed after ${runElapsedDescription(elapsedMs)} · ${reason}`,
+    runFailure: 'runtime',
+    text: runFailureNoticeText(reason, { label: `● failed after ${runElapsedDescription(elapsedMs)}`, background: runId.startsWith('announce:') }),
     state: 'error',
     runId,
     sessionKey,

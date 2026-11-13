@@ -54,6 +54,8 @@ export type WorkspaceMessage = TranscriptMessageMetadata & {
   runId?: string;
   sessionKey?: string;
   source?: 'history' | 'local' | 'live';
+  /** Legacy projected notice preserved as an inert preview until its exact record refreshes. */
+  cachedNotice?: true;
   /** Ephemeral original Gateway chat envelope before item-preamble convergence. */
   chatCumulativeText?: string;
   /** Ephemeral exact terminal reply from the run lifecycle, not chat's aggregate. */

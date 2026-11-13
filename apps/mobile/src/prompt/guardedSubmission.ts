@@ -12,6 +12,7 @@ export async function guardedPromptSubmission(submit: () => Promise<boolean>): P
   try {
     return await submit() ? { kind: 'accepted' } : { kind: 'rejected' };
   } catch (error) {
-    return { kind: 'failed', detail: error instanceof Error ? error.message : 'send failed' };
+    const reason = error instanceof Error ? error.message : 'Unexpected send error';
+    return { kind: 'failed', detail: `Your draft is kept, but delivery is not verified. Refresh this conversation and check for your message or reply. Do not resend while delivery is unknown. Technical details follow. ${reason.slice(0, 1600)}` };
   }
 }

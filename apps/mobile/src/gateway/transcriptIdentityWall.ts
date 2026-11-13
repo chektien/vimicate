@@ -10,6 +10,7 @@ import { isPendingInputCustodyRow } from './pendingInputSnapshot';
 import { restoreObservedTokenRedaction } from './observedTokenRedaction';
 import { isCanonicalQueuedPrompt } from './queuedPromptConsumption';
 import { transcriptCliProvenance } from '../workspace/transcriptMetadata';
+import { remoteQueuedInputScope } from './remoteQueuedInputScope';
 
 /**
  * Final publication invariant: one visible row per explicit Gateway identity.
@@ -22,7 +23,7 @@ export function coalesceTranscriptIdentities(messages: WorkspaceMessage[]) {
   // delayed live rows and persisted older copies may still know only the ID.
   // Join exact IDs first so a metadata-bearing copy also bridges native aliases.
   const identified = coalesceByIdentity(
-    coalesceByIdentity(identifyCanonicalNarrationAliases(identifyNarrationMessageOwners(rejectConflictingNarrationIDs(messages))), messageIdentity),
+    coalesceByIdentity(identifyCanonicalNarrationAliases(identifyNarrationMessageOwners(rejectConflictingNarrationIDs(reconcilePendingInputAliases(messages)))), messageIdentity),
     transcriptPublicationIdentity,
   );
   return withoutRedundantStagedImagePlaceholders(reconcilePendingInputAliases(identified));
@@ -37,7 +38,8 @@ export function coalesceTranscriptIdentities(messages: WorkspaceMessage[]) {
  * picker media stays authored until that canonical projection arrives.
  */
 function reconcilePendingInputAliases(messages: WorkspaceMessage[]) {
-  const pending = messages.filter(isPendingInputCustodyRow);
+  const pending = messages.filter(message => isPendingInputCustodyRow(message)
+    || message.source === 'history' && message.id === message.inputPendingId && remoteQueuedInputScope(message));
   if (!pending.length) return messages;
   const matches = pending.flatMap((alias) => {
     const owners = messages.filter((candidate) => committedInputMatches(alias, candidate) || acceptedLocalInputMatches(alias, candidate));
@@ -93,6 +95,7 @@ function acceptedLocalInputRepresentation(local: WorkspaceMessage, pending: Work
     ...(receipt ? { inputReceiptRunId: receipt } : {}),
     ...(pending.timestamp ? { timestamp: pending.timestamp } : {}),
     ...(pending.inputAcceptedAtMs !== undefined ? { inputAcceptedAtMs: pending.inputAcceptedAtMs } : {}),
+    ...(pending.inputQueueState ? { inputQueueState: pending.inputQueueState, inputPendingId: pending.inputPendingId ?? pending.id } : {}),
   };
 }
 

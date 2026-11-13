@@ -10,6 +10,7 @@ import { buildSqlitePlugin } from './build-sqlite-plugin.mjs';
 
 const target = process.env.OPENCLAW_HISTORY_TEST_PACKAGE_ROOT;
 const fixtures = {
+  '2026.11.3': ['registry-D1AJXc21.mjs', 'runtime-HVHHrRKt.mjs', 'session-accessor-FPvTcdkh.mjs'],
   '2026.11.1': ['registry-BuVg2_RV.mjs', 'runtime-CNnMUogG.mjs', 'session-accessor-B_vtmJRr.mjs'],
   '2026.10.10': ['registry-Cp3Ucw57.mjs', 'runtime-DbAbpcIy.mjs', 'session-accessor-DN7dldOi.mjs'],
   '2026.10.8': ['registry-vAFp5m5F.mjs', 'runtime-BXQF4n0S.mjs', 'session-accessor-ebdiOYjA.mjs'],
@@ -37,7 +38,7 @@ if (process.env.VIMICATE_API_ACCEPTANCE_CHILD !== '1') {
           VIMICATE_API_ACCEPTANCE_STATE: stateDir, VIMICATE_API_ACCEPTANCE_PLUGIN: pluginRoot },
       });
       assert.match(stdout, /native API acceptance: 15 scopes, current binding, nonmutating probe, 1 narration record/);
-      if (['2026.10.10', '2026.11.1'].includes(metadata.version)) {
+      if (['2026.10.10', '2026.11.1', '2026.11.3'].includes(metadata.version)) {
         const negativeState = path.join(root, 'negative-state');
         await fs.mkdir(negativeState, { mode: 0o700 });
         await assert.rejects(promisify(execFile)(process.execPath, [fileURLToPath(import.meta.url)], {
@@ -56,16 +57,16 @@ if (process.env.VIMICATE_API_ACCEPTANCE_CHILD !== '1') {
   const load = name => import(pathToFileURL(path.join(target, 'dist', name)));
   const version = JSON.parse(await fs.readFile(path.join(target, 'package.json'))).version;
   const fixture = fixtures[version];
-  if (['2026.10.10', '2026.11.1'].includes(version)) {
-    const { t: captureRuntimeConfigAsyncReader } = await load(version === '2026.11.1' ? 'io.runtime-3AQXKbcT.mjs' : 'io.runtime-BcDhh2yB.mjs');
+  if (['2026.10.10', '2026.11.1', '2026.11.3'].includes(version)) {
+    const { t: captureRuntimeConfigAsyncReader } = await load(version === '2026.11.3' ? 'io.runtime-B2RjP7Ie.mjs' : version === '2026.11.1' ? 'io.runtime-3AQXKbcT.mjs' : 'io.runtime-BcDhh2yB.mjs');
     await captureRuntimeConfigAsyncReader()();
   }
   const { t: createPluginRegistry } = await load(fixture[0]);
   const { C: setActivePluginRegistry, r: clearActivePluginRegistry } = await load(fixture[1]);
   assert.equal(setActivePluginRegistry.name, 'setActivePluginRegistry');
   assert.equal(clearActivePluginRegistry.name, 'clearActivePluginRegistry');
-  const events = await load(version === '2026.11.1' ? 'agent-events--ilVEEKp.mjs' : version === '2026.10.10' ? 'agent-events-BkjBm4i4.mjs' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'agent-events-B_uc1nn7.mjs' : version === '2026.10.7' ? 'agent-events-DwWyqfWg.mjs' : version === '2026.10.6' ? 'agent-events-CJDT60f4.mjs' : 'agent-events-CCeMHYh0.mjs') : 'agent-events-GvNTkbe3.mjs');
-  const emitAgentEvent = events[['2026.10.10', '2026.11.1'].includes(version) ? 'a' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? 'a' : 'i'];
+  const events = await load(version === '2026.11.3' ? 'agent-events-Bf3Js0D3.mjs' : version === '2026.11.1' ? 'agent-events--ilVEEKp.mjs' : version === '2026.10.10' ? 'agent-events-BkjBm4i4.mjs' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'agent-events-B_uc1nn7.mjs' : version === '2026.10.7' ? 'agent-events-DwWyqfWg.mjs' : version === '2026.10.6' ? 'agent-events-CJDT60f4.mjs' : 'agent-events-CCeMHYh0.mjs') : 'agent-events-GvNTkbe3.mjs');
+  const emitAgentEvent = events[['2026.10.10', '2026.11.1', '2026.11.3'].includes(version) ? 'a' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? 'a' : 'i'];
   assert.equal(createPluginRegistry.name, 'createPluginRegistry');
   assert.equal(emitAgentEvent.name, 'emitAgentEvent');
   const native = await load(fixture[2]);
@@ -95,11 +96,11 @@ if (process.env.VIMICATE_API_ACCEPTANCE_CHILD !== '1') {
   const api = host.createApi(record, { config: {}, pluginConfig });
   const { default: packaged } = await import(pathToFileURL(path.join(record.rootDir, 'index.mjs')));
   packaged.register(api);
-  if (['2026.11.1', '2026.10.10', '2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version)) {
+  if (['2026.11.3', '2026.11.1', '2026.10.10', '2026.10.4', '2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version)) {
     const { loadSessionRunTruthRuntime } = await import(pathToFileURL(path.join(record.rootDir, 'session-run-truth.mjs')));
     const runtime = await loadSessionRunTruthRuntime(target);
-    assert.equal(runtime.describe, (await load(version === '2026.11.1' ? 'sessions-read-8WZVwcoa.mjs' : version === '2026.10.10' ? 'sessions-read-BSqkIDDT.mjs' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'sessions-read-DaqLIW6z.mjs' : version === '2026.10.7' ? 'sessions-read-BXwTspcX.mjs' : version === '2026.10.6' ? 'sessions-read-CLHMalI8.mjs' : 'sessions-read-DNOkgOd5.mjs') : 'sessions-read-DziXtPpO.mjs')).t['sessions.describe']);
-    assert.equal(runtime.registry, (await load(version === '2026.11.1' ? 'reply-run-registry.registry-BlzIDIz-.mjs' : version === '2026.10.10' ? 'reply-run-registry.registry-AU46m76C.mjs' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'reply-run-registry.registry-P4L3EVyw.mjs' : version === '2026.10.7' ? 'reply-run-registry.registry-CLWEwkqe.mjs' : version === '2026.10.6' ? 'reply-run-registry.registry-BzgREenr.mjs' : 'reply-run-registry.registry-BswPq0Xd.mjs') : 'reply-run-registry.registry-5e3UVXZS.mjs')).g);
+    assert.equal(runtime.describe, (await load(version === '2026.11.3' ? 'sessions-read-QORJB2sW.mjs' : version === '2026.11.1' ? 'sessions-read-8WZVwcoa.mjs' : version === '2026.10.10' ? 'sessions-read-BSqkIDDT.mjs' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'sessions-read-DaqLIW6z.mjs' : version === '2026.10.7' ? 'sessions-read-BXwTspcX.mjs' : version === '2026.10.6' ? 'sessions-read-CLHMalI8.mjs' : 'sessions-read-DNOkgOd5.mjs') : 'sessions-read-DziXtPpO.mjs')).t['sessions.describe']);
+    assert.equal(runtime.registry, (await load(version === '2026.11.3' ? 'reply-run-registry.registry-DjlsSV_e.mjs' : version === '2026.11.1' ? 'reply-run-registry.registry-BlzIDIz-.mjs' : version === '2026.10.10' ? 'reply-run-registry.registry-AU46m76C.mjs' : ['2026.10.5', '2026.10.6', '2026.10.7', '2026.10.8'].includes(version) ? (version === '2026.10.8' ? 'reply-run-registry.registry-P4L3EVyw.mjs' : version === '2026.10.7' ? 'reply-run-registry.registry-CLWEwkqe.mjs' : version === '2026.10.6' ? 'reply-run-registry.registry-BzgREenr.mjs' : 'reply-run-registry.registry-BswPq0Xd.mjs') : 'reply-run-registry.registry-5e3UVXZS.mjs')).g);
   }
   const descriptors = host.registry.gatewayMethodDescriptors;
   assert.equal(descriptors.length, 15);
@@ -107,7 +108,7 @@ if (process.env.VIMICATE_API_ACCEPTANCE_CHILD !== '1') {
     assert.equal(scope, ['vimicate.registry.updateThreads', 'vimicate.registry.removeProject'].includes(name) ? 'operator.write' : 'operator.read');
   }
   assert.equal(host.registry.diagnostics.filter(d => d.level === 'error').length, 0);
-  const dispatch = version === '2026.11.1' ? (await load('server-methods-DnNzgKWz.mjs')).n : version === '2026.10.10' ? (await load('server-methods-CVw-m1_3.mjs')).n : undefined;
+  const dispatch = version === '2026.11.3' ? (await load('server-methods-yyBtd2b8.mjs')).n : version === '2026.11.1' ? (await load('server-methods-DnNzgKWz.mjs')).n : version === '2026.10.10' ? (await load('server-methods-CVw-m1_3.mjs')).n : undefined;
   if (dispatch) assert.equal(dispatch.name, 'handleGatewayRequest');
   async function invoke(method, params, scopes = ['operator.read']) {
     let response;

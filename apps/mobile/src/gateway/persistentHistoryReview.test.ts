@@ -44,6 +44,19 @@ function message(index: number): WorkspaceMessage {
 }
 
 describe('persistent archived review', () => {
+  it('keeps current notice projections distinct from legacy stored older-page previews', () => {
+    const notice: WorkspaceMessage = { ...message(1), role: 'error', state: 'error',
+      text: 'Message saved. Refresh to check the response.\nTechnical details\nA fixture failure.' };
+    const payload = serializedHistoryReview(view, [notice])!;
+    expect(parsedHistoryReview(payload)?.messages).toEqual([notice]);
+    const legacy = JSON.parse(payload);
+    delete legacy.transcriptProjectionVersion;
+    const migrated = parsedHistoryReview(JSON.stringify(legacy));
+    expect(migrated?.messages[0]).toMatchObject({ id: notice.id, role: 'system', cachedNotice: true });
+    expect(migrated?.messages[0]?.text.endsWith(notice.text)).toBe(true);
+    expect(parsedHistoryReview(serializedHistoryReview(migrated!.view, migrated!.messages))?.messages).toEqual(migrated?.messages);
+  });
+
   it('roundtrips the negotiated SQLite family without legacy epoch invention', () => {
     const nativeArchive: ArchivedHistoryState = { ...archive,
       identity: { ...archive.identity, contract: 'sqlite-family-v1' },

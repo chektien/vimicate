@@ -14,8 +14,8 @@ export function gatewaySteerOutcome(payload: unknown): GatewaySteerOutcome | und
 
 export function gatewaySteerOutcomeNotice(payload: unknown): string {
   switch (gatewaySteerOutcome(payload)) {
-    case 'steered': return 'Steered into the running turn.';
-    case 'not-steered': return 'Could not steer. Queued to run as its own turn after the current one.';
-    default: return 'Sent while a run was active. The Gateway did not report whether it steered or queued.';
+    case 'steered': return 'Message accepted into the running task. Do not resend. Watch this conversation for the response.';
+    case 'not-steered': return 'Message accepted for its own turn after the current task. It will run automatically. Do not resend.';
+    default: return 'Message accepted. The Gateway did not report whether it joined the current task or is waiting for a separate turn. Refresh this conversation to check progress. Do not resend.';
   }
 }

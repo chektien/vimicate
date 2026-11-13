@@ -17,11 +17,25 @@ import { TranscriptQueuedPrompt } from './TranscriptQueuedPrompt';
 const message = { id: 'row', role: 'user' as const, sessionKey: 'route', text: 'test', idempotencyKey: 'followup' };
 const queued: QueuedPromptView = { id: 'followup', runId: 'followup', originalSubmissionId: 'original', sessionKey: 'route', sessionId: 'generation', predecessorRunId: 'previous', createdAt: 1, text: 'test', state: 'queued', canCancel: true, canRunNow: true, busy: false };
 beforeEach(() => { vi.stubGlobal('React', React); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); probe.buttons = []; probe.alert.mockReset(); });
+it('explains server-only custody with a read-only check action and no invented stop or cancel authority', async () => {
+  const host = document.createElement('div'); const root = createRoot(host);
+  const refresh = vi.fn(async () => {}); const cancel = vi.fn(); const runNow = vi.fn();
+  const remote = { readOnly: true, runId: 'receipt', sessionKey: 'route', sessionId: 'generation', state: 'queued', canCancel: false, canRunNow: false, busy: false };
+  const actions = { view: () => remote, refresh, cancel, runNow } as unknown as React.ComponentProps<typeof QueuedPromptProvider>['value'];
+  await act(async () => root.render(<QueuedPromptProvider value={actions}><TranscriptQueuedPrompt message={message} /></QueuedPromptProvider>));
+  expect(host.textContent).toContain('Message saved in the server queue');
+  expect(host.textContent).toContain('do not resend');
+  expect(host.textContent).not.toContain('Runs automatically');
+  expect(host.querySelectorAll('button')).toHaveLength(1);
+  await act(async () => host.querySelector('button')!.click());
+  expect(refresh).toHaveBeenCalledOnce(); expect(cancel).not.toHaveBeenCalled(); expect(runNow).not.toHaveBeenCalled();
+  await act(async () => root.unmount());
+});
 it('renders inline native queue actions for the exact message and invokes only its existing queue identity', async () => {
   const host = document.createElement('div'); const root = createRoot(host); const cancel = vi.fn(async () => {}); const runNow = vi.fn(async () => {});
   const actions = { view: () => queued, cancel, runNow } as unknown as React.ComponentProps<typeof QueuedPromptProvider>['value'];
   await act(async () => root.render(<QueuedPromptProvider value={actions}><TranscriptQueuedPrompt message={message} /></QueuedPromptProvider>));
-  expect(host.textContent).toContain('Queued after the current task. Runs automatically.');
+  expect(host.textContent).toContain('Message saved in the queue. Runs automatically after the current task. No need to resend.');
   expect(host.textContent).toContain('Reply "interrupt" to stop it and run queued messages next.'); expect(host.querySelectorAll('button')).toHaveLength(2);
   expect(probe.buttons.every(button => button.style.minHeight! >= 44 && button.style.minWidth! >= 44)).toBe(true);
   await act(async () => { host.querySelectorAll('button')[0]!.click(); });
@@ -32,9 +46,20 @@ it('shows an unconfirmed or consumed outcome without offering resend or complete
   for (const state of ['unknown', 'consumed'] as const) {
     const actions = { view: () => ({ ...queued, state, canCancel: false, canRunNow: false }), storageError: undefined } as unknown as React.ComponentProps<typeof QueuedPromptProvider>['value'];
     await act(async () => root.render(<QueuedPromptProvider value={actions}><TranscriptQueuedPrompt message={message} /></QueuedPromptProvider>));
-    expect(host.querySelectorAll('button')).toHaveLength(0);
-    expect(host.textContent).toBe(state === 'unknown' ? 'Queued-message delivery unconfirmed' : 'Sent to agent');
+    expect(host.querySelectorAll('button')).toHaveLength(state === 'unknown' ? 1 : 0);
+    expect(host.textContent).toContain(state === 'unknown' ? 'delivery unconfirmed' : 'picked up by the assistant');
+    expect(host.textContent).not.toContain('completed');
   }
+  await act(async () => root.unmount());
+});
+it('checks uncertain queue custody without resending, cancelling or stopping work', async () => {
+  const host = document.createElement('div'); const root = createRoot(host);
+  const refresh = vi.fn(async () => {}); const cancel = vi.fn(); const runNow = vi.fn();
+  const actions = { view: () => ({ ...queued, state: 'unknown', canCancel: false, canRunNow: false }), refresh, cancel, runNow } as unknown as React.ComponentProps<typeof QueuedPromptProvider>['value'];
+  await act(async () => root.render(<QueuedPromptProvider value={actions}><TranscriptQueuedPrompt message={message} /></QueuedPromptProvider>));
+  expect(host.querySelector('button')?.getAttribute('aria-label')).toBe('Check queued message status');
+  await act(async () => host.querySelector('button')!.click());
+  expect(refresh).toHaveBeenCalledOnce(); expect(cancel).not.toHaveBeenCalled(); expect(runNow).not.toHaveBeenCalled();
   await act(async () => root.unmount());
 });
 

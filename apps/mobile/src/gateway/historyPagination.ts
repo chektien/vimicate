@@ -11,6 +11,7 @@ import { reconcileCompletePendingInputSnapshot, type PendingInputSnapshotReconci
 import { provenClaudeNativeLive, reconcileClaudeNativeLive } from './claudeNativeLiveConvergence';
 import { assistantTextIsGatewayIncomplete } from './messageCompleteness';
 import { retainedHistoryRecords } from './retainedHistoryRecords';
+import { reconcileRunFailureNotices } from './runFailureConvergence';
 import { insertAtPreviousPublicationPosition, livePublicationFollowsRunText, previousPublicationIndex, sameMeaning, sameSubmissionIdentity } from './publicationAnchors';
 
 export type HistoryCursor = {
@@ -122,8 +123,15 @@ function retainingRecoveredHistoryContent(previous: WorkspaceMessage | undefined
 
 export function mergeOlderHistory(older: WorkspaceMessage[], current: WorkspaceMessage[], sessionKey: string) {
   const scopedOlder = older.filter((message) => message.sessionKey === sessionKey);
+  const previous = new Map(current.filter(row => row.source === 'history').map(row => [JSON.stringify([row.sessionKey, row.transcriptSessionId, row.id]), row]));
+  const fresh = scopedOlder.map(row => {
+    const prior = previous.get(JSON.stringify([row.sessionKey, row.transcriptSessionId, row.id]));
+    return retainingAbsorbedLiveIdentity(prior, retainingMessageToolProgress(prior, retainingRecoveredHistoryContent(prior, row)));
+  });
+  const retained = retainedHistoryRecords(current.filter(row => row.source === 'history'), fresh);
+  const retainedSet = new Set(retained);
   return reconcileClaudeNativeLive(authoritativeHistoryChronology(
-    deduplicated([...scopedOlder, ...current].filter((message) => !isSyntheticHistoryCompletion(message))),
+    deduplicated([...fresh, ...current.filter(row => row.source !== 'history' || retainedSet.has(row))].filter((message) => !isSyntheticHistoryCompletion(message))),
     (message) => message.source === 'history',
   ));
 }
@@ -131,7 +139,7 @@ export function mergeOlderHistory(older: WorkspaceMessage[], current: WorkspaceM
 function deduplicated(messages: WorkspaceMessage[]) {
   // A mirror's resolved role is part of its publication identity. Normalize
   // overlapping pages before coalescing, not only during later chronology.
-  return coalesceTranscriptIdentities(reconcileMessageToolProgress(messages));
+  return reconcileRunFailureNotices(coalesceTranscriptIdentities(reconcileMessageToolProgress(messages)));
 }
 
 /**

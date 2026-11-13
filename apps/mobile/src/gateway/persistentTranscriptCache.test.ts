@@ -15,7 +15,7 @@ describe('persistent transcript cache', () => {
   it('does not persist a process-owned full-message loading lock and repairs legacy cached locks', () => {
     const row: WorkspaceMessage = { id: 'row', role: 'assistant', text: 'partial...(truncated)...', source: 'history', sessionKey: 'one', recovery: { sourceMessageId: 'source', state: 'loading', detail: 'loading full response…' } };
     const payload = serializedTranscriptCache([row]);
-    expect(JSON.parse(payload)[0].recovery).toEqual({ sourceMessageId: 'source', state: 'available' });
+    expect(JSON.parse(payload).messages[0].recovery).toEqual({ sourceMessageId: 'source', state: 'available' });
     expect(parsedTranscriptCache(JSON.stringify([row]))[0]?.recovery).toEqual({ sourceMessageId: 'source', state: 'available' });
     expect(row.recovery?.state).toBe('loading');
   });
@@ -122,7 +122,7 @@ it.each([true, false])('requires explicit terminal evidence to retire a cache-on
   const live: WorkspaceMessage = { id: 'live-chat-r', runId: 'r', role: 'assistant', text: 'Checking.\n\nDone.',
     source: 'live', sessionKey, transcriptSessionId, timestamp: '2000', state: 'complete' };
   const payload = serializedTranscriptCache([prompt, prior, step, answer, footer, live]);
-  expect(JSON.parse(payload).some((row: WorkspaceMessage) => row.id === live.id)).toBe(true);
+  expect(JSON.parse(payload).messages.some((row: WorkspaceMessage) => row.id === live.id)).toBe(true);
   const restored = parsedTranscriptCache(payload);
   expect(restored.map(row => row.id)).toEqual(['prompt', 'prior', 'step', 'answer', 'history-run-answer', ...(!terminal ? [live.id] : [])]);
   expect(restored.find(row => row.id === answer.id)?.text).toBe('Done.');

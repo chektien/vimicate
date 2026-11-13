@@ -27,12 +27,13 @@ export function serializedHistoryReview(view: SessionHistoryView, messages: Work
   // A persisted older cursor points immediately before the oldest displayed
   // record. Keep that edge, not the newest tail, when this fallback is trimmed;
   // otherwise the next page skips the omitted interval after a cold restore.
-  const boundedMessages = (JSON.parse(serializedTranscriptCache(messages.slice(0, REVIEW_MESSAGE_LIMIT).reverse(), {
+  const projection = JSON.parse(serializedTranscriptCache(messages.slice(0, REVIEW_MESSAGE_LIMIT).reverse(), {
     messageLimit: REVIEW_MESSAGE_LIMIT,
     byteLimit: REVIEW_BYTE_LIMIT,
-  })) as unknown[]).reverse();
+  })) as { version: number; messages: unknown[] };
   return JSON.stringify({
     version: VERSION,
+    transcriptProjectionVersion: projection.version,
     generation: view.generation,
     archive: view.archive,
     // Process-local membership receipts are not durable transport authority.
@@ -41,7 +42,7 @@ export function serializedHistoryReview(view: SessionHistoryView, messages: Work
       hasMore: view.cursor.hasMore, totalMessages: view.cursor.totalMessages } : null,
     historyFailure: view.historyFailure === 'older' ? 'older' : null,
     historyProblem: view.historyProblem.slice(0, MAX_DETAIL_LENGTH),
-    messages: boundedMessages,
+    messages: projection.messages.reverse(),
   });
 }
 
@@ -57,7 +58,11 @@ export function parsedHistoryReview(payload: string | null): PersistedHistoryRev
     if (archive.identity.currentSessionId !== generation.sessionId
       || archive.identity.currentSessionStartedAtMs !== generation.sessionStartedAtMs
       || (cursor && cursor.sessionKey !== archive.identity.sessionKey)) return null;
-    const messages = parsedTranscriptCache(JSON.stringify(value.messages), REVIEW_MESSAGE_LIMIT)
+    // Older review envelopes predate projection versioning. Keep their notices
+    // explicitly stale rather than blessing old rendered text as current facts.
+    const projection = value.transcriptProjectionVersion === undefined ? value.messages
+      : { version: value.transcriptProjectionVersion, messages: value.messages };
+    const messages = parsedTranscriptCache(JSON.stringify(projection), REVIEW_MESSAGE_LIMIT)
       .filter((message) => message.sessionKey === archive.identity.sessionKey);
     const historyFailure = value.historyFailure === 'older' ? 'older' as const : null;
     if (!messages.length && historyFailure !== 'older') return null;

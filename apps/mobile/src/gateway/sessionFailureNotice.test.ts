@@ -63,4 +63,10 @@ describe('session failure transcript receipts', () => {
     expect(sessionFailureNotice({ ...snapshot, sessionId: '22222222-2222-4222-8222-222222222222' })?.id).not.toBe(first.id);
     expect(sessionFailureNotice({ ...snapshot, lastRunError: 'x'.repeat(10000) })!.text.length).toBeLessThan(2200);
   });
+  it.each(['context window full', 'authentication'])('replaces a generic failure with richer %s recovery rather than comparing headline lengths', detail => {
+    const early = sessionFailureNotice({ ...snapshot, lastRunId: 'request', lastRunError: 'error' })!;
+    const later = sessionFailureNotice({ ...snapshot, lastRunId: 'request', lastRunError: detail })!;
+    const [row] = [early, later, early].reduce(upsertLiveMessage, [] as WorkspaceMessage[]);
+    expect(row?.text).toBe(later.text);
+  });
 });

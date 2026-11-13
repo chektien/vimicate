@@ -9,6 +9,14 @@ export const MAX_EXPANDED_MESSAGE_ROWS = 2_000;
 export const MAX_EXPANDED_LINE_CHARACTERS = 8_000;
 export const MACHINE_FOLD_CHARACTER_LIMIT = 1_200;
 
+/** Generated error guidance stays visible in full. Only the following
+ * technical payload is folded. Keep even this headline strictly bounded. */
+export function actionableErrorHeadline(message: Pick<WorkspaceMessage, 'role' | 'text' | 'state'>) {
+  const end = message.text.indexOf('\nTechnical details\n');
+  return message.state === 'error' && (message.role === 'error' || message.role === 'command') && end > 0 && end <= 600 && end === message.text.indexOf('\n')
+    ? message.text.slice(0, end) : undefined;
+}
+
 export function boundedExpandedTranscriptLine(value: string) {
   if (value.length <= MAX_EXPANDED_LINE_CHARACTERS) return value;
   return `${value.slice(0, MAX_EXPANDED_LINE_CHARACTERS)}… [${value.length - MAX_EXPANDED_LINE_CHARACTERS} characters omitted]`;
@@ -33,11 +41,11 @@ export function oversizedConversationMessage(message: Pick<WorkspaceMessage, 'ro
  * just because it fits inside the character bound.
  */
 export function transcriptMessageIsFoldedByDefault(
-  message: Pick<WorkspaceMessage, 'role' | 'text'>,
+  message: Pick<WorkspaceMessage, 'role' | 'text'> & { state?: WorkspaceMessage['state'] },
   sourceLineCount = transcriptSourceLineCount(message.text),
 ) {
   const conversation = message.role === 'user' || message.role === 'assistant' || message.role === 'narration' || message.role === 'command';
   return message.role === 'tool'
     || oversizedConversationMessage(message, sourceLineCount)
-    || (!conversation && (sourceLineCount > 1 || message.text.length > MACHINE_FOLD_CHARACTER_LIMIT));
+    || ((!conversation || message.role === 'command' && message.state === 'error' && message.text.includes('\nTechnical details\n')) && (sourceLineCount > 1 || message.text.length > MACHINE_FOLD_CHARACTER_LIMIT));
 }

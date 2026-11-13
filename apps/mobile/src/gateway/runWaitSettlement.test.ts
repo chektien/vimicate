@@ -27,7 +27,7 @@ describe('definitive agent.wait failure settlement', () => {
     expect(settled.find((message) => message.id === runLifecycleMessageID(sessionKey, runId))).toMatchObject({
       role: 'error',
       state: 'error',
-      text: '● failed after 1m 15s · error: provider unavailable',
+      text: expect.stringContaining('provider unavailable'),
       sessionKey,
       runId,
     });

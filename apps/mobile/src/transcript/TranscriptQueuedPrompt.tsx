@@ -5,9 +5,11 @@ import { colors, space, type } from '../theme/tokens';
 import type { QueuedPromptState } from '../gateway/queuedPromptOwner';
 import { useQueuedPromptActions } from './QueuedPromptContext';
 const labels: Record<QueuedPromptState, string> = {
-  preparing: 'Waiting for queue acceptance…', accepted: 'Message accepted. Checking queue…',
-  queued: 'Queued after the current task. Runs automatically.', consumed: 'Sent to agent',
-  interrupted: 'Queued message interrupted', cancelled: 'Queued message cancelled', unknown: 'Queued-message delivery unconfirmed',
+  preparing: 'Queue acceptance is not confirmed yet. Do not send another copy.', accepted: 'Message accepted. Checking whether it is queued or has started. Do not resend.',
+  queued: 'Message saved in the queue. Runs automatically after the current task. No need to resend.', consumed: 'Message picked up by the assistant. Check the response below before sending again.',
+  interrupted: 'Queued message interrupted. It will not retry automatically. Check this conversation before deciding whether to send it again.',
+  cancelled: 'Queued message cancelled. It will not run. Send it again only if you still want it.',
+  unknown: 'Queue delivery unconfirmed. Check status before sending again. No automatic resend will be attempted.',
 };
 export function TranscriptQueuedPrompt({ message }: { message: WorkspaceMessage }) {
   const actions = useQueuedPromptActions(); const queued = actions?.view(message);
@@ -35,13 +37,16 @@ export function TranscriptQueuedPrompt({ message }: { message: WorkspaceMessage 
       ], { cancelable: true, onDismiss: dismiss });
   };
   return <View style={styles.root} accessibilityLabel="Queued message status">
-    <Text accessibilityLiveRegion="polite" style={styles.status}>{labels[queued.state]}</Text>
+    <Text accessibilityLiveRegion="polite" style={styles.status}>{queued.readOnly && queued.state === 'queued'
+      ? 'Message saved in the server queue. Waiting for the assistant to pick it up. Check status, and do not resend.'
+      : queued.readOnly && queued.state === 'unknown' ? 'Message saved. Current queue status is unconfirmed. Reconnect or check status before sending another copy.' : labels[queued.state]}</Text>
     {queued.canRunNow ? <Text style={styles.status}>The current task keeps running. Reply "interrupt" to stop it and run queued messages next.</Text> : null}
     {queued.detail ? <Text style={styles.status}>{queued.detail}</Text> : null}
     {actions.storageError ? <Text accessibilityRole="alert" style={styles.status}>{actions.storageError}</Text> : null}
     <View style={styles.actions}>
       {queued.canCancel ? <Pressable accessibilityRole="button" accessibilityLabel="Cancel queued message" style={styles.button} onPress={() => { void actions.cancel(queued.runId); }}><Text style={styles.action}>Cancel</Text></Pressable> : null}
       {queued.canRunNow ? <Pressable accessibilityRole="button" accessibilityLabel="Stop current task and run queued message next" style={styles.button} onPress={confirmStop}><Text style={styles.action}>Stop task &amp; run next…</Text></Pressable> : null}
+      {['preparing', 'accepted', 'unknown'].includes(queued.state) || queued.readOnly && queued.state === 'queued' ? <Pressable accessibilityRole="button" accessibilityLabel="Check queued message status" style={styles.button} onPress={() => { void actions.refresh(); }}><Text style={styles.action}>Check status</Text></Pressable> : null}
     </View>
     {queued.busy ? <Text style={styles.status}>Checking queue…</Text> : null}
   </View>;

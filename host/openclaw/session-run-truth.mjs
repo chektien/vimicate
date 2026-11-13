@@ -89,6 +89,29 @@ const PROFILES = {
     "h"
   ]
 },
+  // Exact 11.3 owners. Bodies equal 11.1 after chunk renaming.
+  '2026.11.3': {
+    "pins": {
+      "sessions-read-QORJB2sW.mjs": "e4d3754d938a84a46e1dabbd42ee0412a10a5fa7767c533e7677902ea997712c",
+      "reply-run-registry.registry-DjlsSV_e.mjs": "9feb674beecdaa523265fcdbc30a1c8c14c16619bda0faa2e5823e83092b81a6",
+      "reply-run-registry.state-Hn_UqZjq.mjs": "0f591c92c3167660e9a49d9a0251fbf942734c03fd8e46c8874db4c64add6cec",
+      "run-state-DZ4Vfz1J.mjs": "9a2a833702ecedd012a78bd3f65e096547198a99de5306a2c353e113f3ab3370",
+      "agent-run-registry-gmaPgO-n.mjs": "a38c1b6b97c4632c774213677c0fed825f30924791084868854b618da5f664d6"
+    },
+    "names": [
+      "sessions-read-QORJB2sW.mjs",
+      "reply-run-registry.registry-DjlsSV_e.mjs",
+      "agent-run-registry-gmaPgO-n.mjs"
+    ],
+    "contextKeys": [
+      "u",
+      "m"
+    ],
+    "attachedBackend": [
+      "reply-run-registry.state-Hn_UqZjq.mjs",
+      "h"
+    ]
+  },
 };
 export async function loadSessionRunTruthRuntime(packageRoot) {
   const root = await fs.realpath(packageRoot);
@@ -155,6 +178,21 @@ export function attachedCurrentRunId(registry, key, sessionId, getAttachedBacken
   return runId;
 }
 
+/**
+ * Native session activity omits runs registered as hidden: private
+ * completions (11.3+), subagent coordination and internal turns. Their
+ * identities never become user-facing activity, so native describe stays the
+ * only authority for those sessions. Runtimes without these flags are visible.
+ */
+export function isHiddenSessionRun(runContexts, chatRuns, runId) {
+  if (!runId) return false;
+  const context = runContexts?.getAgentRunContext?.(runId);
+  if (context && (context.isControlUiVisible === false || context.projectSessionActive === false
+    || context.projectSessionLifecycle === false)) return true;
+  const chat = chatRuns instanceof Map ? chatRuns.get(runId) : undefined;
+  return Boolean(chat && (chat.controlUiVisible === false || chat.projectSessionActive === false));
+}
+
 export function createSessionRunTruthReader({ describe, registry, runContexts, getAttachedBackend }) {
   return async options => {
     const { params, respond } = options;
@@ -171,9 +209,12 @@ export function createSessionRunTruthReader({ describe, registry, runContexts, g
       options.signal?.throwIfAborted();
       if (options.hasCurrentClientAuthority && !options.hasCurrentClientAuthority()) throw new Error('Gateway read authority retired.');
       const target = registry.resolveCurrentMessageInjectionTarget(key);
-      const runId = typeof target?.runId === 'string' ? target.runId.trim() : '';
+      const chatRuns = options.context?.chatAbortControllers;
+      const targetRunId = typeof target?.runId === 'string' ? target.runId.trim() : '';
+      const runId = isHiddenSessionRun(runContexts, chatRuns, targetRunId) ? '' : targetRunId;
       const origin = scheduledRunOrigin(runContexts, runId, key, session.sessionId);
-      const attachedRunId = attachedCurrentRunId(registry, key, session.sessionId, getAttachedBackend);
+      const attached = attachedCurrentRunId(registry, key, session.sessionId, getAttachedBackend);
+      const attachedRunId = isHiddenSessionRun(runContexts, chatRuns, attached) ? '' : attached;
       // No injection target is not proof of idle. The runtime may be active
       // but not currently steerable, so never erase its busy state in that case.
       respond(true, { session: { key, ...(typeof session.sessionId === 'string' && session.sessionId.trim() ? { sessionId: session.sessionId } : {}), hasActiveRun: runId ? true : session.hasActiveRun,

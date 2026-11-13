@@ -25,6 +25,8 @@ test('preflight blocks unaudited runtimes and duplicate discovery before lifecyc
   await checkUpdateCompatibility(config, '2026.10.5');
   await checkUpdateCompatibility(config, '2026.10.10');
   await checkUpdateCompatibility(config, '2026.11.1');
+  await checkUpdateCompatibility(config, '2026.11.3');
+  await assert.rejects(checkUpdateCompatibility(config, '2026.11.2'), /no audited compatibility/);
   await assert.rejects(checkUpdateCompatibility(config, '2026.9.3'), /no audited compatibility/);
   await assert.rejects(checkUpdateCompatibility(config, 'latest'), /explicit audited release/);
   const packageRoot = path.join(root, 'archive', 'package');

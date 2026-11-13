@@ -7,7 +7,7 @@ import { gatewayQueuedInputAck } from './gatewayQueuedInput';
 
 export type QueuedInterruptScope = { sessionKey: string; sessionId: string; predecessorRunId: string };
 export type QueuedInterruptResult = { accepted: boolean; detail: string };
-export const queuedPromptAcceptedNotice = 'Message accepted to run automatically after the current task. Checking queue status. Reply "interrupt" to stop the current task and run queued messages next.';
+export const queuedPromptAcceptedNotice = 'Message accepted for a separate turn. Checking whether it is queued or has started. Do not resend. Reply "interrupt" only if you want to stop the current task and run confirmed queued messages next.';
 
 export type QueuedPromptTracking = {
   interruptQueued?: (scope: QueuedInterruptScope) => Promise<QueuedInterruptResult>;

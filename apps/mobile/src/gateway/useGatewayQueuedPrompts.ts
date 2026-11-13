@@ -9,6 +9,7 @@ import type { SessionRunRegistry } from './sessionRunRegistry';
 import { cancelGatewayQueuedInput, gatewayQueuedInputAck, readGatewayQueuedInput, type GatewayQueuedInputPort } from './gatewayQueuedInput';
 import type { QueuedInterruptScope, QueuedInterruptResult } from './queuedPromptSubmission';
 import { QueuedPromptOwner, type QueuedPromptPreparation, type QueuedPromptRecord } from './queuedPromptOwner';
+import { useRemoteQueuedInputs, type RemoteQueuedInputView } from './useRemoteQueuedInputs';
 
 export type QueuedPromptOptions = {
   endpoint: string; status: GatewayStatus; client: GatewayQueuedInputPort & { readonly connectionRevision?: number };
@@ -16,13 +17,15 @@ export type QueuedPromptOptions = {
   selectedSessionKey: string; selectedSessionId: string; messages?: WorkspaceMessage[];
   onStopConfirmed?: (sessionKey: string) => void;
 };
-export type QueuedPromptView = QueuedPromptRecord & { canCancel: boolean; canRunNow: boolean; busy: boolean };
+export type QueuedPromptView = (QueuedPromptRecord & { readOnly?: false; canCancel: boolean; canRunNow: boolean; busy: boolean }) | RemoteQueuedInputView;
 const REFRESH_MS = 5000;
 
 /** Persists identities before the caller sends. All reconnection work is read-only. */
 export function useGatewayQueuedPrompts(options: QueuedPromptOptions) {
   const { endpoint, authority, selectedSessionKey, selectedSessionId, status } = options;
   const owner = useMemo(() => new QueuedPromptOwner(), [endpoint]);
+  const remote = useRemoteQueuedInputs(options, message => owner.view(message));
+  const refreshRemote = remote.refresh;
   const [loadedOwner, setLoadedOwner] = useState<QueuedPromptOwner | null>(null);
   const [revision, setRevision] = useState(0); const [storageError, setStorageError] = useState<string>();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -77,6 +80,7 @@ export function useGatewayQueuedPrompts(options: QueuedPromptOptions) {
       receipt.state === 'consumed' ? receipt.consumedByEventId : undefined);
   }, [owner]);
   const refresh = useCallback(async () => {
+    await refreshRemote();
     const current = latest.current.options;
     if (readBusy.current || loadedOwner !== owner || current.status !== 'connected' || !current.authority.current.isActive) return;
     const owns = capture(); const records = owner.pending(current.selectedSessionKey, current.selectedSessionId);
@@ -90,7 +94,7 @@ export function useGatewayQueuedPrompts(options: QueuedPromptOptions) {
       }
       if (owns()) { publish(); await persist(owns); }
     } finally { readBusy.current = false; }
-  }, [capture, loadedOwner, observe, owner, persist, publish]);
+  }, [capture, loadedOwner, observe, owner, persist, publish, refreshRemote]);
   useEffect(() => {
     if (loadedOwner !== owner || status !== 'connected' || !scene.isActive || !selectedSessionKey || !selectedSessionId) return;
     let retired = false; let timer: ReturnType<typeof setTimeout> | undefined;
@@ -206,7 +210,7 @@ export function useGatewayQueuedPrompts(options: QueuedPromptOptions) {
     return { accepted: false, detail: 'The queued message or current task could not be confirmed for interruption. Check this conversation before trying again.' };
   }, [act, capture, loadedOwner, observe, owner, persist, publish]);
   const view = (message: WorkspaceMessage): QueuedPromptView | undefined => {
-    const record = owner.view(message); if (!record) return;
+    const record = owner.view(message); if (!record) return remote.view(message);
     const current = latest.current.options;
     const eligible = loadedOwner === owner && current.status === 'connected' && current.authority.current.isActive
       && record.sessionKey === current.selectedSessionKey && record.sessionId === current.selectedSessionId && record.state === 'queued' && !busyId;

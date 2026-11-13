@@ -21,7 +21,7 @@ describe('native-like run completion row', () => {
       id: runLifecycleMessageID('one', 'r1'),
       role: 'error',
       state: 'error',
-      text: '● failed after 1m 2s · error: quota',
+      text: expect.stringContaining('Check the model usage indicator'),
       sessionKey: 'one',
       runId: 'r1',
     });

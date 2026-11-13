@@ -36,6 +36,7 @@ import type { SessionMessagePublicationIntent } from './historyReviewPublication
 import { launchGuardedBackgroundTask } from '../async/guardedBackgroundTask';
 import { transcriptInputReceiptRunId } from '../workspace/transcriptMetadata';
 import { sendWithQueuedFallback, queuedPromptAcceptedNotice, type QueuedPromptTracking } from './queuedPromptSubmission';
+import { activeCommandBlockedNotice, disconnectedSendNotice, promptSubmissionFailure } from './promptDeliveryNotice';
 
 export type GatewaySubmissionDelivery = { idempotencyKey: string; replyToId?: string; onState?: (state: 'sending' | 'accepted' | 'failed' | 'unconfirmed') => void };
 
@@ -84,7 +85,7 @@ export function useGatewaySubmission(options: Options) {
     const hasAttachments = localAttachments.length > 0;
     if ((!body.trim() && !hasAttachments) || !sessionKey) return false;
     // Recovery and retained diagnostics work offline. Other commands require live hello-ok authority.
-    if (status !== 'connected' && !gatewayCommandRunsDisconnected(typedCommand)) { setOwnedDetail('Pair and connect before sending.'); return false; }
+    if (status !== 'connected' && !gatewayCommandRunsDisconnected(typedCommand)) { setOwnedDetail(disconnectedSendNotice); return false; }
     const activeRunAtInvocation = runRegistry.current.runFor(sessionKey);
     const ownsActiveTarget = () => ownsScene() && selectedRef.current === sessionKey && runRegistry.current.runFor(sessionKey) === activeRunAtInvocation;
     if (!delivery && body.trim() === 'interrupt') {
@@ -98,7 +99,7 @@ export function useGatewaySubmission(options: Options) {
     const resolvedCommand = commandText ? commandForInput(commandCatalog(commands), commandText) : undefined;
     const policyCommand = resolvedCommand?.name ?? typedCommand;
     const disposition = sessionSubmissionDisposition(runRegistry.current, sessionKey, gatewayCommandIsRunSafe(policyCommand), !commandText);
-    if (disposition === 'blocked') { setOwnedDetail('That command cannot run while this thread is active. Send text to steer, or use :interrupt <prompt> to stop it and start a new turn.'); return false; }
+    if (disposition === 'blocked') { setOwnedDetail(activeCommandBlockedNotice); return false; }
     if (interrupt && (!activeRunAtInvocation || !commandArguments)) { setOwnedDetail(!activeRunAtInvocation ? ':interrupt needs an active run. Send ordinary text to start a new turn.' : 'Use :interrupt <prompt> to stop this run and send a new prompt.'); return false; }
     if (commandText && !interrupt && !locallyHandled && !modelIntent && commands.length && !commandForInput(commands, commandText)) { setOwnedDetail(`unknown command: ${typedCommand}`); return false; }
     if (selectedRef.current === sessionKey) preparePromptSubmission(sessionKey);
@@ -231,9 +232,7 @@ export function useGatewaySubmission(options: Options) {
       if (!mutationRefreshesInBackground && shouldRefreshHistoryAfterCommand(runRegistry.current.isBusy(runSessionKey))) await awaitOwned(loadHistory(runSessionKey));
       return true;
     } catch (error) {
-      // Scene retirement is not an answer from the Gateway: the frame is
-      // already on the wire and no writer may publish here, so the standing
-      // row decides the outcome.
+      // Scene retirement supplies no receipt. Preserve the standing row.
       if (error === sceneRetired) { delivery?.onState?.('unconfirmed'); return promptRowStands; }
       if (!ownsScene() && gatewayRequestWasRefused(error)) {
         // Defer exact-row removal until resume; restore this unsent draft.
@@ -246,11 +245,10 @@ export function useGatewaySubmission(options: Options) {
       if (commandOperationID) updateSessionMessages(sessionKey, (current) => settleCommandOperation(current, commandOperationID, error instanceof Error ? `:status — ${error.message}` : ':status — failed', true));
       if (acceptedRunId && runRegistry.current.runFor(runSessionKey) === acceptedRunId && isRecoverableRunInterruption(error)) { preserveRun = true; if (selectedRef.current === runSessionKey) setDetail('run interrupted; waiting to reconnect'); return true; }
       // Unknown delivery keeps the row. Only definite refusal restores the draft.
-      const promptReachedGateway = promptRowStands && gatewayRequestReachedGateway(error);
-      if (railCommand || selectedRef.current === sessionKey || selectedRef.current === runSessionKey) {
-        setDetail(promptReachedGateway ? 'prompt sent; reconnecting for its answer' : error instanceof Error ? error.message : 'send failed');
-      }
-      if (!acceptedRunId && !promptReachedGateway) {
+      const deliveryUnknown = (!commandText || interrupt) && gatewayRequestReachedGateway(error);
+      const notice = promptSubmissionFailure(error, deliveryUnknown);
+      if (railCommand || selectedRef.current === sessionKey || selectedRef.current === runSessionKey) setDetail(commandText && !interrupt ? notice.raw : notice.detail);
+      if (!acceptedRunId && !deliveryUnknown) {
         if (ownsNewRunLifecycle) runRegistry.current.rejectSubmission(sessionKey);
         if (optimisticID) { updateSessionMessages(sessionKey, (current) => current.filter((message) => message.id !== optimisticID)); promptRowStands = false; }
       }
@@ -258,8 +256,11 @@ export function useGatewaySubmission(options: Options) {
         sessionKey, activeRunAtInvocation, ownsScene, () => { persistRuns(); publishSelectedRun(sessionKey); });
       const refusalNotice = gatewayActiveRunInputNotice(error);
       if (refusalNotice && ownsScene()) { appendIfSelected(refusalNotice); setOwnedDetail(refusalNotice); }
-      else if (refusalDetail) { appendIfSelected(refusalDetail, 'error'); setOwnedDetail(refusalDetail); }
-      return promptRowStands;
+      else if ((!commandText || interrupt) && ownsScene()) {
+        appendIfSelected(notice.text, 'error');
+        setOwnedDetail(notice.detail);
+      } else if (refusalDetail) { appendIfSelected(refusalDetail, 'error'); setOwnedDetail(refusalDetail); }
+      return promptRowStands || deliveryUnknown;
     } finally {
       // Release submission bookkeeping even when scene publication retired.
       if (ownsNewRunLifecycle) runRegistry.current.finishSubmission(sessionKey);

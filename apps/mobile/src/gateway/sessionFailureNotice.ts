@@ -1,6 +1,7 @@
 import type { WorkspaceMessage, WorkspaceProject } from '../workspace/workspaceTypes';
 import { transcriptSessionIdentity } from '../workspace/transcriptMetadata';
 import { isAssistantProjectionDiagnostic } from './gatewayDiagnosticProjection';
+import { runFailureDetail, runFailureNoticeText } from './promptDeliveryNotice';
 
 /** A terminal session snapshot is a receipt, not authority over the current run.
  * Use only its own run/generation/time. Never infer an owner from selection. */
@@ -20,8 +21,8 @@ export function sessionFailureNotice(value: unknown): WorkspaceMessage | null {
   const label = background ? 'Background result delivery failed' : status === 'timeout' ? 'Run timed out' : 'Run failed';
   return {
     id: `session-failure:${JSON.stringify([sessionKey, generation ?? '', runId || endedAt])}`,
-    role: 'error', state: 'error', source: 'live', sessionKey,
-    text: `${label} · ${detail || 'OpenClaw did not provide an error detail.'}${background ? '\nA background result may not have reached this conversation. Completed work is not automatically undone.' : ''}`,
+    role: 'error', state: 'error', source: 'live', sessionKey, runFailure: 'snapshot',
+    text: runFailureNoticeText(detail, { background, label }),
     ...(runId ? { runId } : {}),
     ...(generation ? { transcriptSessionId: generation } : {}),
     ...(endedAt ? { timestamp: endedAt } : {}),
@@ -45,8 +46,9 @@ export function convergeSessionFailureNotice(messages: WorkspaceMessage[], incom
   const previous = messages.find(row => row.id.startsWith('session-failure:') && row.sessionKey === incoming.sessionKey && row.runId === incoming.runId
     && !(row.transcriptSessionId && incoming.transcriptSessionId && row.transcriptSessionId !== incoming.transcriptSessionId));
   if (!previous) return incoming;
+  const oldDetail = runFailureDetail(previous.text); const newDetail = runFailureDetail(incoming.text);
   return { ...previous, ...incoming, id: previous.id,
-    text: previous.text.includes('did not provide an error detail') || incoming.text.length > previous.text.length ? incoming.text : previous.text };
+    text: previous.role !== 'error' || oldDetail.includes('did not provide an error detail') || newDetail.length > oldDetail.length ? incoming.text : previous.text };
 }
 
 function record(value: unknown): Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
