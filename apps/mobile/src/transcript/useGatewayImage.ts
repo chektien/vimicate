@@ -1,4 +1,6 @@
-import { GatewayArtifactContext } from '../gateway/GatewayArtifactContext';
+import { qualifiedProjectFilePath } from '../projectFiles/qualifiedProjectFilePath';
+import type { GatewayProjectImageResolver } from '../gateway/gatewayProjectImage';
+import { GatewayArtifactContext, GatewayProjectImageContext } from '../gateway/GatewayArtifactContext';
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { WorkspaceAttachment } from '../workspace/workspaceTypes';
 import { recordGatewayDiagnostic } from '../../modules/vimicate-diagnostics';
@@ -7,13 +9,16 @@ import { materializedIOSLocalImageSource } from './iosLocalImageSource';
 import { mediaScenePublicationAuthority as scene } from './mediaScenePublicationAuthority';
 
 type Phase = 'resolving' | 'loading' | 'decoded' | 'failed';
-type Request = { id: number; attachment: WorkspaceAttachment; revision: number | null; disposed: boolean };
+type Request = { id: number; attachment: WorkspaceAttachment; revision: number | null; projectResolver: GatewayProjectImageResolver | undefined; disposed: boolean };
 type ImageState = { source: ImageNetworkSource; phase: Phase; request: Request | null };
 const unresolved: ImageState = { source: { uri: '' }, phase: 'resolving', request: null };
 
 /** One request owns resolution, Files access, native decode and React publication. */
 export function useGatewayImage(attachment: WorkspaceAttachment) {
   const resolveArtifact = useContext(GatewayArtifactContext);
+  const projectImagePort = useContext(GatewayProjectImageContext);
+  const resolveProjectImage = qualifiedProjectFilePath(attachment.uri ?? '') ? projectImagePort : undefined;
+  const committedResolver = useRef(resolveProjectImage);
   const [state, setState] = useState<ImageState>(unresolved);
   const [retry, setRetry] = useState(0);
   const request = useRef<Request | null>(null);
@@ -22,10 +27,10 @@ export function useGatewayImage(attachment: WorkspaceAttachment) {
   const committed = useRef(state);
   const localAccess = useRef<WorkspaceAttachment | null>(null);
   // Speculative renders cannot retire the request belonging to the visible leaf.
-  useLayoutEffect(() => { committed.current = state; committedAttachment.current = attachment; }, [state, attachment]);
+  useLayoutEffect(() => { committed.current = state; committedAttachment.current = attachment; committedResolver.current = resolveProjectImage; }, [state, attachment, resolveProjectImage]);
 
   const current = (candidate: Request) => !candidate.disposed && request.current === candidate
-    && sameImageInput(candidate.attachment, committedAttachment.current);
+    && candidate.projectResolver === committedResolver.current && sameImageInput(candidate.attachment, committedAttachment.current);
   const publishable = (candidate: Request) => current(candidate) && scene.owns(candidate.revision);
 
   useEffect(() => scene.subscribeResume(() => {
@@ -40,7 +45,7 @@ export function useGatewayImage(attachment: WorkspaceAttachment) {
   }), []);
 
   useEffect(() => {
-    const pending: Request = { id: ++sequence.current, attachment, revision: scene.capture(), disposed: false };
+    const pending: Request = { id: ++sequence.current, attachment, revision: scene.capture(), projectResolver: resolveProjectImage, disposed: false };
     request.current = pending;
     const dispose = () => { pending.disposed = true; if (request.current === pending) request.current = null; };
     if (pending.revision === null) return dispose;
@@ -51,7 +56,7 @@ export function useGatewayImage(attachment: WorkspaceAttachment) {
     publish({ uri: '' }, 'resolving');
     const promptIfNeeded = localAccess.current !== null && sameImageInput(localAccess.current, attachment);
     localAccess.current = null;
-    void cachedGatewayImageSource(attachment, resolveArtifact).then(async gatewaySource => {
+    void cachedGatewayImageSource(attachment, resolveArtifact, resolveProjectImage).then(async gatewaySource => {
       if (!publishable(pending)) return;
       const localSource = gatewaySource.uri.startsWith('data:image/') ? null
         : await materializedIOSLocalImageSource(attachment, promptIfNeeded);
@@ -61,9 +66,9 @@ export function useGatewayImage(attachment: WorkspaceAttachment) {
       publish(source, source.uri ? 'loading' : 'failed');
     }).catch(() => publish({ uri: '' }, 'failed'));
     return dispose;
-  }, [attachment.headers, attachment.uri, attachment.filename, attachment.mimeType, attachment.artifactId, attachment.artifactSessionKey, resolveArtifact, retry]);
+  }, [attachment.headers, attachment.uri, attachment.filename, attachment.mimeType, attachment.artifactId, attachment.artifactSessionKey, resolveArtifact, resolveProjectImage, attachment.projectImageSessionKey, retry]);
 
-  const displayed = state.request && sameImageInput(state.request.attachment, attachment) ? state : unresolved;
+  const displayed = state.request && state.request.projectResolver === resolveProjectImage && sameImageInput(state.request.attachment, attachment) ? state : unresolved;
   // Capture the rendered request, never a mutable "latest accepted revision".
   const decodedRequest = displayed.request;
   const decode = (phase: 'decoded' | 'failed') => {
@@ -74,7 +79,7 @@ export function useGatewayImage(attachment: WorkspaceAttachment) {
   const retryImage = () => {
     if (scene.capture() === null) return;
     localAccess.current = attachment;
-    invalidateGatewayImageSource(attachment);
+    invalidateGatewayImageSource(attachment, resolveProjectImage);
     setRetry(value => value + 1);
   };
   return { source: displayed.source, phase: displayed.phase, imageKey: decodedRequest?.id,
@@ -82,6 +87,6 @@ export function useGatewayImage(attachment: WorkspaceAttachment) {
 }
 
 function sameImageInput(left: WorkspaceAttachment, right: WorkspaceAttachment) {
-  return left.artifactId === right.artifactId && left.artifactSessionKey === right.artifactSessionKey && left.uri === right.uri && left.headers === right.headers
+  return left.projectImageSessionKey === right.projectImageSessionKey && left.artifactId === right.artifactId && left.artifactSessionKey === right.artifactSessionKey && left.uri === right.uri && left.headers === right.headers
     && left.filename === right.filename && left.mimeType === right.mimeType;
 }

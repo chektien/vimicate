@@ -1,3 +1,4 @@
+import { useGatewayProjectImage } from './useGatewayProjectImage';
 import { useSelectedRunPublication } from './useSelectedRunPublication';
 import { useStoppedRunNotices } from './useStoppedRunNotices';
  import { useGatewayQuestions, type QuestionActivity } from './useGatewayQuestions'; import { useGatewayFileLocations } from './useGatewayFileLocations';
@@ -162,8 +163,7 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
       if (!scenePublicationAuthority.current.owns(activityRevision) || selectedRef.current !== sessionKey) return;
       const pending = [...pendingApprovalMessages(exec, 'exec', sessionKey), ...pendingApprovalMessages(plugin, 'plugin', sessionKey)];
       const reconciliationNow = Date.now();
-      // Only IDs pending when this list began can be resolved by its absence.
-      // A cropped row still owns its approval until this explicit evidence.
+      // List absence resolves only approvals pending when this read began.
       runRegistry.current.approvals.observe(sessionKey, pending);
       runRegistry.current.approvals.resolveAbsent(sessionKey, reconciliationCandidates, pending.flatMap(row => row.approval ? [row.approval.id] : []));
       publishSelectedRun(sessionKey);
@@ -196,8 +196,7 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
     try { await task; }
     finally { if (connectionTask.current === task) connectionTask.current = null; }
   }, [client, loadCommands, loadPendingApprovals, loadSessions, recoverActiveRuns, recoverPendingFinalAnswers]);
-  // Resume probes the socket, then hydrates missed state or reconnects.
-  // Refs keep question renders from replacing the lifecycle subscription.
+  // Probe and hydrate on resume. Refs stabilize this subscription.
   const hydrateQuestions = useRef(questions.hydrate); hydrateQuestions.current = questions.hydrate;
   const discoverQuestions = useRef(asyncQuestions.discover); discoverQuestions.current = asyncQuestions.discover;
   const resumeKeptConnection = useCallback(async () => {
@@ -480,5 +479,6 @@ export function useGatewayWorkspace({ restorePersisted = true }: { restorePersis
 
   const fileLocations = useGatewayFileLocations(client); const recoverMessage = useGatewayMessageRecovery({ client, selectedRef, messagesRef, messageSessionKey, projectsRef, updateSessionMessages, setDetail, scenePublicationAuthority }); const listProjectFiles = useCallback((projectId: string, path = '') => client.listProjectFiles(projectId, path), [client]); const readProjectFile = useCallback((projectId: string, path: string) => client.readProjectFile(projectId, path), [client]); const resolveSharedFile = useCallback((sourcePath: string) => client.resolveSharedFile(sourcePath), [client]); const listSharedFiles = useCallback((projectId: string, path = '') => client.listSharedFiles(projectId, path), [client]); const readSharedFile = useCallback((projectId: string, path: string) => client.readSharedFile(projectId, path), [client]);
   const refresh = useCallback(() => Promise.all([loadSessions(true, '', true), providerUsage.refresh()]).then(() => { discoverQuestions.current(); }), [loadSessions, providerUsage]);
-  return { historyLoading, queuedPrompts, asyncQuestions, questions: questions.ui, questionNotice: questions.notice, ...fileLocations, hasNewerHistory, resolveArtifact: client.resolveArtifact, listProjectFiles, readProjectFile, resolveSharedFile, listSharedFiles, readSharedFile, profile, status, detail, projects: questions.projects, projectsReady, selectedKey, latestMessages, messages: questions.messages, messageSessionKey, commands, modelChoices, sending, loadingOlder, canLoadOlder, historyProblem, providerUsage: providerUsage.state, refreshProviderUsage: providerUsage.refresh, pair, connect, forget, selectProject, toggleStar, submit, abort, decideApproval, recoverMessage, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refresh };
+  const resolveProjectImage = useGatewayProjectImage(client, projectsRef);
+  return { resolveProjectImage, historyLoading, queuedPrompts, asyncQuestions, questions: questions.ui, questionNotice: questions.notice, ...fileLocations, hasNewerHistory, resolveArtifact: client.resolveArtifact, listProjectFiles, readProjectFile, resolveSharedFile, listSharedFiles, readSharedFile, profile, status, detail, projects: questions.projects, projectsReady, selectedKey, latestMessages, messages: questions.messages, messageSessionKey, commands, modelChoices, sending, loadingOlder, canLoadOlder, historyProblem, providerUsage: providerUsage.state, refreshProviderUsage: providerUsage.refresh, pair, connect, forget, selectProject, toggleStar, submit, abort, decideApproval, recoverMessage, loadOlderHistory, loadNewerHistory, retryHistory, restoreLatestHistory, refresh };
 }

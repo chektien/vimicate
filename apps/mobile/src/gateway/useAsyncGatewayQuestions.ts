@@ -34,11 +34,17 @@ export function useAsyncGatewayQuestions({ messages, latestMessages: tail, endpo
   const combined = useMemo(() => tail && tail !== messages ? authoritativeHistoryChronology(coalesceTranscriptIdentities([...messages, ...tail])) : messages, [messages, tail]);
   const latestMessages = useRef(combined); latestMessages.current = combined;
   const projects = workspaceHistory?.projects; const subscribe = workspaceHistory?.subscribe; const sessionMessages = workspaceHistory?.sessionMessages;
+  const acceptsGeneration = useCallback((message: WorkspaceMessage) => {
+    const project = projects?.find(project => project.sessionKey === message.sessionKey);
+    if (!project) return false;
+    if (message.transcriptSessionId && project.sessionId) return message.transcriptSessionId === project.sessionId;
+    return messagesOwnedBySessionGeneration([message], project.sessionId ? { sessionId: project.sessionId, sessionStartedAtMs: project.sessionStartedAtMs ?? 0 } : null).length > 0;
+  }, [projects]);
   const observeDiscovery = useCallback((rows: WorkspaceMessage[]) => {
     const before = owner.revision; owner.observe(rows); if (before !== owner.revision) publish();
   }, [owner, publish]);
   const selectedSessionKey = workspaceHistory?.selectedSessionKey;
-  const discovery = useAsyncQuestionDiscovery(workspaceHistory?.client, status, endpoint, projects, selectedSessionKey, authority, observeDiscovery);
+  const discovery = useAsyncQuestionDiscovery(workspaceHistory?.client, status, endpoint, projects, selectedSessionKey, authority, observeDiscovery, owner.catchupSessions(acceptsGeneration));
   useEffect(() => {
     const observe = () => {
       if (!authority.current.isActive) return;
@@ -104,12 +110,6 @@ export function useAsyncGatewayQuestions({ messages, latestMessages: tail, endpo
   }, [dispatch, owner, publish]);
   const editing = useCallback((record: QuestionRecord, active: boolean) => setTextEditing(current => active ? record.id : current === record.id ? null : current), []);
   const clear = useCallback(() => { discovery.retire(); interactionRef.current = null; setInteraction(null); const current = ownerRef.current; current.clear(); if (scopeRef.current) void saveValue(scopeRef.current, '[]').catch(() => {}); setTextEditing(null); setOtherFocus(null); setRevision(value => value + 1); }, [discovery]);
-  const acceptsGeneration = useCallback((message: WorkspaceMessage) => {
-    const project = projects?.find(project => project.sessionKey === message.sessionKey);
-    if (!project) return false;
-    if (message.transcriptSessionId && project.sessionId) return message.transcriptSessionId === project.sessionId;
-    return messagesOwnedBySessionGeneration([message], project.sessionId ? { sessionId: project.sessionId, sessionStartedAtMs: project.sessionStartedAtMs ?? 0 } : null).length > 0;
-  }, [projects]);
   const pendingCounts = useMemo(() => owner.pendingCounts(acceptsGeneration), [owner, acceptsGeneration, revision, factRevision]);
   const deliveryCounts = useMemo(() => owner.deliveryCounts(acceptsGeneration), [owner, acceptsGeneration, revision, factRevision]);
   return { discover: discovery.refresh, projectionContext: useCallback(() => owner.projectionContext(), [owner]), pendingCounts, deliveryCounts, view: (message: WorkspaceMessage) => owner.view(message), handleKey, clear, action, loaded: loaded === owner, storageError: errors.storage, ui: {

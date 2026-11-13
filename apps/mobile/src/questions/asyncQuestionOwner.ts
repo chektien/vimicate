@@ -80,6 +80,13 @@ export class AsyncQuestionOwner {
     });
   }
   message(id: string) { return this.history.get(id)?.message; }
+  /** Restored facts authorize reconciliation, never a visible pending count. */
+  catchupSessions(accept: (message: WorkspaceMessage) => boolean): ReadonlySet<string> {
+    return new Set(this.projectionContext().flatMap(message => {
+      const view = this.view(message);
+      return view && accept(message) && (view.state === 'pending' || view.delivery && view.state !== 'confirmed') ? [view.record.sessionKey] : [];
+    }));
+  }
   /** Count observed structured items, not prose, restored drafts or run state.
    * Admitted answers have independent delivery/confirmation state. */
   pendingCounts(accept: (message: WorkspaceMessage) => boolean): ReadonlyMap<string, number> {

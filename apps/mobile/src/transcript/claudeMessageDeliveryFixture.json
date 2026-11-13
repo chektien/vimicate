@@ -1,0 +1,110 @@
+{
+  "sessionKey": "agent:main:dashboard:delivery-fixture",
+  "sessionId": "11111111-1111-4111-8111-111111111111",
+  "cliSessionId": "22222222-2222-4222-8222-222222222222",
+  "runId": "fixture-cli-delivery-run",
+  "answer": "The main thread has accepted the change. The worker is implementing it now.",
+  "nativeAnswer": "I relayed the main thread’s update and will report when it finishes.",
+  "messages": [
+    {
+      "role": "assistant",
+      "api": "anthropic-messages",
+      "provider": "claude-cli",
+      "stopReason": "tool_use",
+      "timestamp": 1700000001000,
+      "content": [
+        {
+          "type": "toolcall",
+          "id": "send",
+          "name": "mcp__openclaw__message",
+          "arguments": {
+            "action": "send",
+            "message": "The main thread has accepted the change. The worker is implementing it now."
+          }
+        },
+        {
+          "type": "tool_result",
+          "tool_use_id": "send",
+          "name": "mcp__openclaw__message",
+          "content": [
+            {
+              "type": "text",
+              "text": "Sent visible reply to the current source conversation via internal-ui."
+            }
+          ]
+        }
+      ],
+      "__openclaw": {
+        "id": "native-send",
+        "importedFrom": "claude-cli",
+        "cliSessionId": "22222222-2222-4222-8222-222222222222",
+        "externalId": "native-send"
+      }
+    },
+    {
+      "role": "assistant",
+      "api": "openclaw-transcript",
+      "provider": "openclaw",
+      "model": "delivery-mirror",
+      "stopReason": "stop",
+      "timestamp": 1700000002000,
+      "content": [
+        {
+          "type": "text",
+          "text": "The main thread has accepted the change. The worker is implementing it now."
+        }
+      ],
+      "idempotencyKey": "fixture-cli-delivery-run:message-tool:fingerprint:mcp-send",
+      "__openclaw": {
+        "id": "mirror",
+        "runId": "fixture-cli-delivery-run",
+        "idempotencyKey": "fixture-cli-delivery-run:message-tool:fingerprint:mcp-send",
+        "transcriptPosition": {
+          "source": "fixture",
+          "rawSeq": 10
+        }
+      }
+    },
+    {
+      "role": "assistant",
+      "api": "anthropic-messages",
+      "provider": "claude-cli",
+      "stopReason": "end_turn",
+      "timestamp": 1700000003000,
+      "content": [
+        {
+          "type": "text",
+          "text": "I relayed the main thread’s update and will report when it finishes."
+        }
+      ],
+      "__openclaw": {
+        "id": "native-end",
+        "importedFrom": "claude-cli",
+        "cliSessionId": "22222222-2222-4222-8222-222222222222",
+        "externalId": "native-end"
+      }
+    },
+    {
+      "role": "assistant",
+      "api": "cli",
+      "provider": "anthropic",
+      "model": "claude-fixture",
+      "stopReason": "stop",
+      "timestamp": 1700000004000,
+      "content": [
+        {
+          "type": "text",
+          "text": "The main thread has accepted the change. The worker is implementing it now."
+        }
+      ],
+      "__openclaw": {
+        "id": "result",
+        "runId": "fixture-cli-delivery-run",
+        "transcriptPosition": {
+          "source": "fixture",
+          "rawSeq": 11
+        }
+      }
+    }
+  ]
+}

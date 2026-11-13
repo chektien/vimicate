@@ -10,6 +10,8 @@ export type TranscriptCliProvenance =
   | { kind: 'claude-native'; sessionId: string; externalId: string }
   | { kind: 'claude-aggregate'; runId: string };
 
+export type TranscriptDeliveryProvenance = { kind: 'message-tool' | 'cli-result'; runId: string };
+
 export type TranscriptMessageMetadata = AsyncQuestionMetadata & {
   /** Typed internal runtime input, never inferred from authored prose. */
   internalEvent?: 'exec' | 'inter_session';
@@ -19,6 +21,8 @@ export type TranscriptMessageMetadata = AsyncQuestionMetadata & {
   displayPosition?: TranscriptDisplayPosition;
   /** Explicit entry/delivery identity; never inferred from authored prose. */
   cliProvenance?: TranscriptCliProvenance;
+  /** Saved delivery representation, not native end-turn or lifecycle authority. */
+  deliveryProvenance?: TranscriptDeliveryProvenance;
   /** Explicit Claude end_turn stop reason, not an answer-shaped partial step. */
   cliEndTurn?: true;
   /** Original cumulative Claude text while the visible live row shows only its uncovered tail. */
@@ -58,6 +62,16 @@ export function sameCliProvenance(left: TranscriptCliProvenance | undefined, rig
     left.kind === 'claude-native' && right.kind === 'claude-native'
       ? left.sessionId === right.sessionId && left.externalId === right.externalId
       : left.kind === 'claude-aggregate' && right.kind === 'claude-aggregate' && left.runId === right.runId));
+}
+
+export function transcriptDeliveryProvenance(value: unknown): TranscriptDeliveryProvenance | undefined {
+  const row = record(value);
+  return (row.kind === 'message-tool' || row.kind === 'cli-result') && boundedText(row.runId, 256)
+    ? { kind: row.kind, runId: row.runId } : undefined;
+}
+
+export function sameDeliveryProvenance(left: TranscriptDeliveryProvenance | undefined, right: TranscriptDeliveryProvenance | undefined) {
+  return left === right || Boolean(left && right && left.kind === right.kind && left.runId === right.runId);
 }
 
 export function transcriptDisplayPosition(value: unknown): TranscriptDisplayPosition | undefined {
@@ -108,6 +122,20 @@ export function nativeTranscriptMetadata(raw: Record<string, unknown>) {
     : raw.role === 'assistant' && raw.api === 'cli' && raw.provider === 'claude-cli' && raw.stopReason === 'stop'
       && typeof key === 'string' && key.startsWith('cli-assistant:')
       ? transcriptCliProvenance({ kind: 'claude-aggregate', runId: key.slice('cli-assistant:'.length) }) : undefined;
+  // Current CLI persistence may carry the model provider (e.g. anthropic)
+  // and no cli-assistant key. Its protocol and explicit run identify a saved
+  // result. A message-tool mirror is a different representation of a reply
+  // that was already delivered, not another native model step.
+  const deliveryKind = raw.role === 'assistant' && raw.stopReason === 'stop'
+    && boundedText(metadata.runId, 256) && !metadata.importedFrom
+    ? raw.api === 'cli' ? 'cli-result'
+      : raw.api === 'openclaw-transcript' && raw.provider === 'openclaw' && raw.model === 'delivery-mirror'
+        && (raw.openclawDeliveryMirror === undefined || record(raw.openclawDeliveryMirror).kind === 'message-tool-source-reply'
+          && record(raw.openclawDeliveryMirror).final === true)
+        && typeof key === 'string' && key.startsWith(`${metadata.runId}:message-tool:`)
+        && key.length > `${metadata.runId}:message-tool:`.length ? 'message-tool' : undefined
+    : undefined;
+  const deliveryProvenance = deliveryKind ? transcriptDeliveryProvenance({ kind: deliveryKind, runId: metadata.runId }) : undefined;
   // Codex prompt mirrors retain inbound acceptance time even when model
   // ingestion is delayed. Explicit steer records carry the target run instead.
   // Validate the native descriptor and host record time; never infer this from
@@ -131,6 +159,7 @@ export function nativeTranscriptMetadata(raw: Record<string, unknown>) {
       : raw.role === 'user' && boundedText(metadata.steerTargetRunId, 256) ? metadata.steerTargetRunId : '',
     ...(displayPosition ? { displayPosition } : {}),
     ...(cliProvenance ? { cliProvenance } : {}),
+    ...(deliveryProvenance ? { deliveryProvenance } : {}),
     ...(cliProvenance?.kind === 'claude-native' && raw.role === 'assistant'
       && (raw.stopReason === 'end_turn' || raw.stopReason === 'endTurn') ? { cliEndTurn: true as const } : {}),
   };

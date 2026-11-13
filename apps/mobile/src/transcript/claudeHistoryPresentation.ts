@@ -6,7 +6,7 @@ import { reconcileClaudePromptIdentities } from './claudePromptIdentity';
  * at the aggregate's canonical turn slot, without rewriting stored history or
  * inventing native rawSeq/run authority for those steps. */
 export function projectClaudeHistoryDeliveries(messages: WorkspaceMessage[]) {
-  messages = reconcileClaudePromptIdentities(messages);
+  messages = projectMessageToolResults(reconcileClaudePromptIdentities(messages));
   const matches: Array<{ aggregate: WorkspaceMessage; members: WorkspaceMessage[]; promptAliases: WorkspaceMessage[]; footers: WorkspaceMessage[] }> = [];
   for (const aggregate of messages) {
     const provenance = aggregate.cliProvenance;
@@ -80,6 +80,55 @@ export function projectClaudeHistoryDeliveries(messages: WorkspaceMessage[]) {
     }
     return moved.has(row) ? [] : [row];
   });
+}
+
+/** A completed message-tool send can also be persisted as the CLI's final
+ * visible result. Retain the delivered row at its original slot and hide only
+ * that result's unique alias. Keep all stored rows, native steps and footers.
+ * Exact prose is a consistency check after typed run/generation/source proof. */
+function projectMessageToolResults(messages: WorkspaceMessage[]) {
+  const groups = new Map<string, { mirrors: WorkspaceMessage[]; results: WorkspaceMessage[] }>();
+  for (const row of messages) {
+    const delivery = row.deliveryProvenance;
+    if (!delivery || row.role !== 'assistant' || row.source !== 'history'
+      || !row.sessionKey || !row.transcriptSessionId || !row.displayPosition
+      || row.runId !== delivery.runId) continue;
+    const key = JSON.stringify([row.sessionKey, row.transcriptSessionId, row.displayPosition.source, delivery.runId]);
+    let group = groups.get(key);
+    if (!group) { group = { mirrors: [], results: [] }; groups.set(key, group); }
+    (delivery.kind === 'message-tool' ? group.mirrors : group.results).push(row);
+  }
+  const replacements = new Map<WorkspaceMessage, WorkspaceMessage[]>();
+  const moved = new Set<WorkspaceMessage>();
+  for (const { mirrors, results } of groups.values()) {
+    if (results.length !== 1) continue;
+    const result = results[0]!;
+    const matching = mirrors.filter(row => row.text === result.text);
+    if (matching.length !== 1) continue;
+    const mirror = matching[0]!;
+    if (!plainDelivery(result) || !plainDelivery(mirror)
+      || mirror.displayPosition!.rawSeq >= result.displayPosition!.rawSeq
+      || !mirror.idempotencyKey?.startsWith(`${mirror.runId}:message-tool:`)) continue;
+    // Run-detail placement can anchor an already witnessed footer to the
+    // first same-run assistant, which is the mirror. The terminal result owns
+    // its final slot even when its repeated prose is hidden. Move that one
+    // existing footer there, never create completion from delivery evidence.
+    const footers = messages.filter(row => row.role === 'run' && row.state === 'complete'
+      && row.sessionKey === result.sessionKey && row.runId === result.runId
+      && (!row.transcriptSessionId || row.transcriptSessionId === result.transcriptSessionId)
+      && (row.id === `live-run-${result.runId}` || row.id === `history-run-${result.id}`));
+    const footer = footers.length === 1 && messages.indexOf(footers[0]!) < messages.indexOf(result) ? footers[0] : undefined;
+    if (footer) moved.add(footer);
+    replacements.set(result, footer ? [footer] : []);
+  }
+  return replacements.size ? messages.flatMap(row => replacements.get(row) ?? (moved.has(row) ? [] : [row])) : messages;
+}
+
+function plainDelivery(row: WorkspaceMessage) {
+  return Boolean(row.text.trim()) && !row.attachments?.length && !row.recovery
+    && row.state !== 'streaming' && row.state !== 'error'
+    && !row.asyncQuestion && !row.asyncMessage && !row.asyncQuestionReplyToId
+    && !row.asyncQuestionAnswerText && !row.asyncQuestionRestartRecovery && !row.internalEvent;
 }
 
 function nativePromptAlias(row: WorkspaceMessage, prompt: WorkspaceMessage, runId: string) {

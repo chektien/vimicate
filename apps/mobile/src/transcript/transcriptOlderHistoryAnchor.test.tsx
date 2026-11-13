@@ -14,13 +14,16 @@ let viewport: ReturnType<typeof useTranscriptViewport>;
 let keys = original;
 let offset = 200;
 let rowHeight = 20;
+let recyclerOffset: number | null = null;
+const frames = new Map<number, FrameRequestCallback>();
+let frameID = 0;
 let childHeight: number | null = null;
 const native = {
   getLayout: (index: number) => ({ x: 0, y: index * rowHeight, width: 400, height: rowHeight }),
   getWindowSize: () => ({ width: 400, height: 400 }),
   getChildContainerDimensions: () => ({ width: 400, height: childHeight ?? keys.length * rowHeight }),
   getFirstItemOffset: () => 0,
-  getAbsoluteLastScrollOffset: () => offset,
+  getAbsoluteLastScrollOffset: () => recyclerOffset ?? offset,
   computeVisibleIndices: () => ({ startIndex: Math.floor(offset / rowHeight), endIndex: Math.ceil((offset + 400) / rowHeight) - 1 }),
   scrollToOffset: vi.fn(({ offset: next }: { offset: number }) => { offset = next; }),
   scrollToIndex: vi.fn(),
@@ -34,9 +37,9 @@ let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('React', React);
-  vi.stubGlobal('requestAnimationFrame', () => 1);
-  vi.stubGlobal('cancelAnimationFrame', () => undefined);
-  keys = original; offset = 200; rowHeight = 20; childHeight = null;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++frameID, callback); return frameID; });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  keys = original; offset = 200; rowHeight = 20; childHeight = null; recyclerOffset = null; frames.clear(); frameID = 0;
   native.scrollToOffset.mockClear();
   vi.mocked(recordViewportDiagnostic).mockClear();
   root = createRoot(document.createElement('div'));
@@ -128,4 +131,49 @@ it('corrects a pull-requested prepend when the owning drag settles after publica
   viewport.onScrollEndDrag({ nativeEvent: { velocity: { y: 0 } } } as never);
   expect(native.scrollToOffset).toHaveBeenCalledWith(expect.objectContaining({ animated: false }));
   expect(native.getLayout(keys.indexOf('row-20')).y - offset).toBeCloseTo(baseline);
+});
+
+it('preserves the source point inside a card taller than the viewport after history prepends', async () => {
+  rowHeight = 1000; offset = 250;
+  await act(async () => root.render(<Probe rows={keys} />));
+  viewport.onLayout({ nativeEvent: { layout: { height: 400 } } } as never);
+  viewport.onContentSizeChange(400, keys.length * rowHeight);
+  viewport.captureOlderHistoryAnchor();
+  const baseline = native.getLayout(0).y - offset;
+  keys = ['older-card', ...original];
+  await act(async () => root.render(<Probe rows={keys} />));
+  viewport.onOlderHistoryLayoutCommit();
+  expect(native.getLayout(keys.indexOf('row-0')).y - offset).toBeCloseTo(baseline);
+});
+
+it('captures a completed navigation write before either JS offset mirror acknowledges it', async () => {
+  offset = 15;
+  await act(async () => root.render(<Probe rows={keys} />));
+  viewport.onLayout({ nativeEvent: { layout: { height: 400 } } } as never);
+  viewport.onContentSizeChange(400, 2000);
+  viewport.onScroll({ nativeEvent: { contentOffset: { y: 15 }, contentSize: { height: 2000 },
+    layoutMeasurement: { height: 400 } } } as never);
+  viewport.reveal(0, true);
+  const queued = [...frames.values()]; frames.clear();
+  queued.forEach(callback => callback(0));
+  expect(offset).toBe(0);
+  recyclerOffset = 15; // Native write landed, but its onScroll is still pending.
+  viewport.captureOlderHistoryAnchor();
+  keys = ['older', ...original];
+  await act(async () => root.render(<Probe rows={keys} />));
+  recyclerOffset = null;
+  viewport.onOlderHistoryLayoutCommit();
+  expect(native.getLayout(keys.indexOf('row-0')).y - offset).toBe(0);
+});
+
+it('preserves a partially visible leading row rather than rounding it to an edge', async () => {
+  rowHeight = 1000; offset = 999;
+  await act(async () => root.render(<Probe rows={keys} />));
+  viewport.onLayout({ nativeEvent: { layout: { height: 400 } } } as never);
+  viewport.onContentSizeChange(400, keys.length * rowHeight);
+  viewport.captureOlderHistoryAnchor();
+  keys = ['older', ...original];
+  await act(async () => root.render(<Probe rows={keys} />));
+  viewport.onOlderHistoryLayoutCommit();
+  expect(native.getLayout(keys.indexOf('row-0')).y - offset).toBe(-999);
 });

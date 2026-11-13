@@ -1,29 +1,27 @@
 import type { FlashListRef } from '@shopify/flash-list';
-import { transcriptIndexedRevealOffset } from './transcriptIndexedReveal';
-import { captureTranscriptReviewAnchor } from './transcriptReviewAnchorCapture';
+import { boundedSessionRowOffset, transcriptSessionPixelRestoreOffset } from './transcriptSessionPixelAnchor';
 
 /** Request-scoped key/position receipt. The viewport hook owns its lifetime. */
 export class TranscriptOlderHistoryAnchor<T> {
-  private pullCandidate: { datasetKey: string; rowKey: string; viewPosition: number; expiresAt: number } | null = null;
-  private pending: { datasetKey: string; rowKey: string; viewPosition: number;
+  private pullCandidate: { datasetKey: string; rowKey: string; rowOffset: number; expiresAt: number } | null = null;
+  private pending: { datasetKey: string; rowKey: string; rowOffset: number;
     active: boolean; expiresAt: number; writes: number;
     lastWrite: { offset: number; actual: number } | undefined } | null = null;
-  constructor(private readonly captureInput: () => { datasetKey: string; owner: FlashListRef<T> | null;
-    itemCount: number; cursor: number; rowKeys: readonly string[] | undefined;
-    position: (row: number) => number | null; holdReview: () => void },
+  constructor(private readonly captureInput: () => { datasetKey: string; rowKeys: readonly string[] | undefined;
+    anchor: () => { row: number; rowOffset: number } | null; holdReview: () => void },
     private readonly correctionInput: () => { datasetKey: string; gestureActive: boolean; rowKeys: readonly string[] | undefined;
       owner: FlashListRef<T> | null; viewportHeight: number; contentHeight: number;
-      position: (target: number) => number | null; record: (target: number, offset: number) => void }) {}
+      offset: (owner: FlashListRef<T>) => number; record: (target: number, offset: number) => void }) {}
 
-  capture(datasetKey: string, rowKey: string, viewPosition: number) {
-    this.pending = { datasetKey, rowKey, viewPosition, active: false, expiresAt: 0, writes: 0, lastWrite: undefined };
+  capture(datasetKey: string, rowKey: string, rowOffset: number) {
+    this.pending = { datasetKey, rowKey, rowOffset, active: false, expiresAt: 0, writes: 0, lastWrite: undefined };
   }
 
   private measuredAnchor() {
     const input = this.captureInput();
-    const anchor = captureTranscriptReviewAnchor(input.owner, input.itemCount, input.cursor, input.position);
+    const anchor = input.anchor();
     const rowKey = anchor && input.rowKeys?.[anchor.row];
-    return anchor && rowKey ? { datasetKey: input.datasetKey, rowKey, viewPosition: anchor.viewPosition } : null;
+    return anchor && rowKey ? { datasetKey: input.datasetKey, rowKey, rowOffset: anchor.rowOffset } : null;
   }
 
   beginDrag() {
@@ -41,7 +39,7 @@ export class TranscriptOlderHistoryAnchor<T> {
       ? this.pullCandidate : this.measuredAnchor();
     if (!anchor) return;
     input.holdReview();
-    this.capture(anchor.datasetKey, anchor.rowKey, anchor.viewPosition);
+    this.capture(anchor.datasetKey, anchor.rowKey, anchor.rowOffset);
   };
 
   revision(datasetKey: string, rowKeys?: readonly string[]) {
@@ -73,23 +71,22 @@ export class TranscriptOlderHistoryAnchor<T> {
     const target = input.rowKeys?.indexOf(anchor.rowKey) ?? -1;
     const owner = input.owner;
     if (!owner || target < 0) { this.pending = null; return; }
-    const actual = input.position(target);
-    const height = owner.getWindowSize().height || input.viewportHeight;
-    if (actual === null || height <= 0 || Math.abs(actual - anchor.viewPosition) * height <= 2) return;
-    if (anchor.writes >= 6) { this.pending = null; return; }
     const layout = owner.getLayout(target);
-    if (!layout) return;
+    const actual = input.offset(owner);
+    const height = owner.getWindowSize().height || input.viewportHeight;
+    if (!layout || height <= 0 || !Number.isFinite(actual)) return;
+    const desired = layout.y + owner.getFirstItemOffset() + boundedSessionRowOffset(layout, anchor.rowOffset);
+    if (Math.abs(actual - desired) <= 2) return;
+    if (anchor.writes >= 6) { this.pending = null; return; }
     const contentHeight = Math.max(input.contentHeight, owner.getChildContainerDimensions().height);
     const firstItemOffset = owner.getFirstItemOffset();
-    const desired = layout.y - (height - layout.height) * anchor.viewPosition + firstItemOffset;
     // FlashList may publish the new row layouts before its native content
     // height. A clamped write during that interval cannot retain this key and
     // can feed a second native MVCP correction back into onScroll repeatedly.
     if (desired > Math.max(0, contentHeight - height) + 2) return;
-    const offset = transcriptIndexedRevealOffset(layout, height, contentHeight,
-      firstItemOffset, anchor.viewPosition);
+    const offset = transcriptSessionPixelRestoreOffset(layout, anchor.rowOffset, height, contentHeight, firstItemOffset);
     if (anchor.lastWrite && Math.abs(anchor.lastWrite.offset - offset) <= 1
-      && Math.abs(anchor.lastWrite.actual - actual) * height <= 2) return;
+      && Math.abs(anchor.lastWrite.actual - actual) <= 2) return;
     anchor.writes += 1;
     anchor.lastWrite = { offset, actual };
     input.record(target, offset);

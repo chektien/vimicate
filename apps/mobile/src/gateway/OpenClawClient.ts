@@ -219,6 +219,7 @@ export class OpenClawClient {
     if (generation !== this.generation || signal.aborted) throw new Error('Image request retired');
     return gatewayArtifactDownloadSource(payload, profile.endpoint, artifactId, sessionKey);
   }
+  get imageConnectionKey() { return JSON.stringify([this.profile?.endpoint, this.profile?.credential, this.generation]); }
   send(sessionKey: string, message: string, attachments: GatewayPromptAttachment[] = [], idempotencyKey = Crypto.randomUUID(), control?: 'steer' | GatewaySendControl, replyToId?: string) {
     return this.fencedSteer.send(this.profile?.endpoint, control, fields => this.request<Record<string, unknown>>('chat.send', chatSendParams(sessionKey, message, attachments, idempotencyKey, fields, replyToId), chatSendAckTimeoutMs(fields)));
   }

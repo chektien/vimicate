@@ -15,6 +15,10 @@ export type HistoryTransport = {
   boundary?: string;
   scan?: { offset: number; revalidate: boolean };
 };
+/** A stale tail-relative offset must be re-witnessed, never arithmetically adjusted. */
+export class HistoryTraversalChanged extends Error {
+  constructor() { super('History changed during traversal. Retry from a witnessed boundary.'); }
+}
 const MAX_RECEIPTS = 64;
 const MAX_MEMBERS = 4096;
 
@@ -35,7 +39,7 @@ export function recordHistoryTransport(cursor: HistoryCursor, offset: number, ro
   const prior = previous?.transport?.receipts ?? [];
   const previousSessionId = prior.find(receipt => receipt.sessionId)?.sessionId;
   if (offset > 0 && previousSessionId && sessionId !== previousSessionId) throw new Error('History concrete generation changed.');
-  if (offset > 0 && sessionId && previousSessionId && previous?.totalMessages !== cursor.totalMessages) throw new Error('History changed during traversal. Retry from a witnessed boundary.');
+  if (offset > 0 && sessionId && previousSessionId && previous?.totalMessages !== cursor.totalMessages) throw new HistoryTraversalChanged();
   if (payload.offset !== undefined && payload.offset !== offset) throw new Error('History returned an invalid requested offset.');
   if (payload.hasMore === true && (!Number.isSafeInteger(payload.nextOffset) || (payload.nextOffset as number) <= offset)
     || payload.totalMessages !== undefined && (!Number.isSafeInteger(payload.totalMessages) || (payload.totalMessages as number) < offset)) throw new Error('History returned an invalid cursor.');

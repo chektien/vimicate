@@ -132,3 +132,27 @@ it('does not send an answer confirmed by canonical history during durable admiss
     expect(sender).not.toHaveBeenCalled(); expect(test.value().view(message)?.state).toBe('confirmed');
   } finally { releaseStorage(); await act(async () => test.root.unmount()); }
 });
+
+it.each([{ state: 'pending', selected: true }, { state: 'unconfirmed', selected: true }, { state: 'pending', selected: false }, { state: 'unconfirmed', selected: false }] as const)('catches up restored-only $state facts, selected=$selected, without loaded cards or submitting', async ({ state, selected }) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const project = { id: 'a', sessionKey: 'a', sessionId: '00000000-0000-4000-8000-000000000001', name: 'A', path: '', branch: '', starred: false, threadCount: 0, state: 'idle' as const };
+  const cached = { ...message, sessionKey: 'a', transcriptSessionId: '00000000-0000-4000-8000-000000000001' };
+  const stored = new AsyncQuestionOwner(); stored.observe([cached]);
+  if (state === 'unconfirmed') { const record = stored.view(cached)!.record; stored.text(record, 1, 'Done'); stored.admit(cached, 'restored-answer'); stored.delivery(record.id, 'accepted'); }
+  vi.mocked(loadValue).mockResolvedValueOnce(stored.serialize());
+  const sender = vi.fn(); const authority = { current: new HistoryPublicationAuthority(true) };
+  const history = vi.fn(async (_key: string, _limit: number, offset: number) => ({ sessionKey: 'a', sessionId: '00000000-0000-4000-8000-000000000001', offset, totalMessages: 160,
+    messages: offset === 0 ? [] : [{ role: 'user', content: '> Which?\n\nOne\n\n> Notes?\n\nDone', __openclaw: { id: 'saved', replyToId: 'question' } }], hasMore: offset === 0, ...(offset === 0 ? { nextOffset: 80 } : {}) }));
+  const client = { status: 'connected', connectionRevision: 1, history } as unknown as import('./OpenClawClient').OpenClawClient;
+  const workspaceHistory = { client, selectedSessionKey: selected ? 'a' : 'other', projects: [project], subscribe: () => () => {}, sessionMessages: () => [] };
+  const submit = { current: sender as unknown as ReturnType<typeof useGatewaySubmission> };
+  let value!: ReturnType<typeof useAsyncGatewayQuestions>;
+  function Component() { value = useAsyncGatewayQuestions({ messages: [], endpoint: 'ws://catchup', status: 'connected', authority, submit, workspaceHistory }); return null; }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => { root.render(<Component />); for (let i=0;i<100;i++) await Promise.resolve(); });
+    expect(history.mock.calls.map(args => args[2])).toEqual(selected ? [0,80] : [0,0,80,0]);
+    expect(value.view(cached)?.state).toBe('confirmed');expect([...value.pendingCounts]).toEqual([]);expect(sender).not.toHaveBeenCalled();
+    expect(workspaceHistory.sessionMessages()).toEqual([]);
+  } finally { await act(async () => root.unmount()); }
+});

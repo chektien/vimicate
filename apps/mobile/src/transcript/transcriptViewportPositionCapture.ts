@@ -44,6 +44,13 @@ export function mountedTranscriptNativeScrollOffset<T>(owner: Pick<FlashListRef<
   }
 }
 
+/** An issued native write owns the offset until its scroll sample is acknowledged. */
+export function currentTranscriptScrollOffset<T>(owner: FlashListRef<T>, metrics: { offset: number },
+  observedScroll: boolean, issuedOffset?: number) {
+  return mountedTranscriptNativeScrollOffset(owner) ?? issuedOffset
+    ?? authoritativeTranscriptScrollOffset(owner.getAbsoluteLastScrollOffset(), metrics.offset, observedScroll);
+}
+
 /** Sample the existing viewport owner; no independent state or writer. */
 export function captureViewportRowPosition<T>({ owner, target, targetRow, preferObservedScroll, metrics, observedScroll, datasetKey, unsettled, pending }: PositionCapture<T>) {
     if (target === null) return null;

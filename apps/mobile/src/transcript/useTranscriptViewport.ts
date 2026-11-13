@@ -3,7 +3,8 @@ import { transcriptIndexedSessionOwnsWrite, transcriptIndexedRequestPosition, tr
 import { useTranscriptRegionReveal } from './useTranscriptRegionReveal';
 import { TranscriptViewportGeometry } from './transcriptViewportGeometry';
 import { TranscriptScrollGesture } from './transcriptScrollGesture';
-import { captureViewportRowPosition, measuredViewportRowPosition, measuredSessionPixelRestoreError, captureSessionReviewPixelAnchor, viewportTargetOutsidePaintedViewport } from './transcriptViewportPositionCapture';
+import { captureTranscriptSessionPixelAnchor } from './transcriptSessionPixelAnchor';
+import { currentTranscriptScrollOffset, captureViewportRowPosition, measuredViewportRowPosition, measuredSessionPixelRestoreError, captureSessionReviewPixelAnchor, viewportTargetOutsidePaintedViewport } from './transcriptViewportPositionCapture';
 import { remapViewportRowRequest, sameViewportRowKeys } from './transcriptViewportRowIdentity';
 import { useCallback, useEffect, useInsertionEffect, useRef } from 'react';
 import type { FlashListProps, FlashListRef } from '@shopify/flash-list';
@@ -58,17 +59,18 @@ export function useTranscriptViewport<T>(datasetKey: string, revision: object, i
   const pendingRevisionReveal = useRef<RevisionRevealRequest | null>(null);
   const pendingReviewRestore = useRef<TranscriptReviewRestoreRequest | null>(null);
   const olderHistoryAnchor = useRef(new TranscriptOlderHistoryAnchor<T>(
-    () => ({ datasetKey: datasetKeyRef.current, owner: list.current, itemCount: current.current.itemCount, cursor: current.current.recoveryRow,
-      rowKeys: committedRowKeys.current, position: (row) => viewPositionForRow(row, true), holdReview: () => holdReviewAnchor('navigation') }),
+    () => ({ datasetKey: datasetKeyRef.current, rowKeys: committedRowKeys.current,
+      anchor: () => list.current ? captureTranscriptSessionPixelAnchor(list.current, current.current.itemCount,
+        currentTranscriptScrollOffset(list.current, metrics.current, observedScroll.current, unsettledIndexedReveal.current?.offset)) : null,
+      holdReview: () => holdReviewAnchor('navigation') }),
     () => ({ datasetKey: datasetKeyRef.current, gestureActive: gesture.active, rowKeys: committedRowKeys.current, owner: list.current,
       viewportHeight: metrics.current.viewportHeight, contentHeight: metrics.current.contentHeight,
-      position: (target) => viewPositionForRow(target, true), record: (target, offset) => diagnostics.current.record('writer', {
+      offset: (owner) => currentTranscriptScrollOffset(owner, metrics.current, observedScroll.current), record: (target, offset) => diagnostics.current.record('writer', {
         ...diagnosticFields(), target, offset, action: 'older-anchor', reason: 'content' }, true) }),
   )).current;
   const visible = useRef<VisibleTranscriptRange>(null);
   const mountedCellProof = useRef<{ revision: object; contentHeight: number; viewportHeight: number } | null>(null);
-  // A revision-invalidated index range and an actually blank recycler are
-  // different facts. Keep the last native mounted-cell proof until
+  // Invalidated ranges and blank recyclers differ. Keep native mounted-cell proof until
   // onViewableItemsChanged explicitly withdraws it or the dataset changes.
   const observedScroll = useRef(false);
   const visibleRevision = useRef(revision);

@@ -43,7 +43,7 @@ export type WorkspaceProject = {
 
 export type WorkspaceMessageRole = 'user' | 'assistant' | 'narration' | 'tool' | 'run' | 'approval' | 'media' | 'error' | 'openclaw' | 'session' | 'workspace' | 'command' | 'boundary' | 'config' | 'system' | 'vimicate' | 'operator';
 export type ApprovalDecision = 'allow-once' | 'allow-always' | 'deny';
-export type WorkspaceAttachment = { artifactId?: string; artifactSessionKey?: string; id: string; filename: string; mimeType: string; byteCount?: number; pixelWidth?: number; pixelHeight?: number; uri?: string; headers?: Record<string, string> };
+export type WorkspaceAttachment = { projectImageSessionKey?: string; artifactId?: string; artifactSessionKey?: string; id: string; filename: string; mimeType: string; byteCount?: number; pixelWidth?: number; pixelHeight?: number; uri?: string; headers?: Record<string, string> };
 
 export type WorkspaceMessage = TranscriptMessageMetadata & {
   id: string;

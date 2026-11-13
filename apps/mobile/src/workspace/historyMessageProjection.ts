@@ -1,6 +1,7 @@
 import { compatibleQuestionGeneration, normalizedSubmissionIdentity } from '../questions/asyncQuestionReplyIdentity';
 import { isSessionNotice, projectSessionNotice, foldedSessionNoticeMirrors } from './sessionNoticeProjection';
 import { markdownImageSources } from './markdownImagePath';
+import { qualifiedProjectFilePath } from '../projectFiles/qualifiedProjectFilePath';
 import { isInternalExecutionNotice, projectExecutionNotice, foldedExecutionNoticeMirrors } from './executionNoticeProjection';
 import { asyncQuestionMetadata, matchesAsyncAnswer, privateQuestionText } from '../questions/asyncQuestionContract';
 import { mediaDirectiveLines } from './mediaDirectiveLines';
@@ -110,6 +111,7 @@ export function messagesFromPayload(payload: Record<string, unknown>, workspaceP
       ...(index === 0 && role === 'user' && inputAcceptedAtMs !== undefined ? { inputAcceptedAtMs } : {}),
       ...(index === 0 && role === 'user' && pendingAcceptedAtMs !== undefined && runId ? { inputReceiptRunId: runId } : {}),
       ...(index === 0 ? asyncMetadata : {}), ...(index === 0 && asyncAnswerText ? { asyncQuestionAnswerText: asyncAnswerText } : {}),
+      ...(index === 0 && native.deliveryProvenance ? { deliveryProvenance: native.deliveryProvenance } : {}),
       ...(index === 0 && narrationItemId ? { narrationItemId } : {}),
       ...(index === 0 && idempotencyKey ? { idempotencyKey } : {}),
       ...(index === 0 && attachments.length ? { attachments } : {}),
@@ -246,6 +248,7 @@ function withoutConsumedMediaMarkers(text: string) {
 }
 
 function gatewayMediaURI(source: string) {
+  if (qualifiedProjectFilePath(source)) return source;
   if (/^file:\/\//i.test(source)) {
     try { return `/__openclaw__/assistant-media?source=${encodeURIComponent(decodeURIComponent(new URL(source).pathname))}`; }
     catch { return `/__openclaw__/assistant-media?source=${encodeURIComponent(source.replace(/^file:\/\//i, ''))}`; }
@@ -264,6 +267,7 @@ function inlineMediaURI(source: string, mimeType: string) { const trimmed = sour
 
 function resolvedHostMediaSource(source: string, workspacePath: string) {
   const trimmed = source.trim();
+  if (qualifiedProjectFilePath(trimmed)) return trimmed;
   if (!trimmed || /^(?:[a-z][a-z0-9+.-]*:|\/|~)/i.test(trimmed) || !workspacePath.trim()) return trimmed;
   const base = workspacePath.trim().replace(/\/+$/, '');
   const segments = `${base}/${trimmed}`.split('/'); const normalized: string[] = [];

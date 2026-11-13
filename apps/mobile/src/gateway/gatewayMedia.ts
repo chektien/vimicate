@@ -1,3 +1,4 @@
+import { qualifiedProjectFilePath } from '../projectFiles/qualifiedProjectFilePath';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 
 const MANAGED_MEDIA_PREFIXES = ['/api/chat/media/outgoing/', '/__openclaw__/assistant-media'];
@@ -14,6 +15,7 @@ export function decorateGatewayMedia(
     ...message,
     ...(message.attachments?.length ? {
       attachments: message.attachments.map((attachment) => {
+        if (qualifiedProjectFilePath(attachment.uri ?? '')) return { ...attachment, projectImageSessionKey: sessionKey };
         const source = normalizedManagedSource(attachment.uri?.trim() ?? '', origin);
         if (!isManagedGatewaySource(source)) return attachment;
         return {

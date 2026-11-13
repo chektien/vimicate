@@ -1,6 +1,6 @@
 import { sameAsyncQuestion } from '../questions/asyncQuestionContract';
 import type { WorkspaceAttachment, WorkspaceMessage } from '../workspace/workspaceTypes';
-import { sameCliProvenance, sameDisplayPosition } from '../workspace/transcriptMetadata';
+import { sameCliProvenance, sameDeliveryProvenance, sameDisplayPosition } from '../workspace/transcriptMetadata';
 
 /** Domain publication equality includes raw convergence authority. Native cell
  * reuse uses the presentation-only comparator below. */
@@ -40,6 +40,7 @@ export function sameWorkspaceMessageExceptText(left: WorkspaceMessage, right: Wo
     && left.inputReceiptRunId === right.inputReceiptRunId
     && sameDisplayPosition(left.displayPosition, right.displayPosition)
     && sameCliProvenance(left.cliProvenance, right.cliProvenance)
+    && sameDeliveryProvenance(left.deliveryProvenance, right.deliveryProvenance)
     && left.idempotencyKey === right.idempotencyKey
     && left.absorbedLiveIdentity?.messageId === right.absorbedLiveIdentity?.messageId
     && left.absorbedLiveIdentity?.runId === right.absorbedLiveIdentity?.runId

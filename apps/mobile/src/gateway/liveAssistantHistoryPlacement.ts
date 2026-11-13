@@ -14,13 +14,27 @@ export function richerLiveAssistant(candidate: WorkspaceMessage, liveRows: Works
   return live;
 }
 
-/** The reverse of history-after-live correlation: a canonical answer may be
- * published before the first chat final. Only the protocol's run-owned chat
- * identity plus its explicit prompt binding can establish that missing link.
- * Multiple equal canonical answers are ambiguous, never text-deduplicated. */
+/** The reverse of history-after-live correlation. A typed saved CLI result
+ * directly owns the same run's final frame. Legacy answers still require the
+ * explicit prompt binding, and equal untyped answers remain ambiguous. */
 export function canonicalIndexForFirstLiveFinal(messages: WorkspaceMessage[], live: WorkspaceMessage) {
   if (live.role !== 'assistant' || live.source !== 'live' || live.state !== 'complete'
     || !live.sessionKey || !live.runId || live.id !== `live-chat-${live.runId}` || !live.text) return -1;
+  const results = messages.flatMap((row, index) => row.source === 'history' && row.role === 'assistant'
+    && row.deliveryProvenance?.kind === 'cli-result' && row.deliveryProvenance.runId === live.runId
+    && row.runId === live.runId && row.sessionKey === live.sessionKey ? [index] : []);
+  if (results.length === 1) {
+    const result = messages[results[0]!]!;
+    // Current chat frames omit sessionId. Only a unique saved result for the
+    // explicit run may supply that missing generation, never selected state.
+    if (result.transcriptSessionId && (!live.transcriptSessionId || result.transcriptSessionId === live.transcriptSessionId)
+      && result.text === live.text && [result, live].every(row => !row.attachments?.length && !row.recovery
+      && !row.asyncMessage && !row.asyncQuestion && !row.asyncQuestionReplyToId
+      && !row.asyncQuestionRestartRecovery && !row.internalEvent)
+      && result.state !== 'streaming' && result.state !== 'error' && !result.absorbedLiveIdentity) return results[0]!;
+  }
+  // A prompt must not override a rejected typed result or ambiguous run.
+  if (results.length) return -1;
   let promptOwnsRun = false;
   let match = -1;
   for (let index = 0; index < messages.length; index += 1) {

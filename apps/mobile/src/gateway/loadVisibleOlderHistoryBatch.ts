@@ -1,4 +1,4 @@
-import { continueHistoryScan, recordHistoryTransport, revalidateHistoryCursor } from './historyTransport';
+import { HistoryTraversalChanged, continueHistoryScan, recordHistoryTransport, revalidateHistoryCursor } from './historyTransport';
 import { transcriptPublicationIdentity } from './transcriptIdentityWall';
 import type { OpenClawClient } from './OpenClawClient';
 import { loadNextArchivedSegment, type ArchivedHistoryState } from './archivedHistory';
@@ -27,6 +27,7 @@ export async function loadVisibleOlderHistoryBatch(input: {
   let revalidating = Boolean(cursor?.transport?.scan?.revalidate);
   let scanning = false;
   let rebase = false;
+  let revalidatedGeneration: string | undefined;
   const transport = {
     projectionContext: () => [...input.visible, ...older, ...(input.projectionContext?.() ?? [])],
     archivedHistoryRequest: async (params: Record<string, unknown>) => {
@@ -61,14 +62,30 @@ export async function loadVisibleOlderHistoryBatch(input: {
         if (next.hasMore && (next.nextOffset ?? -1) <= currentOffset) throw new Error('older history cursor did not advance');
         const page = input.client.decorateMessages(messagesFromPayload(payload, input.path, [...input.visible, ...older, ...(input.projectionContext?.() ?? [])]), input.sessionKey);
         if (!fits(page) && older.length) break;
-        const recorded = recordHistoryTransport(next, currentOffset, page, payload, cursor);
+        let recorded: HistoryCursor;
+        try {
+          recorded = recordHistoryTransport(next, currentOffset, page, payload, cursor);
+        } catch (error) {
+          // One bounded restart inside this request. Discard the unwitnessed
+          // page and scan to the retained edge using real transport receipts.
+          // Repeated mutation, foreign generations and ordinary failures still
+          // stop safely, retaining any earlier admitted pages for retry.
+          if (!(error instanceof HistoryTraversalChanged) || revalidatedGeneration) throw error;
+          revalidatedGeneration = cursor?.transport?.receipts.find(receipt => receipt.sessionId)?.sessionId;
+          cursor = revalidateHistoryCursor(cursor, review([], true), input.sessionKey);
+          revalidating = true;
+          continue;
+        }
+        if (revalidatedGeneration && recorded.transport?.receipts.at(-1)?.sessionId !== revalidatedGeneration) {
+          throw new Error('History concrete generation changed.');
+        }
         scanning = true;
         if (revalidating) {
-          const boundary = input.cursor?.transport?.boundary;
+          const boundary = cursor?.transport?.boundary;
           const at = page.findIndex(row => transcriptPublicationIdentity(row) === boundary);
           cursor = recorded;
           if (at < 0) {
-            cursor = continueHistoryScan(cursor, input.visible, true);
+            cursor = continueHistoryScan(cursor, review([], true), true);
             if (!next.hasMore) throw new Error('Older history boundary is no longer available.');
             continue;
           }

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceAttachment } from '../workspace/workspaceTypes';
 import type { ImageNetworkSource } from './gatewayImageSource';
+import { GatewayProjectImageContext } from '../gateway/GatewayArtifactContext';
+import type { GatewayProjectImageResolver } from '../gateway/gatewayProjectImage';
 
 type Effect = () => void | (() => void);
 type Update = unknown | ((previous: unknown) => unknown);
@@ -92,6 +94,7 @@ function mount(initial = attachment) {
 }
 
 beforeEach(() => {
+  (GatewayProjectImageContext as unknown as { value: GatewayProjectImageResolver | undefined }).value = undefined;
   vi.clearAllMocks(); scene.suspend(); scene.resume();
   sources.gateway.mockReset().mockResolvedValue(image('current'));
   sources.local.mockReset().mockResolvedValue(null);
@@ -99,6 +102,29 @@ beforeEach(() => {
 afterEach(() => { disposals.splice(0).forEach(dispose => dispose()); scene.suspend(); });
 
 describe('actual GatewayImage lifetime', () => {
+  it('retires decoded project bytes and stale native callbacks immediately when resolver authority changes', async () => {
+    const context = GatewayProjectImageContext as unknown as { value: GatewayProjectImageResolver };
+    context.value = () => ({ cacheKey: 'one', load: async () => image('one') });
+    const named = { ...attachment, uri: 'repo@gateway/proof.png', projectImageSessionKey: 'claims' };
+    const test = mount(named); await test.flush(); const stale = test.event('onLoad'); stale(); await test.flush();
+    expect(test.uri()).toBe(image('current').uri);
+    const next = deferred<ImageNetworkSource>(); sources.gateway.mockReturnValueOnce(next.promise);
+    context.value = () => ({ cacheKey: 'two', load: async () => image('two') });
+    test.replace({ ...named }); expect(test.uri()).toBeUndefined();
+    stale(); await test.flush(); expect(test.uri()).toBeUndefined();
+    next.resolve(image('replacement')); await test.flush(); expect(test.uri()).toBe(image('replacement').uri);
+    expect(sources.gateway).toHaveBeenCalledTimes(2);
+  });
+
+  it('readmits a failed project image when its originating scope becomes available', async () => {
+    const named = { ...attachment, uri: 'repo@gateway/proof.png', projectImageSessionKey: 'claims' };
+    sources.gateway.mockResolvedValueOnce({ uri: '' });
+    const test = mount(named); await test.flush(); expect(test.find('Pressable')).toBeDefined();
+    (GatewayProjectImageContext as unknown as { value: GatewayProjectImageResolver }).value = () => ({ cacheKey: 'ready', load: async () => image('ready') });
+    test.replace({ ...named }); await test.flush(); expect(test.uri()).toBe(image('current').uri);
+    expect(sources.gateway).toHaveBeenCalledTimes(2);
+  });
+
   it('readmits pending Gateway work on resume before the retired request settles', async () => {
     const pending = deferred<ImageNetworkSource>(); sources.gateway.mockReturnValueOnce(pending.promise);
     const test = mount(); await test.flush(); scene.suspend(); scene.resume(); await test.flush();
@@ -208,7 +234,7 @@ describe('actual GatewayImage lifetime', () => {
     const stopPropagation = vi.fn();
     (test.find('Pressable')!.props.onPress as (event: { stopPropagation: () => void }) => void)({ stopPropagation }); await test.flush();
     expect(stopPropagation).toHaveBeenCalledOnce();
-    expect(sources.invalidate).toHaveBeenCalledWith(attachment);
+    expect(sources.invalidate).toHaveBeenCalledWith(attachment, undefined);
     expect(sources.local).toHaveBeenLastCalledWith(attachment, true); expect(test.uri()).toBe(image('files').uri);
   });
 

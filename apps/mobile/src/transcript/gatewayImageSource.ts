@@ -1,3 +1,5 @@
+import { qualifiedProjectFilePath } from '../projectFiles/qualifiedProjectFilePath';
+import type { GatewayProjectImageResolver } from '../gateway/gatewayProjectImage';
 import type { GatewayArtifactResolver } from '../gateway/gatewayArtifactDownload';
 import type { WorkspaceAttachment } from '../workspace/workspaceTypes';
 import { fromByteArray } from 'base64-js';
@@ -10,7 +12,14 @@ type Fetcher = (input: string, init?: { headers?: Record<string, string>; signal
 export type { ImageNetworkSource } from './gatewayImageRequestCache';
 const resolvedSourceCache = new GatewayImageRequestCache();
 
-export function cachedGatewayImageSource(attachment: WorkspaceAttachment, resolveArtifact?: GatewayArtifactResolver) {
+export function cachedGatewayImageSource(attachment: WorkspaceAttachment, resolveArtifact?: GatewayArtifactResolver, resolveProjectImage?: GatewayProjectImageResolver) {
+  if (qualifiedProjectFilePath(attachment.uri ?? '')) {
+    try {
+      if (!resolveProjectImage || !attachment.projectImageSessionKey) return Promise.resolve(failedImageSource('project-image-scope-unavailable'));
+      const request = resolveProjectImage(attachment.uri!, attachment.projectImageSessionKey);
+      return resolvedSourceCache.get(request.cacheKey, request.load);
+    } catch { return Promise.resolve(failedImageSource('project-image-scope-unavailable')); }
+  }
   if (attachment.artifactId && attachment.artifactSessionKey) {
     return resolvedSourceCache.get(gatewayImageCacheKey(attachment), async signal => {
       if (!resolveArtifact) return failedImageSource('artifact-connection-unavailable');
@@ -24,7 +33,11 @@ export function cachedGatewayImageSource(attachment: WorkspaceAttachment, resolv
     materializedGatewayImageSource(await resolvedGatewayImageSource(attachment, fetch, signal), attachment.mimeType, fetch, signal));
 }
 
-export function invalidateGatewayImageSource(attachment: WorkspaceAttachment) {
+export function invalidateGatewayImageSource(attachment: WorkspaceAttachment, resolveProjectImage?: GatewayProjectImageResolver) {
+  if (qualifiedProjectFilePath(attachment.uri ?? '') && attachment.projectImageSessionKey && resolveProjectImage) {
+    try { resolvedSourceCache.invalidate(resolveProjectImage(attachment.uri!, attachment.projectImageSessionKey).cacheKey); } catch { /* Scope is already retired. */ }
+    return;
+  }
   resolvedSourceCache.invalidate(gatewayImageCacheKey(attachment));
 }
 
@@ -152,7 +165,7 @@ function managedOutboundFilenameSource(attachment: WorkspaceAttachment) {
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function failedImageSource(diagnostic: string): ImageNetworkSource { return { uri: '', diagnostic }; }
-function gatewayImageCacheKey(attachment: WorkspaceAttachment) { return `${attachment.artifactId ?? ''}\u0000${attachment.artifactSessionKey ?? ''}\u0000${attachment.uri ?? ''}\u0000${attachment.headers?.Authorization ?? ''}\u0000${attachment.headers?.['x-openclaw-requester-session-key'] ?? ''}`; }
+function gatewayImageCacheKey(attachment: WorkspaceAttachment) { return `${attachment.projectImageSessionKey ?? ''}\u0000${attachment.artifactId ?? ''}\u0000${attachment.artifactSessionKey ?? ''}\u0000${attachment.uri ?? ''}\u0000${attachment.headers?.Authorization ?? ''}\u0000${attachment.headers?.['x-openclaw-requester-session-key'] ?? ''}`; }
 function originalImageSource(attachment: WorkspaceAttachment): ImageNetworkSource { return { uri: attachment.uri ?? '', ...(attachment.headers ? { headers: attachment.headers } : {}) }; }
 function requestOptions(headers?: Record<string, string>, signal?: AbortSignal) { return headers || signal ? { ...(headers ? { headers } : {}), ...(signal ? { signal } : {}) } : undefined; }
 function assertActive(signal?: AbortSignal) { if (signal?.aborted) throw new Error('Image request retired'); }

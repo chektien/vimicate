@@ -31,7 +31,7 @@ it('rejects a foreign generation and never consumes its cursor', async () => {
   expect(result.older).toEqual([]); expect(result.cursor?.nextOffset).toBe(0);
   expect(result.problem).toMatchObject({ message: 'History concrete generation changed.' });
 });
-it('a changing total rebases to bounded canonical revalidation and then reaches older history without G', async () => {
+it('a changing total revalidates the witnessed boundary within the same older-history request', async () => {
   const visible = [row('edge', 100)];
   const recorded = recordHistoryTransport(cursor, 0, visible, { sessionKey: key, sessionId: generation });
   const history = vi.fn(async (_key: string, _limit: number, offset: number) => offset === 7
@@ -40,12 +40,10 @@ it('a changing total rebases to bounded canonical revalidation and then reaches 
       messages: [{ id: 'older', role: 'user', content: 'older' }, { id: 'edge', role: 'assistant', content: 'edge' }, { id: 'newer', role: 'assistant', content: 'not admitted' }] });
   const base = { client: { history, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient,
     sessionKey: key, path: '', visible, narration: [], archive: null, context: {}, owns: () => true };
-  const failed = await loadVisibleOlderHistoryBatch({ ...base, cursor: recorded });
-  expect(failed.older).toEqual([]); expect(failed.cursor?.nextOffset).toBe(0);
-  expect(failed.cursor?.transport?.scan?.revalidate).toBe(true);
-  const retry = await loadVisibleOlderHistoryBatch({ ...base, cursor: failed.cursor });
-  expect(retry.older.map(row => row.id)).toEqual(['older']);
-  expect(retry.problem).toBeUndefined(); expect(history.mock.calls.map(call => call[2])).toEqual([7, 0]);
+  const result = await loadVisibleOlderHistoryBatch({ ...base, cursor: recorded });
+  expect(result.older.map(row => row.id)).toEqual(['older']);
+  expect(result.problem).toBeUndefined();
+  expect(history.mock.calls.map(call => call[2])).toEqual([7, 0]);
 });
 it('revalidation scans a corrupt overlap without publishing disjoint rows before a later failure', async () => {
   const visible = [row('edge', 100)];
@@ -60,4 +58,79 @@ it('revalidation scans a corrupt overlap without publishing disjoint rows before
   expect(result.older).toEqual([]); expect(result.cursor?.nextOffset).toBe(8);
   expect(result.cursor?.transport?.scan?.revalidate).toBe(true);
   expect(result.problem).toMatchObject({ message: 'offline' });
+});
+
+it('bounds a repeatedly changing traversal to one restart and preserves the retry witness', async () => {
+  const visible = [row('edge', 100)];
+  const recorded = recordHistoryTransport(cursor, 0, visible, { sessionKey: key, sessionId: generation });
+  const history = vi.fn(async (_key: string, _limit: number, offset: number) => ({
+    sessionKey: key, sessionId: generation, totalMessages: offset === 0 ? 1005 : 1010,
+    hasMore: true, nextOffset: offset === 0 ? 8 : offset + 1,
+    messages: [{ id: 'disjoint', role: 'assistant', content: 'never publish' }],
+  }));
+  const result = await loadVisibleOlderHistoryBatch({ client: { history, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient,
+    sessionKey: key, path: '', visible, narration: [], cursor: recorded, archive: null, context: {}, owns: () => true });
+  expect(history.mock.calls.map(call => call[2])).toEqual([7, 0, 8]);
+  expect(result.older).toEqual([]);
+  expect(result.problem).toMatchObject({ message: expect.stringContaining('History changed') });
+  expect(result.cursor?.transport?.scan?.revalidate).toBe(true);
+});
+
+it('does not cross generations while automatically re-witnessing a changed total', async () => {
+  const visible = [row('edge', 100)];
+  const recorded = recordHistoryTransport(cursor, 0, visible, { sessionKey: key, sessionId: generation });
+  const history = vi.fn(async (_key: string, _limit: number, offset: number) => ({
+    sessionKey: key, sessionId: offset === 0 ? 'foreign' : generation, totalMessages: 1005,
+    hasMore: false, nextOffset: null,
+    messages: [{ id: 'wrong', role: 'user', content: 'wrong' }, { id: 'edge', role: 'assistant', content: 'same ID is not authority' }],
+  }));
+  const result = await loadVisibleOlderHistoryBatch({ client: { history, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient,
+    sessionKey: key, path: '', visible, narration: [], cursor: recorded, archive: null, context: {}, owns: () => true });
+  expect(history.mock.calls.map(call => call[2])).toEqual([7, 0]);
+  expect(result.older).toEqual([]);
+  expect(result.problem).toMatchObject({ message: 'History concrete generation changed.' });
+});
+
+it('keeps a genuine missing-boundary error instead of publishing disjoint history', async () => {
+  const visible = [row('edge', 100)];
+  const recorded = recordHistoryTransport(cursor, 0, visible, { sessionKey: key, sessionId: generation });
+  const history = vi.fn(async (_key: string, _limit: number, offset: number) => ({
+    sessionKey: key, sessionId: generation, totalMessages: 1005, hasMore: false, nextOffset: null,
+    messages: [{ id: 'disjoint', role: 'assistant', content: 'not connected' }],
+  }));
+  const result = await loadVisibleOlderHistoryBatch({ client: { history, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient,
+    sessionKey: key, path: '', visible, narration: [], cursor: recorded, archive: null, context: {}, owns: () => true });
+  expect(history.mock.calls.map(call => call[2])).toEqual([7, 0]);
+  expect(result.older).toEqual([]);
+  expect(result.problem).toMatchObject({ message: 'Older history boundary is no longer available.' });
+});
+
+it('re-witnesses a shrinking transcript even when its new total is below the stale requested offset', async () => {
+  const visible = [row('edge', 100)];
+  const recorded = recordHistoryTransport({ ...cursor, nextOffset: 80, totalMessages: 100 }, 0, visible, { sessionKey: key, sessionId: generation });
+  const history = vi.fn(async (_key: string, _limit: number, offset: number) => ({
+    sessionKey: key, sessionId: generation, offset, totalMessages: 50, hasMore: false, nextOffset: null,
+    messages: offset ? [] : [{ id: 'older', role: 'assistant', content: 'older' }, { id: 'edge', role: 'assistant', content: 'edge' }],
+  }));
+  const result = await loadVisibleOlderHistoryBatch({ client: { history, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient,
+    sessionKey: key, path: '', visible, narration: [], cursor: recorded, archive: null, context: {}, owns: () => true });
+  expect(history.mock.calls.map(call => call[2])).toEqual([80, 0]);
+  expect(result.older.map(row => row.id)).toEqual(['older']);
+  expect(result.problem).toBeUndefined();
+});
+
+it('retains the latest admitted boundary across revalidation scan pages after a partial batch', async () => {
+  const visible = [row('edge', 100)];
+  const recorded = recordHistoryTransport(cursor, 0, visible, { sessionKey: key, sessionId: generation });
+  const history = vi.fn(async (_key: string, _limit: number, offset: number) => ({
+    sessionKey: key, sessionId: generation, offset, totalMessages: offset === 7 ? 1000 : 1005,
+    hasMore: offset !== 9, nextOffset: offset === 7 ? 8 : offset === 0 ? 9 : offset === 8 ? 10 : null,
+    messages: (offset === 7 ? ['accepted'] : offset === 8 ? ['unwitnessed'] : offset === 0 ? ['newer'] : ['deep', 'accepted'])
+      .map(id => ({ id, role: 'assistant', content: id })),
+  }));
+  const result = await loadVisibleOlderHistoryBatch({ client: { history, decorateMessages: (rows: WorkspaceMessage[]) => rows } as unknown as OpenClawClient,
+    sessionKey: key, path: '', visible, narration: [], cursor: recorded, archive: null, context: {}, owns: () => true });
+  expect(history.mock.calls.map(call => call[2])).toEqual([7, 8, 0, 9]);
+  expect(result.older.map(row => row.id)).toEqual(['deep', 'accepted']);
+  expect(result.problem).toBeUndefined();
 });

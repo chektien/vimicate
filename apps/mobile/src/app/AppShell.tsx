@@ -1,6 +1,6 @@
 import { routeTranscriptQuestionKey } from '../questions/transcriptQuestionNavigation';
 import { TranscriptActionsProvider } from '../transcript/TranscriptActionsProvider'; import { MAX_PROMPT_ATTACHMENTS } from '../prompt/promptAttachments'; import { handleTranscriptKeyWithDiagnostics as handleTranscriptKey } from '../transcript/transcriptKeyDiagnostics';
-import { GatewayArtifactContext } from '../gateway/GatewayArtifactContext'; import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { GatewayMediaProvider } from '../gateway/GatewayMediaProvider'; import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Platform, useWindowDimensions, View } from 'react-native'; import { SafeAreaView } from 'react-native-safe-area-context';
 import VimicateEditor, { type HardwareKeyEvent } from '../../modules/vimicate-editor'; import { PairingBar } from '../gateway/PairingBar';
 import { useAppShellGateway } from './useAppShellGateway'; import { handleCommandLineKey } from '../keyboard/commandLine';
@@ -407,7 +407,7 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
   };
   const projectsPane = (drawer: boolean) => <PaneFontPinchSurface style={[projectRailPinchSurfaceStyle(drawer), !drawer && { width: columns.projectsWidth }]} onStep={(direction) => adjustPaneFont('projects', direction)}><ProjectRail visible={!mediaViewer && !shortcuts && (!drawer || focusedPane === 'projects')} projects={projectRail.projects} emptyLabel={railStartup.emptyLabel} activeKey={displayedSelectedKey} focusedKey={projectRail.focusedKey} focused={focusedPane === 'projects' && !projectFilesFocused} fontScale={paneFontScales.scales.projects} reflowSuppressed={workspaceNavigationRepeating} sortMode={projectRail.sortMode} collapsedRootKeys={projectRail.collapsedRootKeys} onToggleSort={projectRail.toggleSort} onSelect={projectRail.activate} onToggleFold={projectRail.toggleFold} onToggleStar={gateway.toggleStar} onRefresh={() => { setVimStatus('refreshing projects and checking updates…'); launchWorkspaceTask(async () => { await gateway.refresh(); setVimStatus(`projects refreshed · ${await appUpdateNotice.check()}`); }, 'project refresh failed'); }} compactDrawer={drawer} onClose={drawer ? closeCompactProjects : undefined} /></PaneFontPinchSurface>;
   return (
-    <WorkspacePaneKeyProvider value={{ route: (event, mode, release, scope) => routePaneKey(event, mode === 'normal', release, scope) === null, cancel: cancelPanePrefix }}><GatewayArtifactContext value={gateway.resolveArtifact}><View style={styles.root}>
+    <WorkspacePaneKeyProvider value={{ route: (event, mode, release, scope) => routePaneKey(event, mode === 'normal', release, scope) === null, cancel: cancelPanePrefix }}><GatewayMediaProvider value={gateway}><View style={styles.root}>
     <SafeAreaView accessibilityElementsHidden={Boolean(mediaViewer)} importantForAccessibility={mediaViewer ? 'no-hide-descendants' : 'auto'} style={styles.safe} edges={['top', 'left', 'right']}>
       <SoftwareKeyboardViewport>
       <View style={styles.app}>
@@ -436,6 +436,6 @@ export function AppShell({ fixtureMessages, fixtureRunActive = false, fixtureGat
       </SoftwareKeyboardViewport>
     </SafeAreaView>
     {mediaViewer ? <TranscriptMediaViewer attachments={mediaViewer.attachments} initialID={mediaViewer.initialID} onClose={() => setMediaViewer(null)} /> : null}{shortcuts ? <WorkspaceShortcuts commands={gateway.commands} onClose={closeShortcuts} /> : null}
-    </View></GatewayArtifactContext></WorkspacePaneKeyProvider>
+    </View></GatewayMediaProvider></WorkspacePaneKeyProvider>
   );
 }

@@ -10,7 +10,7 @@ import { validatedAbsorbedLiveIdentity } from './transcriptIdentityWall';
 import { inactiveMessageRecovery } from './messageRecovery';
 import { reconcileClaudeNativeLive } from './claudeNativeLiveConvergence';
 import { validatedMessageToolSend } from '../workspace/messageToolProgress';
-import { transcriptInternalEvent, transcriptInputAcceptedAt, transcriptInputReceiptRunId, transcriptCliProvenance, transcriptDisplayPosition, transcriptSessionIdentity } from '../workspace/transcriptMetadata';
+import { transcriptInternalEvent, transcriptInputAcceptedAt, transcriptInputReceiptRunId, transcriptCliProvenance, transcriptDeliveryProvenance, transcriptDisplayPosition, transcriptSessionIdentity } from '../workspace/transcriptMetadata';
 
 // This is a restart/offline preview, not canonical scrollback. Keeping the
 // bridge payload small prevents a cache write from spanning iOS suspension;
@@ -68,6 +68,7 @@ function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): Workspa
   const absorbedLiveIdentity = validatedAbsorbedLiveIdentity(message.absorbedLiveIdentity, message);
   const recovery = inactiveMessageRecovery(message.recovery);
   const cliProvenance = transcriptCliProvenance(message.cliProvenance);
+  const deliveryProvenance = text === message.text ? transcriptDeliveryProvenance(message.deliveryProvenance) : undefined;
   const historyOmission = validatedHistoryOmission(message.historyOmission, message.id);
   return {
     id: message.id,
@@ -86,6 +87,7 @@ function cacheSafeMessage(message: WorkspaceMessage, textLimit: number): Workspa
     ...(message.role === 'user' && transcriptInputReceiptRunId(message.inputReceiptRunId) ? { inputReceiptRunId: message.inputReceiptRunId } : {}),
     ...(message.displayPosition ? { displayPosition: message.displayPosition } : {}),
     ...(cliProvenance ? { cliProvenance } : {}),
+    ...(deliveryProvenance ? { deliveryProvenance } : {}),
     ...(cliProvenance?.kind === 'claude-native' && message.cliEndTurn === true ? { cliEndTurn: true as const } : {}),
     ...(historyOmission ? { historyOmission } : {}),
     ...(message.stagedImagePlaceholder === true && message.role === 'user' && cliProvenance?.kind === 'claude-native' ? { stagedImagePlaceholder: true as const } : {}),
@@ -111,6 +113,7 @@ function parsedMessage(value: unknown): WorkspaceMessage[] {
   const transcriptSessionId = transcriptSessionIdentity(value.transcriptSessionId);
   const displayPosition = transcriptDisplayPosition(value.displayPosition);
   const cliProvenance = transcriptCliProvenance(value.cliProvenance);
+  const deliveryProvenance = transcriptDeliveryProvenance(value.deliveryProvenance);
   const historyOmission = validatedHistoryOmission(value.historyOmission, value.id);
   const message: WorkspaceMessage = {
     id: value.id,
@@ -129,6 +132,7 @@ function parsedMessage(value: unknown): WorkspaceMessage[] {
     ...(value.role === 'user' && transcriptInputReceiptRunId(value.inputReceiptRunId) ? { inputReceiptRunId: value.inputReceiptRunId as string } : {}),
     ...(displayPosition ? { displayPosition } : {}),
     ...(cliProvenance ? { cliProvenance } : {}),
+    ...(deliveryProvenance ? { deliveryProvenance } : {}),
     ...(cliProvenance?.kind === 'claude-native' && value.cliEndTurn === true ? { cliEndTurn: true as const } : {}),
     ...(historyOmission ? { historyOmission } : {}),
     ...(value.stagedImagePlaceholder === true && value.role === 'user' && cliProvenance?.kind === 'claude-native' ? { stagedImagePlaceholder: true as const } : {}),
@@ -165,6 +169,7 @@ function parsedAttachment(value: unknown): WorkspaceAttachment[] {
     ...(typeof value.uri === 'string' ? { uri: value.uri } : {}),
     ...(typeof value.artifactId === 'string' && value.artifactId.length > 0 && value.artifactId.length <= 512 ? { artifactId: value.artifactId } : {}),
     ...(typeof value.artifactSessionKey === 'string' && value.artifactSessionKey.length > 0 && value.artifactSessionKey.length <= 512 ? { artifactSessionKey: value.artifactSessionKey } : {}),
+    ...(typeof value.projectImageSessionKey === 'string' && value.projectImageSessionKey.length > 0 && value.projectImageSessionKey.length <= 512 ? { projectImageSessionKey: value.projectImageSessionKey } : {}),
     ...(typeof value.pixelWidth === 'number' && value.pixelWidth > 0 && Number.isFinite(value.pixelWidth) ? { pixelWidth: value.pixelWidth } : {}),
     ...(typeof value.pixelHeight === 'number' && value.pixelHeight > 0 && Number.isFinite(value.pixelHeight) ? { pixelHeight: value.pixelHeight } : {}),
   }];

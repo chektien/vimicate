@@ -1,9 +1,11 @@
 import { markdownImageSources } from '../workspace/markdownImagePath';
+import { repairedCachedProjectImages } from './cachedProjectImages';
 import type { WorkspaceMessage } from '../workspace/workspaceTypes';
 
 /** Repair only a saved image whose source still equals its escaped Markdown
  * destination. Do not blindly decode raw paths or already-corrected URLs. */
 export function repairedCachedMarkdownImages(message: WorkspaceMessage): WorkspaceMessage {
+  message = repairedCachedProjectImages(message);
   if (message.role !== 'assistant' || !message.attachments?.length) return message;
   const replacements = new Map(markdownImageSources(message.text)
     .filter(({ rawSource, source }) => source !== rawSource && (rawSource.startsWith('/') || rawSource.startsWith('~/')))
